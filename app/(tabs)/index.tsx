@@ -7,10 +7,11 @@ import { ThemedView } from '@/components/ThemedView';
 
 import { SafeAreaView } from "react-native";
 import ListingCard from "@/components/ListingCard";
+import CountSelect from '@/components/CountSelect';
 
 export default function HomeScreen() {
   return (
-    <SafeAreaView className="flex flex-row w-full p-4 bg-gray-100">
+    <SafeAreaView className="flex flex-col w-full p-4 bg-gray-100">
       <ListingCard
         image="https://picsum.photos/200/300.jpg"
         title="Bed spacer near PUP Lopez TEST 2342 234 234 23 "
@@ -21,6 +22,11 @@ export default function HomeScreen() {
         size={50}
         price={1999}
       />
+      <CountSelect
+        label="Bedrooms" 
+        onChange={(value) => console.log("Bedrooms:", value)} 
+      />
+
     </SafeAreaView>
   );
 }
