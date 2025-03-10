@@ -8,6 +8,8 @@ import { ThemedView } from '@/components/ThemedView';
 import { SafeAreaView } from "react-native";
 import ListingCard from "@/components/ListingCard";
 import CountSelect from '@/components/CountSelect';
+import { GradientButton } from '@/components/GradientButton';
+import { OutlineButton } from '@/components/OutlineButton';
 
 export default function HomeScreen() {
   return (
@@ -26,6 +28,10 @@ export default function HomeScreen() {
         label="Bedrooms" 
         onChange={(value) => console.log("Bedrooms:", value)} 
       />
+      <GradientButton isLoading={false} text="Log in" onPress={() => console.log('Clicked')} />
+      <GradientButton isLoading={true} text="Log in" onPress={() => console.log('Clicked')} />
+      <OutlineButton isLoading={true} text="Submit" onPress={() => console.log('Clicked')} />
+      <OutlineButton isLoading={false} text="Submit" onPress={() => console.log('Clicked')} />
 
     </SafeAreaView>
   );
