@@ -11,7 +11,7 @@ import CountSelect from '@/components/CountSelect';
 import { GradientButton } from '@/components/GradientButton';
 import { OutlineButton } from '@/components/OutlineButton';
 
-export default function HomeScreen() {
+export default function DashboardScreen() {
   return (
     <SafeAreaView className="flex flex-col w-full p-4 bg-gray-100">
       <ListingCard
