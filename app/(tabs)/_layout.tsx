@@ -78,6 +78,13 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
+                name="chat-room"
+                options={{
+                    href: null,
+                    tabBarStyle: { display: 'none' },
+                }}
+            />
+            <Tabs.Screen
                 name="saved"
                 options={{
                     tabBarIcon: ({ color, focused }) => (
