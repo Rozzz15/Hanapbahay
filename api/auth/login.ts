@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { supabase } from '../../utils/supabase-client';
+import { storeAuthUser } from '../../utils/auth-user';
+import { Alert } from 'react-native';
 
 // Define allowed roles
 const roles = ["official", "tenant", "host"] as const;
@@ -10,46 +13,63 @@ export const loginSchema = z.object({
 
 export type LoginData = z.infer<typeof loginSchema>;
 
-const usersDB = [
-    { email: "official@example.com", password: "password123", role: "official" },
-    { email: "tenant@example.com", password: "password123", role: "tenant" },
-    { email: "host@example.com", password: "password123", role: "host" },
-];
-
-// Step 1: Authenticate user
-function authenticateUser(email: string, password: string) {
-    return usersDB.find((user) => user.email === email && user.password === password) || null;
-}
-
-// Step 2: Fetch user role
-function getUserRole(email: string) {
-    const user = usersDB.find((user) => user.email === email);
-    return user ? user.role : null;
-}
-
 // Login function
 export async function loginUser(data: LoginData) {
-    loginSchema.parse(data); // Validate input before proceeding
+    try {
+        loginSchema.parse(data);
 
-    return new Promise<{ success: boolean; role: string }>((resolve, reject) => {
-        const timeout = Math.floor(Math.random() * (1200 - 500 + 1)) + 500;
+        const { data: user, error } = await supabase.auth.signInWithPassword({
+            email: data.email,
+            password: data.password,
+        });
 
-        setTimeout(() => {
-            const authenticatedUser = authenticateUser(data.email, data.password);
+        if (error) throw new Error("Invalid email or password");
 
-            if (!authenticatedUser) {
-                reject(new Error("Invalid email or password"));
-                return;
-            }
+        // Fetch user roles and permissions in parallel
+        const [rolesResult, permissionsResult] = await Promise.all([
+            // Get user roles
+            supabase
+                .from('user_has_roles')
+                .select(`
+                    roles (name)
+                `)
+                .eq('user_id', user.user.id),
 
-            const role = getUserRole(data.email);
+            // Get user permissions (combining role permissions and direct user permissions)
+            supabase
+                .from('user_has_permissions')
+                .select(`
+                    permissions (name)
+                `)
+                .eq('user_id', user.user.id)
+        ]);
 
-            if (!role || !roles.includes(role as any)) {
-                reject(new Error("Invalid email or password")); // Hide role details for security
-                return;
-            }
+        if (rolesResult.error) throw new Error("Failed to fetch user roles");
+        if (permissionsResult.error) throw new Error("Failed to fetch user permissions");
 
-            resolve({ success: true, role });
-        }, timeout);
-    });
+        // Extract role and permission names
+        const roles = rolesResult.data?.map(r => r.roles.name) || [];
+        const permissions = permissionsResult.data?.map(p => p.permissions.name) || [];
+
+        // Store auth user data
+        await storeAuthUser({
+            id: user.user.id,
+            roles,
+            permissions
+        });
+
+        return { 
+            success: true, 
+            roles,
+            permissions
+        };
+
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "An unexpected error occurred";
+        Alert.alert("Login Error", message);
+        return {
+            success: false,
+            error: message
+        };
+    }
 }

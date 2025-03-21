@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ToastProvider } from '@gluestack-ui/toast';
+import { PermissionsProvider } from '../context/PermissionContext';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -31,17 +32,21 @@ export default function RootLayout() {
   }
 
   return (
-    <GluestackUIProvider mode="light">
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <ToastProvider>
+    <PermissionsProvider>
+      <GluestackUIProvider mode="light">
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <ToastProvider>
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="+not-found" />
+              <Stack.Screen name="unauthorized" options={{ title: 'Unauthorized' }} />
+              <Stack.Screen name="login" options={{ headerShown: false }} />
             </Stack>
             <StatusBar style="auto" />
           </ToastProvider>
-      </ThemeProvider>
-    </GluestackUIProvider>
+        </ThemeProvider>
+      </GluestackUIProvider>
+    </PermissionsProvider>
   );
 }
