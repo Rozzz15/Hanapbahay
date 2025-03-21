@@ -4,14 +4,15 @@ import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
-
-import { SafeAreaView } from "react-native";import ListingCarousel from "@/components/ListingCarousel";
+import { SafeAreaView } from "react-native";
+import ListingCarousel from "@/components/ListingCarousel";
 import CountSelect from '@/components/CountSelect';
 import { GradientButton } from '@/components/GradientButton';
 import { OutlineButton } from '@/components/OutlineButton';
 import ChatList from '@/components/ChatList';
 import { VStack } from '@/components/ui/vstack';
 import ListingCard from '@/components/ListingCard';
+import Header from '../components/Header';
 
 export default function DashboardScreen() {
   const sampleListings = [
@@ -48,6 +49,7 @@ export default function DashboardScreen() {
   ];
   return (
     <SafeAreaView className="flex flex-col w-full p-4 bg-gray-100">
+        <Header />
         <ListingCard
           image="https://picsum.photos/200/300.jpg"
           title="Bed spacer near PUP Lopez TEST 2342 234 234 23 "

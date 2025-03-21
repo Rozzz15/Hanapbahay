@@ -6,7 +6,7 @@ import { HapticTab } from '@/components/HapticTab';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Home, Leaf, MessageCircle, Heart, User } from 'lucide-react-native';
+import { Home, Leaf, MessageCircle } from 'lucide-react-native';
 import { usePermissions } from '@/context/PermissionContext';
 import { useAuthUser } from '@/hooks/usePermissions';
 
@@ -40,7 +40,7 @@ export default function TabLayout() {
         <Tabs
             screenOptions={{
                 tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-                tabBarInactiveTintColor: '#606060', // Adjust inactive color
+                tabBarInactiveTintColor: '#606060',
                 headerShown: false,
                 tabBarButton: HapticTab,
                 tabBarBackground: TabBarBackground,
@@ -48,7 +48,7 @@ export default function TabLayout() {
                     ios: { position: 'absolute' },
                     default: {},
                 }),
-                tabBarShowLabel: false, // Hide text labels
+                tabBarShowLabel: false,
             }}>
             <Tabs.Screen
                 name="index"
@@ -85,21 +85,9 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="saved"
-                options={{
-                    tabBarIcon: ({ color, focused }) => (
-                        <Heart size={24} color={focused ? 'green' : color} />
-                    ),
-                    tabBarActiveTintColor: 'green',
-                }}
-            />
-            <Tabs.Screen
                 name="profile"
                 options={{
-                    tabBarIcon: ({ color, focused }) => (
-                        <User size={24} color={focused ? 'green' : color} />
-                    ),
-                    tabBarActiveTintColor: 'green',
+                    href: null,
                 }}
             />
         </Tabs>
