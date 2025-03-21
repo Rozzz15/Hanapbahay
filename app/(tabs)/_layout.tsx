@@ -6,7 +6,7 @@ import { HapticTab } from '@/components/HapticTab';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Home, Leaf, MessageCircle } from 'lucide-react-native';
+import { Home, Leaf, MessageCircle, User } from 'lucide-react-native';
 import { usePermissions } from '@/context/PermissionContext';
 import { useAuthUser } from '@/hooks/usePermissions';
 
@@ -78,16 +78,12 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="chat-room"
-                options={{
-                    href: null,
-                    tabBarStyle: { display: 'none' },
-                }}
-            />
-            <Tabs.Screen
                 name="profile"
                 options={{
-                    href: null,
+                    tabBarIcon: ({ color, focused }) => (
+                        <User size={24} color={focused ? 'green' : color} />
+                    ),
+                    tabBarActiveTintColor: 'green',
                 }}
             />
         </Tabs>
