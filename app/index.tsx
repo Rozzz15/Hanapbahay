@@ -18,42 +18,51 @@ export default function OnboardingScreen() {
           <Image
             source={require("../assets/onboarding/h1.jpg")}
             className="h-[120px] w-[100px] rounded-lg"
+            alt="House image 1"
           />
           <Image
             source={require("../assets/onboarding/h2.jpg")}
             className="h-[200px] w-[100px] rounded-lg"
+            alt="House image 2"
           />
           <Image
             source={require("../assets/onboarding/h3.jpg")}
             className="h-[180px] w-[100px] rounded-lg"
+            alt="House image 3"
           />
         </VStack>
         <VStack className="gap-4">
           <Image
             source={require("../assets/onboarding/h4.jpg")}
             className="h-[150px] w-[100px] rounded-lg"
+            alt="House image 4"
           />
           <Image
             source={require("../assets/onboarding/h5.jpg")}
             className="h-[150px] w-[100px] rounded-lg"
+            alt="House image 5"
           />
           <Image
             source={require("../assets/onboarding/h6.jpg")}
             className="h-[200px] w-[100px] rounded-lg"
+            alt="House image 6"
           />
         </VStack>
         <VStack className="gap-4">
           <Image
             source={require("../assets/onboarding/h7.jpg")}
             className="h-[150px] w-[100px] rounded-lg"
+            alt="House image 7"
           />
           <Image
             source={require("../assets/onboarding/h8.jpg")}
             className="h-[200px] w-[100px] rounded-lg"
+            alt="House image 8"
           />
           <Image
             source={require("../assets/onboarding/h9.jpg")}
             className="h-[150px] w-[100px] rounded-lg"
+            alt="House image 9"
           />
         </VStack>
 
