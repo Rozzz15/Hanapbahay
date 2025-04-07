@@ -6,7 +6,7 @@ import { HapticTab } from '@/components/HapticTab';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { Home, Leaf, MessageCircle, User, Filter } from 'lucide-react-native';
+import { Home, MessageCircle, User } from 'lucide-react-native';
 import { usePermissions } from '@/context/PermissionContext';
 import { useAuthUser } from '@/hooks/usePermissions';
 
@@ -55,24 +55,6 @@ export default function TabLayout() {
                 options={{
                     tabBarIcon: ({ color, focused }) => (
                         <Home size={24} color={focused ? 'green' : color} />
-                    ),
-                    tabBarActiveTintColor: 'green',
-                }}
-            />
-            <Tabs.Screen
-                name="explore"
-                options={{
-                    tabBarIcon: ({ color, focused }) => (
-                        <Leaf size={24} color={focused ? 'green' : color} />
-                    ),
-                    tabBarActiveTintColor: 'green',
-                }}
-            />
-            <Tabs.Screen
-                name="filter"
-                options={{
-                    tabBarIcon: ({ color, focused }) => (
-                        <Filter size={24} color={focused ? 'green' : color} />
                     ),
                     tabBarActiveTintColor: 'green',
                 }}

@@ -1,6 +1,7 @@
-import { Image, StyleSheet, Platform, ScrollView } from 'react-native';
+import { Image, StyleSheet, Platform, ScrollView, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { Filter } from 'lucide-react-native';
 
 import { HelloWave } from '../../components/HelloWave';
 import ParallaxScrollView from '../../components/ParallaxScrollView';
@@ -121,11 +122,15 @@ export default function DashboardScreen() {
     console.log('Searching for:', text);
   };
 
+  const handleFilterPress = () => {
+    router.push('/filter');
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       <ScrollView className="flex-1 px-4">
-        <VStack className="space-y-4">
-          <VStack className="mt-4">
+        <VStack className="space-y-4 mt-10">
+          <VStack className="space-y-1">
             <ThemedText className="text-lg text-gray-600">Find your place in</ThemedText>
             <VStack className="flex-row items-center space-x-2">
               <Ionicons name="location" size={24} color="#22c55e" />
@@ -133,7 +138,12 @@ export default function DashboardScreen() {
               <Ionicons name="chevron-down" size={24} color="#374151" />
             </VStack>
           </VStack>
-          <LocationSearchBar onSearch={handleSearch} />
+          <View className="flex-1">
+            <LocationSearchBar 
+              onSearch={handleSearch} 
+              onFilterPress={handleFilterPress}
+            />
+          </View>
           <ListingCarousel listings={featuredListings} />
           <ListingList listings={allListings} />
         </VStack>

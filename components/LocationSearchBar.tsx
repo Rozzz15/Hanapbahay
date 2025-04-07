@@ -1,16 +1,19 @@
 import React from 'react';
-import { Input, InputField, InputIcon } from './ui/input';
+import { Input, InputField, InputIcon, InputSlot } from './ui/input';
 import { SearchIcon } from './ui/icon';
-import { View } from 'react-native';
+import { View, Pressable } from 'react-native';
+import { Filter } from 'lucide-react-native';
 
 interface LocationSearchBarProps {
   placeholder?: string;
   onSearch?: (text: string) => void;
+  onFilterPress?: () => void;
 }
 
 const LocationSearchBar: React.FC<LocationSearchBarProps> = ({ 
   placeholder = "Search address, city, location",
-  onSearch 
+  onSearch,
+  onFilterPress
 }) => {
   return (
     <View className="px-2 py-2">
@@ -29,6 +32,14 @@ const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
           className="pl-3 text-base"
           placeholderTextColor="#9CA3AF"
         />
+        <InputSlot>
+          <Pressable 
+            className="pr-4"
+            onPress={onFilterPress}
+          >
+            <Filter size={24} color="#374151" />
+          </Pressable>
+        </InputSlot>
       </Input>
     </View>
   );
