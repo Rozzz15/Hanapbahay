@@ -15,6 +15,7 @@ import { OutlineButton } from '../../components/OutlineButton';
 import ChatList from '../../components/ChatList';
 import { VStack } from '../../components/ui/vstack';
 import ListingCard from '../../components/ListingCard';
+import LocationSearchBar from '../../components/LocationSearchBar';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -115,10 +116,24 @@ export default function DashboardScreen() {
     }
   ];
 
+  const handleSearch = (text: string) => {
+    // TODO: Implement search functionality
+    console.log('Searching for:', text);
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       <ScrollView className="flex-1 px-4">
         <VStack className="space-y-4">
+          <VStack className="mt-4">
+            <ThemedText className="text-lg text-gray-600">Find your place in</ThemedText>
+            <VStack className="flex-row items-center space-x-2">
+              <Ionicons name="location" size={24} color="#22c55e" />
+              <ThemedText className="text-2xl font-semibold">Lopez, Quezon</ThemedText>
+              <Ionicons name="chevron-down" size={24} color="#374151" />
+            </VStack>
+          </VStack>
+          <LocationSearchBar onSearch={handleSearch} />
           <ListingCarousel listings={featuredListings} />
           <ListingList listings={allListings} />
         </VStack>
