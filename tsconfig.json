@@ -6,6 +6,24 @@
       "@/*": [
         "./app/*"
       ],
+      "@components/*": [
+        "./components/*"
+      ],
+      "@api/*": [
+        "./api/*"
+      ],
+      "@context/*": [
+        "./context/*"
+      ],
+      "@hooks/*": [
+        "./hooks/*"
+      ],
+      "@constants/*": [
+        "./constants/*"
+      ],
+      "@utils/*": [
+        "./utils/*"
+      ],
       "tailwind.config": [
         "./tailwind.config.js"
       ]

@@ -2,13 +2,13 @@ import { Tabs, Redirect } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Platform, ActivityIndicator, View } from 'react-native';
 
-import { HapticTab } from '@/components/HapticTab';
-import TabBarBackground from '@/components/ui/TabBarBackground';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { HapticTab } from '@components/HapticTab';
+import TabBarBackground from '@components/ui/TabBarBackground';
+import { Colors } from '@constants/Colors';
+import { useColorScheme } from '@hooks/useColorScheme';
 import { Home, MessageCircle, User } from 'lucide-react-native';
-import { usePermissions } from '@/context/PermissionContext';
-import { useAuthUser } from '@/hooks/usePermissions';
+import { usePermissions } from '@context/PermissionContext';
+import { useAuthUser } from '@hooks/usePermissions';
 
 export default function TabLayout() {
     const colorScheme = useColorScheme();
