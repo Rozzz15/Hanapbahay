@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { supabase } from '../../utils/supabase-client';
-import { storeAuthUser } from '../../utils/auth-user';
+import { mockSignIn } from '../../utils/mock-auth';
 import { Alert } from 'react-native';
 
 // Define allowed roles
@@ -13,60 +12,29 @@ export const loginSchema = z.object({
 
 export type LoginData = z.infer<typeof loginSchema>;
 
-// Login function
+// Login function using mock authentication
 export async function loginUser(data: LoginData) {
     try {
         loginSchema.parse(data);
 
-        const { data: user, error } = await supabase.auth.signInWithPassword({
-            email: data.email,
-            password: data.password,
-        });
+        const result = await mockSignIn(data.email, data.password);
 
-        if (error) throw new Error("Invalid email or password");
+        if (!result.success) {
+            throw new Error(result.error || "Invalid email or password");
+        }
 
-        // Fetch user roles and permissions in parallel
-        const [rolesResult, permissionsResult] = await Promise.all([
-            // Get user roles
-            supabase
-                .from('user_has_roles')
-                .select(`
-                    roles (name)
-                `)
-                .eq('user_id', user.user.id),
-
-            // Get user permissions (combining role permissions and direct user permissions)
-            supabase
-                .from('user_has_permissions')
-                .select(`
-                    permissions (name)
-                `)
-                .eq('user_id', user.user.id)
-        ]);
-
-        if (rolesResult.error) throw new Error("Failed to fetch user roles");
-        if (permissionsResult.error) throw new Error("Failed to fetch user permissions");
-
-        // Extract role and permission names
-        const roles = rolesResult.data?.map(r => r.roles.name) || [];
-        const permissions = permissionsResult.data?.map(p => p.permissions.name) || [];
-
-        // Store auth user data
-        await storeAuthUser({
-            id: user.user.id,
-            roles,
-            permissions
-        });
-
+        // The mockSignIn function already stores the user data
+        // So we just need to return success
         return { 
             success: true, 
-            roles,
-            permissions
+            roles: result.user?.roles || [],
+            permissions: [],
+            user: result.user
         };
 
     } catch (error) {
         const message = error instanceof Error ? error.message : "An unexpected error occurred";
-        Alert.alert("Login Error", message);
+        console.error("Login error:", message);
         return {
             success: false,
             error: message

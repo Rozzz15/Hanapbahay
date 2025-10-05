@@ -34,7 +34,7 @@ export const propertyFacilities: PropertyFacility[] = [
   { id: '3', label: 'Self check-in', value: 'self-checkin' },
   { id: '4', label: 'Kitchen', value: 'kitchen' },
   { id: '5', label: 'Parking', value: 'parking' },
-  { id: '6', label: 'Pool', value: 'pool' },
+  { id: '6', label: 'Bathroom', value: 'bathroom' },
 ];
 
 export const defaultPriceRange: PriceRange = {

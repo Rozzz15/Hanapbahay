@@ -61,17 +61,21 @@ export const Icon = React.forwardRef<
   );
 });
 
+Icon.displayName = 'Icon';
+
 type ParameterTypes = Omit<Parameters<typeof createIcon>[0], 'Root'>;
 
 const accessClassName = (style: any) => {
+  if (!style) return undefined;
   const styleObject = Array.isArray(style) ? style[0] : style;
+  if (!styleObject || typeof styleObject !== 'object') return undefined;
   const keys = Object.keys(styleObject);
-  return styleObject[keys[1]];
+  return keys.length > 1 ? styleObject[keys[1]] : undefined;
 };
 
 const createIconUI = ({ ...props }: ParameterTypes) => {
   const NewUIIcon = createIcon({ Root: Svg, ...props });
-  return React.forwardRef<
+  const IconComponent = React.forwardRef<
     React.ElementRef<typeof UIIcon>,
     React.ComponentPropsWithoutRef<typeof UIIcon> &
       VariantProps<typeof iconStyle> & {
@@ -88,6 +92,9 @@ const createIconUI = ({ ...props }: ParameterTypes) => {
       <NewUIIcon ref={ref} {...inComingprops} className={calculateClassName} />
     );
   });
+  
+  IconComponent.displayName = 'IconComponent';
+  return IconComponent;
 };
 
 export { createIconUI as createIcon };

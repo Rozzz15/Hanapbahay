@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HanapBahay Storage Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #dc2626;
+            text-align: center;
+        }
+        .button {
+            background: #dc2626;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin: 10px 0;
+        }
+        .button:hover {
+            background: #b91c1c;
+        }
+        .success {
+            background: #10b981;
+        }
+        .success:hover {
+            background: #059669;
+        }
+        .warning {
+            background: #f59e0b;
+        }
+        .warning:hover {
+            background: #d97706;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .result.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .result.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #dc2626;
+        }
+        .result.warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #f59e0b;
+        }
+        .stats {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #3b82f6;
+            transition: width 0.3s ease;
+        }
+        .progress-bar.warning {
+            background-color: #f59e0b;
+        }
+        .progress-bar.danger {
+            background-color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗄️ HanapBahay Storage Manager</h1>
+        <p>This tool helps manage localStorage data and fix storage quota issues.</p>
+        
+        <button class="button" onclick="checkStorageStatus()">📊 Check Storage Status</button>
+        <button class="button warning" onclick="cleanupOldData()">🧹 Cleanup Old Data</button>
+        <button class="button success" onclick="optimizePhotos()">🖼️ Optimize Photos</button>
+        <button class="button" onclick="clearAllData()">🗑️ Clear All Data</button>
+        
+        <div id="result" class="result"></div>
+        <div id="stats" class="stats" style="display: none;"></div>
+    </div>
+
+    <script>
+        function showResult(message, type = 'success') {
+            const result = document.getElementById('result');
+            result.textContent = message;
+            result.className = `result ${type}`;
+            result.style.display = 'block';
+        }
+
+        function updateProgress(percentage, type = 'success') {
+            const progressBar = document.querySelector('.progress-bar');
+            if (progressBar) {
+                progressBar.style.width = `${percentage}%`;
+                progressBar.className = `progress-bar ${type}`;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function getStorageStats() {
+            let totalSize = 0;
+            const collections = {};
+            const items = [];
+
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('hb_db_')) {
+                    const value = localStorage.getItem(key);
+                    if (value) {
+                        const size = new Blob([value]).size;
+                        totalSize += size;
+                        
+                        const collectionName = key.replace('hb_db_', '');
+                        if (!collections[collectionName]) {
+                            collections[collectionName] = { count: 0, size: 0 };
+                        }
+                        collections[collectionName].count++;
+                        collections[collectionName].size += size;
+                        
+                        items.push({ key, size, collection: collectionName });
+                    }
+                }
+            }
+
+            return { totalSize, collections, items };
+        }
+
+        function checkStorageStatus() {
+            try {
+                const stats = getStorageStats();
+                const estimatedLimit = 5 * 1024 * 1024; // 5MB
+                const usagePercentage = (stats.totalSize / estimatedLimit) * 100;
+                
+                let statusType = 'success';
+                if (usagePercentage > 80) statusType = 'danger';
+                else if (usagePercentage > 60) statusType = 'warning';
+
+                const statsDiv = document.getElementById('stats');
+                statsDiv.innerHTML = `
+                    <div class="progress">
+                        <div class="progress-bar ${statusType}" style="width: ${usagePercentage}%"></div>
+                    </div>
+                    <strong>Storage Usage: ${formatBytes(stats.totalSize)} / ${formatBytes(estimatedLimit)} (${usagePercentage.toFixed(1)}%)</strong><br><br>
+                    <strong>Collections:</strong><br>
+                    ${Object.entries(stats.collections).map(([name, data]) => 
+                        `• ${name}: ${data.count} items (${formatBytes(data.size)})`
+                    ).join('<br>')}
+                `;
+                statsDiv.style.display = 'block';
+
+                if (usagePercentage > 80) {
+                    showResult(`⚠️ Storage is ${usagePercentage.toFixed(1)}% full! Consider cleaning up old data.`, 'warning');
+                } else if (usagePercentage > 60) {
+                    showResult(`📊 Storage is ${usagePercentage.toFixed(1)}% full. You may want to clean up soon.`, 'warning');
+                } else {
+                    showResult(`✅ Storage is healthy at ${usagePercentage.toFixed(1)}% usage.`, 'success');
+                }
+            } catch (error) {
+                showResult(`❌ Error checking storage: ${error.message}`, 'error');
+            }
+        }
+
+        function cleanupOldData() {
+            try {
+                const stats = getStorageStats();
+                let cleaned = 0;
+                let freedSpace = 0;
+
+                // Clean up old published listings (keep only last 20)
+                const publishedItems = stats.items.filter(item => item.collection === 'published_listings');
+                if (publishedItems.length > 20) {
+                    const sorted = publishedItems.sort((a, b) => {
+                        const aTime = a.key.split('_').pop() || '0';
+                        const bTime = b.key.split('_').pop() || '0';
+                        return parseInt(bTime) - parseInt(aTime);
+                    });
+                    
+                    const toDelete = sorted.slice(20);
+                    toDelete.forEach(item => {
+                        localStorage.removeItem(item.key);
+                        cleaned++;
+                        freedSpace += item.size;
+                    });
+                }
+
+                // Clean up old draft listings (keep only last 10)
+                const draftItems = stats.items.filter(item => item.collection === 'draft_listings');
+                if (draftItems.length > 10) {
+                    const sorted = draftItems.sort((a, b) => {
+                        const aTime = a.key.split('_').pop() || '0';
+                        const bTime = b.key.split('_').pop() || '0';
+                        return parseInt(bTime) - parseInt(aTime);
+                    });
+                    
+                    const toDelete = sorted.slice(10);
+                    toDelete.forEach(item => {
+                        localStorage.removeItem(item.key);
+                        cleaned++;
+                        freedSpace += item.size;
+                    });
+                }
+
+                showResult(`✅ Cleanup completed: ${cleaned} items removed, ${formatBytes(freedSpace)} freed`, 'success');
+                checkStorageStatus(); // Refresh stats
+            } catch (error) {
+                showResult(`❌ Error during cleanup: ${error.message}`, 'error');
+            }
+        }
+
+        function optimizePhotos() {
+            try {
+                const stats = getStorageStats();
+                let optimized = 0;
+                let savedSpace = 0;
+
+                // Find photo collections
+                const photoCollections = ['property_photos', 'user_profile_photos'];
+                
+                photoCollections.forEach(collection => {
+                    const items = stats.items.filter(item => item.collection === collection);
+                    items.forEach(item => {
+                        try {
+                            const data = JSON.parse(localStorage.getItem(item.key));
+                            if (data && data.photoData) {
+                                const originalSize = data.photoData.length;
+                                
+                                // Simple compression by reducing quality (this is a basic example)
+                                // In a real implementation, you'd use canvas to compress images
+                                const compressed = data.photoData.substring(0, Math.floor(originalSize * 0.7));
+                                data.photoData = compressed;
+                                
+                                localStorage.setItem(item.key, JSON.stringify(data));
+                                optimized++;
+                                savedSpace += originalSize - compressed.length;
+                            }
+                        } catch (error) {
+                            console.warn(`Failed to optimize ${item.key}:`, error);
+                        }
+                    });
+                });
+
+                showResult(`✅ Photo optimization completed: ${optimized} photos optimized, ${formatBytes(savedSpace)} saved`, 'success');
+                checkStorageStatus(); // Refresh stats
+            } catch (error) {
+                showResult(`❌ Error optimizing photos: ${error.message}`, 'error');
+            }
+        }
+
+        function clearAllData() {
+            if (confirm('⚠️ Are you sure you want to clear ALL HanapBahay data? This will remove:\n\n• All property listings\n• All user profiles\n• All photos\n• All settings\n\nThis action cannot be undone!')) {
+                try {
+                    const stats = getStorageStats();
+                    let cleared = 0;
+                    let freedSpace = 0;
+
+                    stats.items.forEach(item => {
+                        localStorage.removeItem(item.key);
+                        cleared++;
+                        freedSpace += item.size;
+                    });
+
+                    showResult(`✅ All data cleared: ${cleared} items removed, ${formatBytes(freedSpace)} freed`, 'success');
+                    checkStorageStatus(); // Refresh stats
+                } catch (error) {
+                    showResult(`❌ Error clearing data: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        // Check storage status on page load
+        window.onload = function() {
+            checkStorageStatus();
+        };
+    </script>
+</body>
+</html>

@@ -78,6 +78,8 @@ const Icon = React.forwardRef<React.ElementRef<typeof Svg>, IIConProps>(
   }
 );
 
+Icon.displayName = 'Icon';
+
 export { Icon };
 
 type ParameterTypes = Omit<Parameters<typeof createIcon>[0], 'Root'>;
@@ -91,7 +93,7 @@ const createIconUI = ({ ...props }: ParameterTypes) => {
       React.RefAttributes<React.ElementRef<typeof Svg>>
   >;
 
-  return React.forwardRef<React.ElementRef<typeof Svg>>(
+  const IconComponent = React.forwardRef<React.ElementRef<typeof Svg>>(
     (
       {
         className,
@@ -110,6 +112,9 @@ const createIconUI = ({ ...props }: ParameterTypes) => {
       );
     }
   );
+  
+  IconComponent.displayName = 'IconComponent';
+  return IconComponent;
 };
 export { createIconUI as createIcon };
 // All Icons
@@ -429,7 +434,6 @@ export { CheckIcon, CheckCircleIcon };
 const ChevronUpIcon = createIcon({
   Root: Svg,
   viewBox: '0 0 24 24',
-  d: 'M12 10L8 6L4 10',
   path: (
     <>
       <Path

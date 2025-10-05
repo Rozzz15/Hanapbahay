@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear HanapBahay Data - Port 8081</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #dc2626;
+            text-align: center;
+        }
+        .button {
+            background: #dc2626;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin: 10px 0;
+        }
+        .button:hover {
+            background: #b91c1c;
+        }
+        .success {
+            background: #10b981;
+        }
+        .success:hover {
+            background: #059669;
+        }
+        .info {
+            background: #3b82f6;
+        }
+        .info:hover {
+            background: #2563eb;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .result.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .result.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #dc2626;
+        }
+        .data-list {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗑️ Clear HanapBahay Data</h1>
+        <p>This tool will clear all data stored in your browser for the HanapBahay app running on localhost:8081</p>
+        
+        <button class="button info" onclick="showCurrentData()">📋 Show Current Data</button>
+        <button class="button" onclick="clearAllData()">🗑️ Clear All Data</button>
+        <button class="button success" onclick="clearAuthOnly()">🔐 Clear Auth Only</button>
+        
+        <div id="result" class="result"></div>
+        <div id="dataList" class="data-list" style="display: none;"></div>
+    </div>
+
+    <script>
+        function showResult(message, type = 'success') {
+            const result = document.getElementById('result');
+            result.textContent = message;
+            result.className = `result ${type}`;
+            result.style.display = 'block';
+        }
+
+        function showCurrentData() {
+            const dataList = document.getElementById('dataList');
+            const keys = [];
+            
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                keys.push(`${key}: ${value.substring(0, 100)}${value.length > 100 ? '...' : ''}`);
+            }
+            
+            if (keys.length === 0) {
+                showResult('No data found in localStorage', 'error');
+                dataList.style.display = 'none';
+            } else {
+                dataList.innerHTML = keys.join('<br>');
+                dataList.style.display = 'block';
+                showResult(`Found ${keys.length} items in localStorage`);
+            }
+        }
+
+        function clearAllData() {
+            if (confirm('⚠️ Are you sure you want to clear ALL data? This will remove:\n\n• User profiles\n• Property listings\n• Authentication data\n• All app settings\n\nThis action cannot be undone!')) {
+                try {
+                    const itemCount = localStorage.length;
+                    localStorage.clear();
+                    showResult(`✅ Successfully cleared ${itemCount} items from localStorage`, 'success');
+                    document.getElementById('dataList').style.display = 'none';
+                } catch (error) {
+                    showResult(`❌ Error clearing data: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        function clearAuthOnly() {
+            if (confirm('🔐 Clear only authentication data? This will:\n\n• Log you out\n• Clear session tokens\n• Keep all your profile data\n• Keep all property listings\n\nContinue?')) {
+                try {
+                    const authKeys = [
+                        'auth_user',
+                        'supabase-auth-token',
+                        'supabase.auth.token',
+                        'sb-localhost-auth-token',
+                        'sb-localhost-auth-token.0',
+                        'sb-localhost-auth-token.1'
+                    ];
+                    
+                    let clearedCount = 0;
+                    authKeys.forEach(key => {
+                        if (localStorage.getItem(key)) {
+                            localStorage.removeItem(key);
+                            clearedCount++;
+                        }
+                    });
+                    
+                    showResult(`✅ Cleared ${clearedCount} authentication items`, 'success');
+                } catch (error) {
+                    showResult(`❌ Error clearing auth data: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        // Show current data count on page load
+        window.onload = function() {
+            const count = localStorage.length;
+            if (count > 0) {
+                showResult(`📊 Found ${count} items in localStorage. Click "Show Current Data" to see details.`);
+            } else {
+                showResult('📭 No data found in localStorage', 'error');
+            }
+        };
+    </script>
+</body>
+</html>
