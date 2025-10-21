@@ -158,9 +158,14 @@ export default function ChatRoom() {
                     // create or find conversation
                     const convos = await db.list<ConversationRecord>('conversations');
                     const existing = convos.find(c =>
-                        c.participantIds.includes(user.id) && c.participantIds.includes(otherUserId as string)
+                        c.participantIds.includes(user.id) && 
+                        c.participantIds.includes(otherUserId as string) &&
+                        c.participantIds.length === 2
                     );
-                    if (existing) convId = existing.id;
+                    if (existing) {
+                        convId = existing.id;
+                        console.log('✅ Found existing conversation for loading messages:', convId);
+                    }
                     else {
                         const newId = generateId('convo');
                         const now = new Date().toISOString();
@@ -181,29 +186,33 @@ export default function ChatRoom() {
                         let actualTenantId: string;
                         
                         // Enhanced role detection with multiple fallbacks
-                        if (hasUserListings && !hasOtherUserListings) {
+                        // Default: when navigating from property-preview, otherUserId is the owner
+                        if (propertyId) {
+                            // If we have propertyId, we're messaging about a property
+                            // The other user is the owner of that property
+                            actualOwnerId = otherUserId as string;
+                            actualTenantId = user.id;
+                            console.log('🏠 Property context: otherUser is owner of property', propertyId);
+                        } else if (hasUserListings && !hasOtherUserListings) {
                             // Current user is owner, other user is tenant
                             actualOwnerId = user.id;
                             actualTenantId = otherUserId as string;
+                            console.log('🏢 User has listings, other user does not - user is owner');
                         } else if (hasOtherUserListings && !hasUserListings) {
                             // Other user is owner, current user is tenant
                             actualOwnerId = otherUserId as string;
                             actualTenantId = user.id;
+                            console.log('🏢 Other user has listings, user does not - other user is owner');
                         } else if (hasUserListings && hasOtherUserListings) {
-                            // Both have listings - check who has more or use propertyId context
-                            if (propertyId) {
-                                // If we have propertyId, the other user is likely the owner of this property
-                                actualOwnerId = otherUserId as string;
-                                actualTenantId = user.id;
-                            } else {
-                                // Fallback to other user as owner
-                                actualOwnerId = otherUserId as string;
-                                actualTenantId = user.id;
-                            }
+                            // Both have listings - default to other user as owner
+                            actualOwnerId = otherUserId as string;
+                            actualTenantId = user.id;
+                            console.log('🏢 Both have listings - defaulting to other user as owner');
                         } else {
                             // Neither has listings - assume other user is owner (common case when tenant messages owner)
                             actualOwnerId = otherUserId as string;
                             actualTenantId = user.id;
+                            console.log('🏢 No listings found - defaulting to other user as owner');
                         }
                         
                         const newConvo: ConversationRecord = {
@@ -229,7 +238,19 @@ export default function ChatRoom() {
                     const normalizedMessages = all.map(normalizeMessage);
                     const my = normalizedMessages.filter(m => m.conversationId === convId).sort((a,b) => a.createdAt.localeCompare(b.createdAt));
                     console.log('💬 Messages for this conversation:', my.length);
-                    setMessages(my.map(m => ({
+                    
+                    // Remove duplicate messages based on ID using a Map for better deduplication
+                    const uniqueMessagesMap = new Map<string, MessageRecord>();
+                    my.forEach(msg => {
+                        if (!uniqueMessagesMap.has(msg.id)) {
+                            uniqueMessagesMap.set(msg.id, msg);
+                        }
+                    });
+                    const uniqueMessages = Array.from(uniqueMessagesMap.values());
+                    
+                    console.log('💬 Unique messages after deduplication:', uniqueMessages.length);
+                    
+                    setMessages(uniqueMessages.map(m => ({
                         id: m.id,
                         text: m.text,
                         sender: m.senderId === user?.id ? 'me' : 'them',
@@ -272,6 +293,58 @@ export default function ChatRoom() {
         };
         loadMessages();
     }, [user, conversationId, otherUserId]);
+
+    // Add periodic message refresh to catch new messages
+    useEffect(() => {
+        if (!conversationId || !user?.id) return;
+
+        const interval = setInterval(async () => {
+            try {
+                console.log('🔄 Tenant: Checking for new messages...');
+                const all = await db.list<MessageRecord>('messages');
+                const normalizedMessages = all.map(normalizeMessage);
+                const my = normalizedMessages
+                    .filter(m => m.conversationId === conversationId as string)
+                    .sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+                
+                // Remove duplicate messages based on ID using a Map for better deduplication
+                const uniqueMessagesMap = new Map<string, MessageRecord>();
+                my.forEach(msg => {
+                    if (!uniqueMessagesMap.has(msg.id)) {
+                        uniqueMessagesMap.set(msg.id, msg);
+                    }
+                });
+                const uniqueMessages = Array.from(uniqueMessagesMap.values());
+                
+                // Only update if there are actually new messages (compare by length and last message ID)
+                const currentLastMsgId = messages.length > 0 ? messages[messages.length - 1].id : null;
+                const newLastMsgId = uniqueMessages.length > 0 ? uniqueMessages[uniqueMessages.length - 1].id : null;
+                
+                if (uniqueMessages.length !== messages.length || currentLastMsgId !== newLastMsgId) {
+                    console.log('📨 Tenant: New messages found, updating...', {
+                        old: messages.length,
+                        new: uniqueMessages.length,
+                        oldLastId: currentLastMsgId,
+                        newLastId: newLastMsgId
+                    });
+                    setMessages(uniqueMessages.map(m => ({
+                        id: m.id,
+                        text: m.text,
+                        sender: m.senderId === user?.id ? 'me' : 'them',
+                        timestamp: new Date(m.createdAt).toLocaleTimeString(),
+                        type: m.type as 'message' | 'image',
+                        imageUri: m.imageUri,
+                        imageWidth: m.imageWidth,
+                        imageHeight: m.imageHeight,
+                    })));
+                }
+            } catch (error) {
+                console.error('❌ Tenant: Error checking for new messages:', error);
+            }
+        }, 3000); // Check every 3 seconds (reduced frequency to prevent duplicates)
+
+        return () => clearInterval(interval);
+    }, [user, conversationId, messages.length]);
 
     // Check for approved booking and load payment accounts
     useEffect(() => {
@@ -649,12 +722,21 @@ export default function ChatRoom() {
                     onPress={async () => {
                             console.log('📤 Sending message...', { text: text.trim(), selectedImage, user: user?.id });
                         if ((!text.trim() && !selectedImage) || !user) return;
+                        
+                        try {
                         const now = new Date().toISOString();
                         let convId = (conversationId as string) || '';
                         if (!convId && otherUserId) {
                             const convos = await db.list<ConversationRecord>('conversations');
-                            const existing = convos.find(c => c.participantIds.includes(user.id) && c.participantIds.includes(otherUserId as string));
-                            if (existing) convId = existing.id;
+                            const existing = convos.find(c => 
+                                c.participantIds.includes(user.id) && 
+                                c.participantIds.includes(otherUserId as string) &&
+                                c.participantIds.length === 2
+                            );
+                            if (existing) {
+                                convId = existing.id;
+                                console.log('✅ Found existing conversation:', convId);
+                            }
                         }
                         if (!convId) {
                             const newId = generateId('convo');
@@ -667,23 +749,24 @@ export default function ChatRoom() {
                             let actualOwnerId: string;
                             let actualTenantId: string;
                             
-                            if (hasUserListings && !hasOtherUserListings) {
-                                actualOwnerId = user.id;
-                                actualTenantId = otherUserId as string;
-                            } else if (hasOtherUserListings && !hasUserListings) {
-                                    actualOwnerId = otherUserId as string;
-                                    actualTenantId = user.id;
-                                } else if (hasUserListings && hasOtherUserListings) {
-                                    if (propertyId) {
-                                        actualOwnerId = otherUserId as string;
-                                        actualTenantId = user.id;
-                                    } else {
-                                        actualOwnerId = otherUserId as string;
-                                        actualTenantId = user.id;
-                                    }
-                                } else {
+                            // Use same logic as conversation creation
+                            if (propertyId) {
+                                // If we have propertyId, we're messaging about a property
                                 actualOwnerId = otherUserId as string;
                                 actualTenantId = user.id;
+                                console.log('🏠 Send: Property context - otherUser is owner');
+                            } else if (hasUserListings && !hasOtherUserListings) {
+                                actualOwnerId = user.id;
+                                actualTenantId = otherUserId as string;
+                                console.log('🏢 Send: User is owner');
+                            } else if (hasOtherUserListings && !hasUserListings) {
+                                actualOwnerId = otherUserId as string;
+                                actualTenantId = user.id;
+                                console.log('🏢 Send: Other user is owner');
+                            } else {
+                                actualOwnerId = otherUserId as string;
+                                actualTenantId = user.id;
+                                console.log('🏢 Send: Default to other user as owner');
                             }
                             
                             const convo: ConversationRecord = {
@@ -701,6 +784,23 @@ export default function ChatRoom() {
                             
                             console.log(`💬 Created conversation on send: Owner=${actualOwnerId}, Tenant=${actualTenantId}`);
                         }
+                        
+                        // Check if message already exists to prevent duplicates
+                        const existingMessages = await db.list<MessageRecord>('messages');
+                        const isDuplicate = existingMessages.some(m => 
+                            m.conversationId === convId &&
+                            m.senderId === user.id &&
+                            m.text === text.trim() &&
+                            Math.abs(new Date(m.createdAt).getTime() - new Date(now).getTime()) < 1000
+                        );
+                        
+                        if (isDuplicate) {
+                            console.log('⚠️ Duplicate message detected, skipping...');
+                            setText('');
+                            setSelectedImage(null);
+                            return;
+                        }
+                        
                         const msgId = generateId('msg');
                         const msg: MessageRecord = {
                             id: msgId,
@@ -738,19 +838,32 @@ export default function ChatRoom() {
                             lastReadByOwner: isOwner ? now : (normalizedConv?.lastReadByOwner || ''),
                             lastReadByTenant: !isOwner ? now : (normalizedConv?.lastReadByTenant || ''),
                         } as ConversationRecord);
-                        setMessages(prev => [...prev, { 
-                            id: msgId, 
-                            text: msg.text, 
-                            sender: 'me', 
-                            timestamp: new Date(now).toLocaleTimeString(),
-                            type: msg.type as 'message' | 'image',
-                            imageUri: msg.imageUri,
-                            imageWidth: msg.imageWidth,
-                            imageHeight: msg.imageHeight,
-                        }]);
+                        
+                        // Add message to local state (deduplication handled by ID)
+                        setMessages(prev => {
+                            // Check if message already exists
+                            const exists = prev.some(m => m.id === msgId);
+                            if (exists) {
+                                console.log('⚠️ Message already in state, skipping...');
+                                return prev;
+                            }
+                            return [...prev, { 
+                                id: msgId, 
+                                text: msg.text, 
+                                sender: 'me', 
+                                timestamp: new Date(now).toLocaleTimeString(),
+                                type: msg.type as 'message' | 'image',
+                                imageUri: msg.imageUri,
+                                imageWidth: msg.imageWidth,
+                                imageHeight: msg.imageHeight,
+                            }];
+                        });
                         setText('');
                         setSelectedImage(null);
                         scrollRef.current?.scrollToEnd({ animated: true });
+                        } catch (error) {
+                            console.error('❌ Error sending message:', error);
+                        }
                     }}
                         disabled={!text.trim() && !selectedImage}
                     >

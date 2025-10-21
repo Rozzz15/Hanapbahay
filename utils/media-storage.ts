@@ -236,7 +236,7 @@ export const loadPropertyMedia = async (listingId: string, userId?: string): Pro
       console.log('⚠️ Cache system not available, loading from database:', cacheError);
     }
     
-    // Load photos
+    // Third, load from media tables (property_photos and property_videos)
     const photos = await db.getAll('property_photos');
     console.log('📸 All photos in database:', photos.length);
     const listingPhotos = photos.filter((photo: any) => photo.listingId === listingId);
@@ -250,18 +250,51 @@ export const loadPropertyMedia = async (listingId: string, userId?: string): Pro
     
     // Find cover photo - prefer photoData for persistence
     const coverPhotoRecord = listingPhotos.find((photo: any) => photo.isCoverPhoto);
-    const coverPhoto = coverPhotoRecord ? (coverPhotoRecord.photoData || coverPhotoRecord.photoUri) : null;
-    console.log('🖼️ Cover photo found:', !!coverPhoto);
+    let coverPhoto = coverPhotoRecord ? (coverPhotoRecord.photoData || coverPhotoRecord.photoUri) : null;
+    console.log('🖼️ Cover photo found in media tables:', !!coverPhoto);
     
     // Get all non-cover photos - prefer photoData for persistence
-    const propertyPhotos = listingPhotos
+    let propertyPhotos = listingPhotos
       .filter((photo: any) => !photo.isCoverPhoto)
       .map((photo: any) => photo.photoData || photo.photoUri);
-    console.log('📸 Non-cover photos:', propertyPhotos.length);
+    console.log('📸 Non-cover photos from media tables:', propertyPhotos.length);
     
     // Get all videos
-    const propertyVideos = listingVideos.map((video: any) => video.videoUri);
-    console.log('🎥 Property videos:', propertyVideos.length);
+    let propertyVideos = listingVideos.map((video: any) => video.videoUri);
+    console.log('🎥 Property videos from media tables:', propertyVideos.length);
+    
+    // CRITICAL FIX: If no media found in media tables, fall back to the listing object itself
+    if (!coverPhoto && propertyPhotos.length === 0 && propertyVideos.length === 0) {
+      console.log('⚠️ No media found in media tables, checking listing object itself...');
+      try {
+        const listing = await db.get('published_listings', listingId);
+        if (listing) {
+          coverPhoto = listing.coverPhoto || null;
+          propertyPhotos = Array.isArray(listing.photos) ? listing.photos : [];
+          propertyVideos = Array.isArray(listing.videos) ? listing.videos : [];
+          
+          console.log('✅ Loaded media from listing object:', {
+            hasCoverPhoto: !!coverPhoto,
+            photosCount: propertyPhotos.length,
+            videosCount: propertyVideos.length
+          });
+          
+          // Re-sync this media back to media tables for future use
+          if (coverPhoto || propertyPhotos.length > 0 || propertyVideos.length > 0) {
+            console.log('🔄 Re-syncing media from listing to media tables...');
+            await savePropertyMedia(listingId, listing.userId || userId || 'unknown', {
+              coverPhoto,
+              photos: propertyPhotos,
+              videos: propertyVideos
+            });
+          }
+        } else {
+          console.log('❌ Listing not found in database:', listingId);
+        }
+      } catch (listingError) {
+        console.error('❌ Error loading media from listing object:', listingError);
+      }
+    }
     
     const media: PropertyMedia = {
       coverPhoto,
@@ -269,7 +302,7 @@ export const loadPropertyMedia = async (listingId: string, userId?: string): Pro
       videos: propertyVideos
     };
     
-    console.log('✅ Property media loaded from database:', {
+    console.log('✅ Property media loaded successfully:', {
       coverPhoto: !!media.coverPhoto,
       photosCount: media.photos.length,
       videosCount: media.videos.length,
@@ -365,6 +398,7 @@ export const updatePropertyMedia = async (
 
 /**
  * Refresh all media for app startup - ensures persistence across login/logout
+ * This function re-syncs all media from listing objects to AsyncStorage and media tables
  */
 export const refreshAllPropertyMedia = async (): Promise<void> => {
   try {
@@ -375,10 +409,39 @@ export const refreshAllPropertyMedia = async (): Promise<void> => {
     console.log(`📋 Found ${publishedListings.length} published listings to refresh`);
     
     let refreshedCount = 0;
+    let resyncedCount = 0;
     
     for (const listing of publishedListings) {
       try {
-        // Load media from database (this will also save to AsyncStorage)
+        // First, check if media exists in the listing object itself
+        const hasListingMedia = listing.coverPhoto || 
+                               (listing.photos && listing.photos.length > 0) || 
+                               (listing.videos && listing.videos.length > 0);
+        
+        if (hasListingMedia) {
+          // Force re-sync media from listing to all storage locations
+          console.log(`🔄 Re-syncing media for listing ${listing.id} from listing object...`);
+          const mediaFromListing = {
+            coverPhoto: listing.coverPhoto || null,
+            photos: Array.isArray(listing.photos) ? listing.photos : [],
+            videos: Array.isArray(listing.videos) ? listing.videos : []
+          };
+          
+          // Save to media tables
+          await savePropertyMedia(listing.id, listing.userId || 'unknown', mediaFromListing);
+          
+          // Save to AsyncStorage
+          await savePropertyMediaToStorage(listing.id, mediaFromListing);
+          
+          resyncedCount++;
+          console.log(`✅ Re-synced media for listing ${listing.id}:`, {
+            hasCoverPhoto: !!mediaFromListing.coverPhoto,
+            photosCount: mediaFromListing.photos.length,
+            videosCount: mediaFromListing.videos.length
+          });
+        }
+        
+        // Then load media using the standard flow (will use the re-synced data)
         const media = await loadPropertyMedia(listing.id);
         
         if (media.coverPhoto || media.photos.length > 0 || media.videos.length > 0) {
@@ -394,7 +457,11 @@ export const refreshAllPropertyMedia = async (): Promise<void> => {
       }
     }
     
-    console.log(`✅ Media refresh completed: ${refreshedCount} listings refreshed`);
+    console.log(`✅ Media refresh completed:`, {
+      totalListings: publishedListings.length,
+      resyncedFromListing: resyncedCount,
+      refreshedTotal: refreshedCount
+    });
   } catch (error) {
     console.error('❌ Error refreshing all property media:', error);
   }

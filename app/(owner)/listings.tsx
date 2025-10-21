@@ -76,6 +76,15 @@ export default function ListingsPage() {
       // Clear cache to ensure fresh data
       await clearCache();
       
+      // Refresh all media to ensure persistence
+      try {
+        const { refreshAllPropertyMedia } = await import('../../utils/media-storage');
+        await refreshAllPropertyMedia();
+        console.log('✅ Media refreshed successfully');
+      } catch (mediaError) {
+        console.log('⚠️ Media refresh failed:', mediaError);
+      }
+      
       const ownerListings = await getOwnerListings(user.id);
       
       console.log('📸 Media Check - Owner Listings:', ownerListings.map(listing => ({

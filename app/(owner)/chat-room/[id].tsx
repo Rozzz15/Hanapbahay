@@ -85,30 +85,48 @@ export default function ChatRoom() {
     }
   }, [id, user]);
 
-  // Add periodic message refresh to catch new messages
-  useEffect(() => {
-    if (!id || !user?.id) return;
+    // Add periodic message refresh to catch new messages
+    useEffect(() => {
+        if (!id || !user?.id) return;
 
-    const interval = setInterval(async () => {
-      try {
-        console.log('🔄 Checking for new messages...');
-        const allMessages = await db.list('messages');
-        const normalizedMessages = allMessages.map(normalizeMessage);
-        const messagesData = normalizedMessages
-          .filter(m => m.conversationId === id)
-          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        
-        if (messagesData.length !== messages.length) {
-          console.log('📨 New messages found, updating...');
-          setMessages(messagesData);
-        }
-      } catch (error) {
-        console.error('❌ Error checking for new messages:', error);
-      }
-    }, 2000); // Check every 2 seconds
+        const interval = setInterval(async () => {
+            try {
+                console.log('🔄 Checking for new messages...');
+                const allMessages = await db.list('messages');
+                const normalizedMessages = allMessages.map(normalizeMessage);
+                const messagesData = normalizedMessages
+                    .filter(m => m.conversationId === id)
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                
+                // Remove duplicate messages based on ID using a Map for better performance
+                const uniqueMessagesMap = new Map();
+                messagesData.forEach(msg => {
+                    if (!uniqueMessagesMap.has(msg.id)) {
+                        uniqueMessagesMap.set(msg.id, msg);
+                    }
+                });
+                const uniqueMessages = Array.from(uniqueMessagesMap.values());
+                
+                // Only update if there are actually new messages (compare by length and last message ID)
+                const currentLastMsgId = messages.length > 0 ? messages[messages.length - 1].id : null;
+                const newLastMsgId = uniqueMessages.length > 0 ? uniqueMessages[uniqueMessages.length - 1].id : null;
+                
+                if (uniqueMessages.length !== messages.length || currentLastMsgId !== newLastMsgId) {
+                    console.log('📨 New messages found, updating...', {
+                        old: messages.length,
+                        new: uniqueMessages.length,
+                        oldLastId: currentLastMsgId,
+                        newLastId: newLastMsgId
+                    });
+                    setMessages(uniqueMessages);
+                }
+            } catch (error) {
+                console.error('❌ Error checking for new messages:', error);
+            }
+        }, 3000); // Check every 3 seconds (reduced frequency to prevent duplicates)
 
-    return () => clearInterval(interval);
-  }, [id, user?.id, messages.length]);
+        return () => clearInterval(interval);
+    }, [id, user?.id, messages.length]);
 
   const loadConversationData = async () => {
     if (!id || !user?.id) return;
@@ -123,7 +141,23 @@ export default function ChatRoom() {
         throw new Error('Conversation not found');
       }
       const normalizedConv = normalizeConversation(convData);
-      setConversation(normalizedConv);
+      
+      // Load tenant name from users table
+      let tenantName = 'Tenant';
+      try {
+        const tenantUser = await db.get('users', normalizedConv.tenantId) as any;
+        if (tenantUser) {
+          tenantName = tenantUser.name || 'Tenant';
+          console.log('👤 Loaded tenant name:', tenantName);
+        }
+      } catch (error) {
+        console.log('⚠️ Could not load tenant name:', error);
+      }
+      
+      setConversation({
+        ...normalizedConv,
+        tenantName: tenantName
+      });
 
       // Load messages from local database
       const allMessages = await db.list('messages');
@@ -132,8 +166,18 @@ export default function ChatRoom() {
         .filter(m => m.conversationId === id)
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       
+      // Remove duplicate messages based on ID using a Map for better deduplication
+      const uniqueMessagesMap = new Map();
+      messagesData.forEach(msg => {
+        if (!uniqueMessagesMap.has(msg.id)) {
+          uniqueMessagesMap.set(msg.id, msg);
+        }
+      });
+      const uniqueMessages = Array.from(uniqueMessagesMap.values());
+      
       console.log('📥 Loaded messages for conversation:', messagesData.length);
-      setMessages(messagesData);
+      console.log('📥 Unique messages after deduplication:', uniqueMessages.length);
+      setMessages(uniqueMessages);
 
       // Mark messages as read
       await markMessagesAsRead();
@@ -192,6 +236,23 @@ export default function ChatRoom() {
       setLoading(true);
       console.log('📤 Owner sending message:', { conversationId: id, text: newMessage.trim() });
 
+      // Check if message already exists to prevent duplicates
+      const existingMessages = await db.list('messages') as any[];
+      const now = new Date().toISOString();
+      const isDuplicate = existingMessages.some((m: any) => 
+        m.conversationId === id &&
+        m.senderId === user.id &&
+        m.text === newMessage.trim() &&
+        Math.abs(new Date(m.createdAt).getTime() - new Date(now).getTime()) < 1000
+      );
+      
+      if (isDuplicate) {
+        console.log('⚠️ Duplicate message detected, skipping...');
+        setNewMessage('');
+        setLoading(false);
+        return;
+      }
+
       const messageId = generateId('msg');
       const messageData = {
         id: messageId,
@@ -200,7 +261,7 @@ export default function ChatRoom() {
         text: newMessage.trim(),
         type: 'message' as const,
         readBy: [user.id],
-        createdAt: new Date().toISOString()
+        createdAt: now
       };
 
       // Save message to local database
@@ -212,13 +273,21 @@ export default function ChatRoom() {
       await db.upsert('conversations', id, {
         ...normalizedConv,
         lastMessageText: newMessage.trim(),
-        lastMessageAt: new Date().toISOString(),
+        lastMessageAt: now,
         unreadByTenant: (normalizedConv.unreadByTenant || 0) + 1,
-        updatedAt: new Date().toISOString()
+        updatedAt: now
       });
 
-      // Add message to local state
-      setMessages(prev => [...prev, messageData]);
+      // Add message to local state (deduplication handled by ID)
+      setMessages(prev => {
+        // Check if message already exists
+        const exists = prev.some(m => m.id === messageId);
+        if (exists) {
+          console.log('⚠️ Message already in state, skipping...');
+          return prev;
+        }
+        return [...prev, messageData];
+      });
       setNewMessage('');
 
       // Scroll to bottom

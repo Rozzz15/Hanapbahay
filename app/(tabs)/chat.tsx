@@ -84,17 +84,20 @@ const ChatPage = () => {
                 try {
                     const ownerRecord = await db.get('users', otherUserId || '') as any;
                     if (ownerRecord) {
-                        // Check for business name in owner profile
+                        // PRIORITY 1: Check for business name in owner profile
                         try {
                             const ownerProfile = await db.get('owner_profiles', otherUserId || '') as any;
                             if (ownerProfile?.businessName) {
                                 ownerName = ownerProfile.businessName;
+                                console.log(`✅ Using business name for chat list: ${ownerProfile.businessName}`);
                             } else {
                                 ownerName = ownerRecord.name || ownerName;
+                                console.log(`⚠️ No business name found, using owner name: ${ownerRecord.name}`);
                             }
                         } catch (profileError) {
                             // Fallback to owner name if no business name
                             ownerName = ownerRecord.name || ownerName;
+                            console.log(`⚠️ Profile error, using owner name: ${ownerRecord.name}`);
                         }
                         
                         // Get profile photo - functionality removed
@@ -371,7 +374,6 @@ const ChatPage = () => {
                     )}
                 </View>
                 <Text style={styles.headerSubtitle}>Chat with property owners</Text>
-                <Text style={styles.headerHint}>Tap the red trash icon to delete conversations</Text>
             </View>
 
             {/* Search Bar */}
@@ -604,12 +606,6 @@ const styles = StyleSheet.create({
     headerSubtitle: {
         fontSize: 16,
         color: '#6B7280',
-    },
-    headerHint: {
-        fontSize: 12,
-        color: '#9CA3AF',
-        fontStyle: 'italic',
-        marginTop: 4,
     },
     searchContainer: {
         paddingHorizontal: 20,

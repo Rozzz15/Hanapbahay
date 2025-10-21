@@ -455,6 +455,10 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
       imageHeight: msg.imageHeight || msg.image_height,
     }));
     
+    // Get all users to resolve tenant names
+    const allUsers = await db.list('users');
+    console.log('👥 All users:', allUsers.length);
+    
     const ownerMessages: OwnerMessage[] = [];
     
     for (const conv of ownerConversations) {
@@ -469,6 +473,11 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
         const latestMessage = convMessages[0];
         console.log('📨 Latest message:', latestMessage);
         
+        // Get tenant name from users table
+        const tenant = allUsers.find(u => u.id === conv.tenantId);
+        const tenantName = tenant?.name || 'Tenant';
+        console.log('👤 Tenant name for conversation', conv.id, ':', tenantName);
+        
         ownerMessages.push({
           id: latestMessage.id,
           conversationId: conv.id,
@@ -478,7 +487,7 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
           propertyId: latestMessage.propertyId || '',
           propertyTitle: latestMessage.propertyTitle || '',
           readBy: latestMessage.readBy || [],
-          tenantName: conv.tenantName || 'Tenant',
+          tenantName: tenantName,
           isRead: latestMessage.readBy?.includes(ownerId) || false
         });
       }

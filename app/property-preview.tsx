@@ -755,7 +755,7 @@ const toggleVideoPlayback = async () => {
             </View>
           )}
 
-          {/* Enhanced Video Gallery with Thumbnails */}
+          {/* Enhanced Video Gallery with Thumbnails - Same Style as Photos */}
           {propertyData.videos && propertyData.videos.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>
@@ -767,40 +767,36 @@ const toggleVideoPlayback = async () => {
                 style={styles.videoScrollView}
                 contentContainerStyle={styles.videoScrollContent}
                 decelerationRate="fast"
-                snapToInterval={280 + 16}
+                snapToInterval={screenWidth * 0.6 + 16}
                 snapToAlignment="start"
+                pagingEnabled={false}
+                bounces={true}
+                alwaysBounceHorizontal={true}
+                scrollEventThrottle={16}
               >
                 {propertyData.videos.map((video: string, index: number) => (
                   <TouchableOpacity 
                     key={index} 
-                    style={styles.modernVideoCard}
+                    style={styles.videoThumbnailItem}
                     onPress={() => openVideoViewer(index)}
-                    activeOpacity={0.9}
+                    activeOpacity={0.7}
                   >
-                    <View style={styles.videoPreviewContainer}>
-                      <Video
-                        source={{ uri: video }}
-                        style={styles.videoPreview}
-                        resizeMode={ResizeMode.COVER}
-                        shouldPlay={false}
-                        isMuted={true}
-                        useNativeControls={false}
-                      />
-                      <View style={styles.videoOverlay}>
-                        <View style={styles.modernPlayButton}>
-                          <Play size={32} color="#FFFFFF" fill="#FFFFFF" />
-                        </View>
-                      </View>
-                      <View style={styles.videoNumberBadge}>
-                        <Text style={styles.videoNumberText}>{index + 1}/{propertyData.videos.length}</Text>
+                    <Video
+                      source={{ uri: video }}
+                      style={styles.videoThumbnailImage}
+                      resizeMode={ResizeMode.COVER}
+                      shouldPlay={false}
+                      isMuted={true}
+                      useNativeControls={false}
+                      positionMillis={1000}
+                    />
+                    <View style={styles.videoThumbnailOverlay}>
+                      <View style={styles.videoPlayIconCircle}>
+                        <Play size={24} color="#FFFFFF" fill="#FFFFFF" />
                       </View>
                     </View>
-                    <View style={styles.videoCardInfo}>
-                      <Text style={styles.modernVideoTitle}>Property Tour {index + 1}</Text>
-                      <View style={styles.playButtonRow}>
-                        <Play size={14} color="#3B82F6" />
-                        <Text style={styles.modernVideoSubtitle}>Tap to play full video</Text>
-                      </View>
+                    <View style={styles.videoThumbnailIndicator}>
+                      <Text style={styles.videoThumbnailIndicatorText}>{index + 1}/{propertyData.videos.length}</Text>
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -969,7 +965,7 @@ const toggleVideoPlayback = async () => {
           presentationStyle="fullScreen"
           onRequestClose={closeVideoViewer}
         >
-          <View style={styles.videoModalContainer}>
+          <SafeAreaView style={styles.videoModalContainer}>
             <View style={styles.videoModalHeader}>
               <TouchableOpacity 
                 style={styles.videoModalCloseButton}
@@ -988,21 +984,19 @@ const toggleVideoPlayback = async () => {
             </View>
 
             <View style={styles.videoModalContent}>
-              <View style={styles.videoPlayerContainer}>
-                <Video
-                  ref={videoRef}
-                  source={{ uri: propertyData.videos[currentVideoIndex] }}
-                  style={styles.videoPlayer}
-                  useNativeControls={false}
-                  resizeMode={ResizeMode.CONTAIN}
-                  shouldPlay={isVideoPlaying}
-                  onPlaybackStatusUpdate={(status: any) => {
-                    if (status.isLoaded) {
-                      setIsVideoPlaying(status.isPlaying);
-                    }
-                  }}
-                />
-              </View>
+              <Video
+                ref={videoRef}
+                source={{ uri: propertyData.videos[currentVideoIndex] }}
+                style={styles.videoPlayer}
+                useNativeControls={false}
+                resizeMode={ResizeMode.CONTAIN}
+                shouldPlay={isVideoPlaying}
+                onPlaybackStatusUpdate={(status: any) => {
+                  if (status.isLoaded) {
+                    setIsVideoPlaying(status.isPlaying);
+                  }
+                }}
+              />
             </View>
               
               {/* Custom Video Controls */}
@@ -1049,7 +1043,7 @@ const toggleVideoPlayback = async () => {
                 ))}
               </View>
             )}
-          </View>
+          </SafeAreaView>
         </Modal>
       )}
 
@@ -1574,96 +1568,62 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   videoScrollView: {
-    marginTop: 12,
-    marginHorizontal: -20,
+    flexDirection: 'row',
   },
   videoScrollContent: {
-    paddingHorizontal: 20,
+    paddingRight: 16,
+    paddingLeft: 4,
   },
-  modernVideoCard: {
-    width: 280,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+  videoThumbnailItem: {
     marginRight: 16,
-    shadowColor: '#1E3A8A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    overflow: 'hidden',
-  },
-  videoPreviewContainer: {
     position: 'relative',
-    width: '100%',
+    width: 240,
     height: 200,
-    backgroundColor: '#000000',
   },
-  videoPreview: {
+  videoThumbnailImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 16,
+    backgroundColor: '#000000',
   },
-  videoOverlay: {
+  videoThumbnailOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 16,
   },
-  modernPlayButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(59, 130, 246, 0.95)',
+  videoPlayIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(59, 130, 246, 0.9)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#3B82F6',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-    borderWidth: 3,
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-  videoNumberBadge: {
+  videoThumbnailIndicator: {
     position: 'absolute',
-    top: 12,
+    bottom: 12,
     right: 12,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  videoNumberText: {
+  videoThumbnailIndicatorText: {
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  videoCardInfo: {
-    padding: 16,
-  },
-  modernVideoTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 8,
-    letterSpacing: 0.2,
-  },
-  playButtonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  modernVideoSubtitle: {
-    fontSize: 13,
-    color: '#3B82F6',
+    fontSize: 12,
     fontWeight: '600',
   },
   videoModalContainer: {
@@ -1671,15 +1631,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.95)',
   },
   videoModalHeader: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     zIndex: 10,
   },
   videoModalCloseButton: {
@@ -1710,30 +1666,22 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 80,
-    paddingBottom: 120,
-  },
-  videoPlayerContainer: {
     width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   videoPlayer: {
     width: '100%',
     height: '100%',
+    alignSelf: 'center',
   },
   videoControls: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 32,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingVertical: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     gap: 32,
   },
   videoControlButton: {
@@ -1770,8 +1718,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
+    paddingBottom: 8,
     gap: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   videoDot: {
     width: 10,

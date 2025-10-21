@@ -1394,14 +1394,20 @@ export default function DashboardScreen() {
               <Text style={styles.sectionSubtitle}>{featuredListings.length} properties</Text>
             </View>
             
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              style={styles.featuredScroll}
-              onScroll={handleCarouselScroll}
-              scrollEventThrottle={16}
-            >
-              {featuredListings.map((listing, index) => (
+            <View style={styles.featuredScrollWrapper}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.featuredScroll}
+                onScroll={handleCarouselScroll}
+                scrollEventThrottle={16}
+                decelerationRate="fast"
+                contentContainerStyle={{ paddingRight: 20 }}
+                nestedScrollEnabled={true}
+                scrollEnabled={true}
+                removeClippedSubviews={false}
+              >
+                {featuredListings.map((listing, index) => (
                 <TouchableOpacity 
                   key={listing.id} 
                   style={styles.featuredCard}
@@ -1433,8 +1439,9 @@ export default function DashboardScreen() {
                       </View>
                     </View>
                   </TouchableOpacity>
-              ))}
-            </ScrollView>
+                ))}
+              </ScrollView>
+            </View>
             </View>
           )}
 
@@ -1674,9 +1681,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+  featuredScrollWrapper: {
+    width: '100%',
+    height: 380,
+  },
   featuredScroll: {
     marginHorizontal: -20,
     paddingHorizontal: 20,
+    flexGrow: 0,
+    flexShrink: 0,
   },
   featuredCard: {
     width: 300,
