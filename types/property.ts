@@ -12,6 +12,8 @@ export interface PropertyListing {
   
   // Property Details
   address: string;
+  bedrooms: number;
+  bathrooms: number;
   amenities: string[];
   rules: string[];
   
@@ -21,7 +23,6 @@ export interface PropertyListing {
   coverPhoto: string | null;
   
   // Pricing & Payment
-  baseRent: number;
   securityDeposit: number;
   paymentMethods: string[];
   
@@ -33,7 +34,7 @@ export interface PropertyListing {
   emergencyContact: string;
   
   // Status
-  status: 'draft' | 'published';
+  status: 'published';
   publishedAt: string | null;
   
   // Additional fields for tracking
@@ -53,6 +54,8 @@ export interface PropertyInfoData {
 
 export interface PropertyDetailsData {
   address: string;
+  bedrooms: number;
+  bathrooms: number;
   amenities: string[];
   rules: string[];
 }
@@ -64,7 +67,6 @@ export interface MediaData {
 }
 
 export interface PricingPaymentData {
-  baseRent: number;
   securityDeposit: number;
   paymentMethods: string[];
 }
@@ -81,11 +83,7 @@ export const PROPERTY_TYPES = [
   'Apartment',
   'House',
   'Condo',
-  'Bedspace',
-  'Commercial Space',
-  'Townhouse',
-  'Studio',
-  'Room for Rent'
+  'Bedspace'
 ];
 
 export const RENTAL_TYPES = [
@@ -104,7 +102,6 @@ export const AMENITIES = [
   'Security',
   'Laundry',
   'Kitchen',
-  'Cable TV',
   'Bathroom',
   'Water Supply'
 ];

@@ -5,9 +5,14 @@ export interface AuthUser {
     id: string;
     roles: string[];
     permissions: string[];
+    name?: string;
+    email?: string;
 }
 
 const AUTH_USER_KEY = 'auth_user';
+
+// Cache for auth user to reduce storage calls
+let authUserCache: AuthUser | null = null;
 
 // Web-compatible storage functions
 const getStorage = () => {
@@ -25,6 +30,10 @@ export async function storeAuthUser(user: AuthUser): Promise<void> {
     try {
         const storage = getStorage();
         await storage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+        
+        // Update cache immediately
+        authUserCache = user;
+        
         console.log('✅ Auth user stored successfully');
     } catch (error) {
         console.error('❌ Error storing auth user:', error);
@@ -33,9 +42,19 @@ export async function storeAuthUser(user: AuthUser): Promise<void> {
 
 export async function getAuthUser(): Promise<AuthUser | null> {
     try {
+        // Return cached value if available
+        if (authUserCache) {
+            console.log('📖 Retrieved auth user from cache: User found');
+            return authUserCache;
+        }
+        
         const storage = getStorage();
         const jsonValue = await storage.getItem(AUTH_USER_KEY);
         const result = jsonValue != null ? JSON.parse(jsonValue) : null;
+        
+        // Update cache
+        authUserCache = result;
+        
         console.log('📖 Retrieved auth user:', result ? 'User found' : 'No user');
         return result;
     } catch (error) {
@@ -47,6 +66,9 @@ export async function getAuthUser(): Promise<AuthUser | null> {
 export async function clearAuthSession(): Promise<void> {
     try {
         const storage = getStorage();
+        
+        // Clear cache first
+        authUserCache = null;
         
         // Only clear the main auth user session
         await storage.removeItem(AUTH_USER_KEY);

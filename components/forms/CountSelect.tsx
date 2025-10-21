@@ -62,10 +62,7 @@ const CountSelect: React.FC<CountSelectProps> = ({ label, value = 0, onChange, i
                             backgroundColor: '#ffffff',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: 2,
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
                             elevation: 2,
                         }}>
                             <Icon as={Minus} size="sm" color={count === 0 ? "#D1D5DB" : "#374151"} />
@@ -83,10 +80,7 @@ const CountSelect: React.FC<CountSelectProps> = ({ label, value = 0, onChange, i
                             borderRadius: 8,
                             backgroundColor: isPreSelected ? '#f0fdf4' : '#ffffff',
                             color: '#111827',
-                            shadowColor: isPreSelected ? '#22C55E' : 'transparent',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: isPreSelected ? 0.3 : 0,
-                            shadowRadius: isPreSelected ? 4 : 0,
+                            boxShadow: isPreSelected ? '0 2px 4px rgba(34, 197, 94, 0.3)' : 'none',
                             elevation: isPreSelected ? 2 : 0,
                         }}
                         keyboardType="numeric"
@@ -105,10 +99,7 @@ const CountSelect: React.FC<CountSelectProps> = ({ label, value = 0, onChange, i
                             backgroundColor: '#ffffff',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: 2,
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
                             elevation: 2,
                         }}>
                             <Icon as={Plus} size="sm" color="#374151" />

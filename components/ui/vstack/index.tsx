@@ -1,23 +1,51 @@
 import React from 'react';
-import type { VariantProps } from '@gluestack-ui/nativewind-utils';
-import { View } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 
-import { vstackStyle } from './styles';
+type VStackSpace = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
 
-type IVStackProps = React.ComponentProps<typeof View> &
-  VariantProps<typeof vstackStyle>;
+interface VStackProps {
+  space?: VStackSpace;
+  reversed?: boolean;
+  children?: React.ReactNode;
+  style?: any;
+}
 
-const VStack = React.forwardRef<React.ElementRef<typeof View>, IVStackProps>(
-  ({ className, space, reversed, ...props }, ref) => {
+const VStack = React.forwardRef<View, VStackProps>(
+  ({ space = 'md', reversed = false, children, style, ...props }, ref) => {
     return (
       <View
-        className={vstackStyle({ space, reversed, class: className })}
-        {...props}
         ref={ref}
-      />
+        style={[
+          styles.vstack,
+          styles[`space_${space}`],
+          reversed && styles.reversed,
+          style,
+        ]}
+        {...props}
+      >
+        {children}
+      </View>
     );
   }
 );
+
+const styles = StyleSheet.create({
+  vstack: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  reversed: {
+    flexDirection: 'column-reverse',
+  },
+  space_xs: { gap: 4 },
+  space_sm: { gap: 8 },
+  space_md: { gap: 12 },
+  space_lg: { gap: 16 },
+  space_xl: { gap: 20 },
+  space_2xl: { gap: 24 },
+  space_3xl: { gap: 28 },
+  space_4xl: { gap: 32 },
+});
 
 VStack.displayName = 'VStack';
 

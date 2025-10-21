@@ -112,10 +112,7 @@ export function GradientButton({
                 style={{
                     transform: [{ scale: scaleAnim }],
                     opacity: opacityAnim,
-                    shadowOpacity: shadowAnim,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowColor: '#000',
+                    boxShadow: `0 4px 8px rgba(0, 0, 0, ${shadowAnim})`,
                 }}
             >
                 <Pressable
@@ -126,7 +123,7 @@ export function GradientButton({
                     className={`${getButtonStyles()} border-2 border-gray-200 bg-white shadow-sm`}
                 >
                     <LinearGradient
-                        colors={getGradientColors()}
+                        colors={getGradientColors() as any}
                         className="flex-row items-center justify-center rounded-2xl"
                     >
                         {isLoading && <ActivityIndicator color="#3B82F6" size="small" />}
@@ -158,7 +155,7 @@ export function GradientButton({
                 className={getButtonStyles()}
             >
                 <LinearGradient
-                    colors={getGradientColors()}
+                    colors={getGradientColors() as any}
                     className="flex-row items-center justify-center rounded-2xl"
                 >
                     {isLoading && <ActivityIndicator color="white" size="small" />}

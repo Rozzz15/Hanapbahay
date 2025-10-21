@@ -13,7 +13,7 @@ import { cssInterop } from 'nativewind';
 import {
   useBreakpointValue,
   getBreakPointValue,
-} from '@/components/ui/utils/use-break-point-value';
+} from '../utils/use-break-point-value';
 
 const { width: DEVICE_WIDTH } = Dimensions.get('window');
 
@@ -323,7 +323,6 @@ const GridItem = forwardRef<React.ComponentRef<typeof View>, IGridItemProps>(
         {...props}
         style={[
           {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             flexBasis: flexBasisValue as any,
           },
           props.style,

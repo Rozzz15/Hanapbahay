@@ -1,185 +1,163 @@
-'use client';
 import React from 'react';
-import { createAvatar } from '@gluestack-ui/avatar';
+import { View, Text, Image, Platform, StyleSheet } from 'react-native';
 
-import { View, Text, Image, Platform } from 'react-native';
+// Simple avatar implementation without NativeWind dependencies
+type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 
-import { tva } from '@gluestack-ui/nativewind-utils/tva';
-import {
-  withStyleContext,
-  useStyleContext,
-} from '@gluestack-ui/nativewind-utils/withStyleContext';
-const SCOPE = 'AVATAR';
-import type { VariantProps } from '@gluestack-ui/nativewind-utils';
+interface AvatarProps {
+  size?: AvatarSize;
+  children?: React.ReactNode;
+  style?: any;
+}
 
-const UIAvatar = createAvatar({
-  Root: withStyleContext(View, SCOPE),
-  Badge: View,
-  Group: View,
-  Image: Image,
-  FallbackText: Text,
-});
+const Avatar = React.forwardRef<View, AvatarProps>(
+  function Avatar({ size = 'md', children, style, ...props }, ref) {
+    return (
+      <View
+        ref={ref}
+        style={[styles.avatar, styles[`avatar_${size}`], style]}
+        {...props}
+      >
+        {children}
+      </View>
+    );
+  }
+);
 
-const avatarStyle = tva({
-  base: 'rounded-full justify-center items-center relative bg-primary-600 group-[.avatar-group]/avatar-group:-ml-2.5',
-  variants: {
-    size: {
-      'xs': 'w-6 h-6',
-      'sm': 'w-8 h-8',
-      'md': 'w-12 h-12',
-      'lg': 'w-16 h-16',
-      'xl': 'w-24 h-24',
-      '2xl': 'w-32 h-32',
-    },
+interface AvatarBadgeProps {
+  size?: AvatarSize;
+  style?: any;
+}
+
+const AvatarBadge = React.forwardRef<View, AvatarBadgeProps>(
+  function AvatarBadge({ size = 'md', style, ...props }, ref) {
+    return (
+      <View
+        ref={ref}
+        style={[styles.badge, styles[`badge_${size}`], style]}
+        {...props}
+      />
+    );
+  }
+);
+
+interface AvatarFallbackTextProps {
+  size?: AvatarSize;
+  children?: React.ReactNode;
+  style?: any;
+}
+
+const AvatarFallbackText = React.forwardRef<Text, AvatarFallbackTextProps>(
+  function AvatarFallbackText({ size = 'md', children, style, ...props }, ref) {
+    return (
+      <Text
+        ref={ref}
+        style={[styles.fallbackText, styles[`fallbackText_${size}`], style]}
+        {...props}
+      >
+        {children}
+      </Text>
+    );
+  }
+);
+
+interface AvatarImageProps {
+  source?: any;
+  style?: any;
+}
+
+const AvatarImage = React.forwardRef<Image, AvatarImageProps>(
+  function AvatarImage({ source, style, ...props }, ref) {
+    return (
+      <Image
+        ref={ref}
+        source={source}
+        style={[styles.image, style]}
+        {...props}
+      />
+    );
+  }
+);
+
+interface AvatarGroupProps {
+  children?: React.ReactNode;
+  style?: any;
+}
+
+const AvatarGroup = React.forwardRef<View, AvatarGroupProps>(
+  function AvatarGroup({ children, style, ...props }, ref) {
+    return (
+      <View
+        ref={ref}
+        style={[styles.group, style]}
+        {...props}
+      >
+        {children}
+      </View>
+    );
+  }
+);
+
+const styles = StyleSheet.create({
+  avatar: {
+    borderRadius: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    backgroundColor: '#3b82f6',
+  },
+  avatar_xs: { width: 24, height: 24 },
+  avatar_sm: { width: 32, height: 32 },
+  avatar_md: { width: 48, height: 48 },
+  avatar_lg: { width: 64, height: 64 },
+  avatar_xl: { width: 96, height: 96 },
+  avatar_2xl: { width: 128, height: 128 },
+  
+  badge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#10b981',
+    borderRadius: 9999,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  badge_xs: { width: 8, height: 8 },
+  badge_sm: { width: 8, height: 8 },
+  badge_md: { width: 12, height: 12 },
+  badge_lg: { width: 16, height: 16 },
+  badge_xl: { width: 24, height: 24 },
+  badge_2xl: { width: 32, height: 32 },
+  
+  fallbackText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  fallbackText_xs: { fontSize: 10 },
+  fallbackText_sm: { fontSize: 12 },
+  fallbackText_md: { fontSize: 16 },
+  fallbackText_lg: { fontSize: 20 },
+  fallbackText_xl: { fontSize: 30 },
+  fallbackText_2xl: { fontSize: 48 },
+  
+  image: {
+    height: '100%',
+    width: '100%',
+    borderRadius: 9999,
+    position: 'absolute',
+  },
+  
+  group: {
+    flexDirection: 'row-reverse',
+    position: 'relative',
   },
 });
 
-const avatarFallbackTextStyle = tva({
-  base: 'text-typography-0 font-semibold overflow-hidden text-transform:uppercase web:cursor-default',
-
-  parentVariants: {
-    size: {
-      'xs': 'text-2xs',
-      'sm': 'text-xs',
-      'md': 'text-base',
-      'lg': 'text-xl',
-      'xl': 'text-3xl',
-      '2xl': 'text-5xl',
-    },
-  },
-});
-
-const avatarGroupStyle = tva({
-  base: 'group/avatar-group flex-row-reverse relative avatar-group',
-});
-
-const avatarBadgeStyle = tva({
-  base: 'w-5 h-5 bg-success-500 rounded-full absolute right-0 bottom-0 border-background-0 border-2',
-  parentVariants: {
-    size: {
-      'xs': 'w-2 h-2',
-      'sm': 'w-2 h-2',
-      'md': 'w-3 h-3',
-      'lg': 'w-4 h-4',
-      'xl': 'w-6 h-6',
-      '2xl': 'w-8 h-8',
-    },
-  },
-});
-
-const avatarImageStyle = tva({
-  base: 'h-full w-full rounded-full absolute',
-});
-
-type IAvatarProps = Omit<
-  React.ComponentPropsWithoutRef<typeof UIAvatar>,
-  'context'
-> &
-  VariantProps<typeof avatarStyle>;
-
-const Avatar = React.forwardRef<
-  React.ComponentRef<typeof UIAvatar>,
-  IAvatarProps
->(function Avatar({ className, size = 'md', ...props }, ref) {
-  return (
-    <UIAvatar
-      ref={ref}
-      {...props}
-      className={avatarStyle({ size, class: className })}
-      context={{ size }}
-    />
-  );
-});
-
-type IAvatarBadgeProps = React.ComponentPropsWithoutRef<typeof UIAvatar.Badge> &
-  VariantProps<typeof avatarBadgeStyle>;
-
-const AvatarBadge = React.forwardRef<
-  React.ComponentRef<typeof UIAvatar.Badge>,
-  IAvatarBadgeProps
->(function AvatarBadge({ className, size, ...props }, ref) {
-  const { size: parentSize } = useStyleContext(SCOPE);
-
-  return (
-    <UIAvatar.Badge
-      ref={ref}
-      {...props}
-      className={avatarBadgeStyle({
-        parentVariants: {
-          size: parentSize,
-        },
-        size,
-        class: className,
-      })}
-    />
-  );
-});
-
-type IAvatarFallbackTextProps = React.ComponentPropsWithoutRef<
-  typeof UIAvatar.FallbackText
-> &
-  VariantProps<typeof avatarFallbackTextStyle>;
-const AvatarFallbackText = React.forwardRef<
-  React.ComponentRef<typeof UIAvatar.FallbackText>,
-  IAvatarFallbackTextProps
->(function AvatarFallbackText({ className, size, ...props }, ref) {
-  const { size: parentSize } = useStyleContext(SCOPE);
-
-  return (
-    <UIAvatar.FallbackText
-      ref={ref}
-      {...props}
-      className={avatarFallbackTextStyle({
-        parentVariants: {
-          size: parentSize,
-        },
-        size,
-        class: className,
-      })}
-    />
-  );
-});
-
-type IAvatarImageProps = React.ComponentPropsWithoutRef<typeof UIAvatar.Image> &
-  VariantProps<typeof avatarImageStyle>;
-
-const AvatarImage = React.forwardRef<
-  React.ComponentRef<typeof UIAvatar.Image>,
-  IAvatarImageProps
->(function AvatarImage({ className, ...props }, ref) {
-  return (
-    <UIAvatar.Image
-      ref={ref}
-      {...props}
-      className={avatarImageStyle({
-        class: className,
-      })}
-      // @ts-expect-error : This is a workaround to fix the issue with the image style on web.
-      style={
-        Platform.OS === 'web'
-          ? { height: 'revert-layer', width: 'revert-layer' }
-          : undefined
-      }
-    />
-  );
-});
-
-type IAvatarGroupProps = React.ComponentPropsWithoutRef<typeof UIAvatar.Group> &
-  VariantProps<typeof avatarGroupStyle>;
-
-const AvatarGroup = React.forwardRef<
-  React.ComponentRef<typeof UIAvatar.Group>,
-  IAvatarGroupProps
->(function AvatarGroup({ className, ...props }, ref) {
-  return (
-    <UIAvatar.Group
-      ref={ref}
-      {...props}
-      className={avatarGroupStyle({
-        class: className,
-      })}
-    />
-  );
-});
+Avatar.displayName = 'Avatar';
+AvatarBadge.displayName = 'AvatarBadge';
+AvatarFallbackText.displayName = 'AvatarFallbackText';
+AvatarImage.displayName = 'AvatarImage';
+AvatarGroup.displayName = 'AvatarGroup';
 
 export { Avatar, AvatarBadge, AvatarFallbackText, AvatarImage, AvatarGroup };

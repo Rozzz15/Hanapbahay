@@ -168,10 +168,7 @@ export function InteractiveButton({
                 style={{
                     transform: [{ scale: scaleAnim }],
                     opacity: opacityAnim,
-                    shadowOpacity: shadowAnim,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowColor: '#000',
+                    boxShadow: `0 4px 8px rgba(0, 0, 0, ${shadowAnim})`,
                 }}
             >
                 <Pressable
@@ -225,7 +222,7 @@ export function InteractiveButton({
                 className={`${getButtonStyles()} ${variantStyles.border}`}
             >
                 <LinearGradient
-                    colors={variantStyles.gradient}
+                    colors={variantStyles.gradient as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     className="flex-row items-center justify-center rounded-2xl relative"

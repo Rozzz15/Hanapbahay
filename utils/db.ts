@@ -4,13 +4,16 @@ import {
   TenantProfileRecord,
   OwnerProfileRecord,
   OwnerVerificationRecord,
-  ListingDraftRecord,
   PaymentProfileRecord,
+  PaymentAccount,
   UserProfilePhotoRecord,
   PublishedListingRecord,
   ConversationRecord,
   MessageRecord,
-  PropertyPhotoRecord
+  PropertyPhotoRecord,
+  PropertyVideoRecord,
+  BookingRecord,
+  FavoriteRecord
 } from '@/types';
 
 type CollectionName =
@@ -19,27 +22,47 @@ type CollectionName =
   | 'owners'
   | 'owner_profiles'
   | 'owner_verifications'
-  | 'listing_drafts'
-  | 'draft_listings'
   | 'payment_profiles'
+  | 'payment_accounts'
   | 'conversations'
   | 'messages'
   | 'user_profile_photos'
   | 'property_photos'
-  | 'published_listings';
+  | 'property_videos'
+  | 'published_listings'
+  | 'bookings'
+  | 'favorites';
 
-type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | ListingDraftRecord | PaymentProfileRecord | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord;
+type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord;
 
 export const KEY_PREFIX = 'hb_db_';
 
+// Cache for frequently accessed collections to reduce AsyncStorage calls
+const collectionCache = new Map<string, any>();
+
 async function readCollection<T extends AnyRecord>(name: CollectionName): Promise<Record<string, T>> {
   const key = KEY_PREFIX + name;
+  
+  // Check cache first for better performance
+  if (collectionCache.has(key)) {
+    return collectionCache.get(key);
+  }
+  
   const raw = await AsyncStorage.getItem(key);
-  return raw ? JSON.parse(raw) as Record<string, T> : {};
+  const result = raw ? JSON.parse(raw) as Record<string, T> : {};
+  
+  // Cache the result for future calls
+  collectionCache.set(key, result);
+  
+  return result;
 }
 
 async function writeCollection<T extends AnyRecord>(name: CollectionName, data: Record<string, T>): Promise<void> {
   const key = KEY_PREFIX + name;
+  
+  // Update cache immediately for consistency
+  collectionCache.set(key, data);
+  
   await AsyncStorage.setItem(key, JSON.stringify(data));
 }
 
@@ -88,19 +111,43 @@ export async function clearAllCollections(): Promise<void> {
   }
 }
 
+// Check if an owner has any existing published listings
+export async function hasOwnerListings(ownerId: string): Promise<boolean> {
+  try {
+    console.log('🔍 Checking if owner has existing listings:', ownerId);
+    
+    // Check published listings only
+    const publishedListings = await db.list<PublishedListingRecord>('published_listings');
+    const hasPublishedListings = publishedListings.some(listing => listing.userId === ownerId);
+    
+    console.log(`📊 Owner listing check results:`, {
+      ownerId,
+      publishedListings: publishedListings.length,
+      hasPublishedListings
+    });
+    
+    return hasPublishedListings;
+  } catch (error) {
+    console.error('❌ Error checking owner listings:', error);
+    return false; // Default to false if there's an error
+  }
+}
+
 // Remove duplicate published listings based on unique properties
+// IMPORTANT: Only removes listings with EXACT same ID (true duplicates)
 export async function removeDuplicateListings(): Promise<void> {
   try {
     const publishedListings = await readCollection<PublishedListingRecord>('published_listings');
     const uniqueListings = new Map<string, PublishedListingRecord>();
     
-    // Group by unique key (address + propertyType + userId)
+    // Group by listing ID only (not by address/propertyType) 
+    // This prevents removing valid different listings at the same address
     Object.values(publishedListings).forEach(listing => {
-      const key = `${listing.address}_${listing.propertyType}_${listing.userId}`;
+      const key = listing.id; // Only use ID as unique key
       if (!uniqueListings.has(key)) {
         uniqueListings.set(key, listing);
       } else {
-        // Keep the most recent one if there are duplicates
+        // Keep the most recent one if there are true duplicates (same ID)
         const existing = uniqueListings.get(key)!;
         if (listing.publishedAt && existing.publishedAt) {
           if (new Date(listing.publishedAt) > new Date(existing.publishedAt)) {
@@ -123,10 +170,69 @@ export async function removeDuplicateListings(): Promise<void> {
     const cleanedCount = Object.keys(cleanedListings).length;
     const removedCount = originalCount - cleanedCount;
     
-    console.log(`🧹 Cleaned published listings: ${originalCount} → ${cleanedCount} (removed ${removedCount} duplicates)`);
+    if (removedCount > 0) {
+      console.log(`🧹 Cleaned published listings: ${originalCount} → ${cleanedCount} (removed ${removedCount} true duplicates with same ID)`);
+    } else {
+      console.log(`✅ No duplicate listings found - all ${originalCount} listings are unique`);
+    }
   } catch (error) {
     console.error('❌ Error removing duplicate listings:', error);
   }
 }
 
+// Verify listing persistence for a specific user
+export async function verifyUserListingsPersistence(userId: string): Promise<{
+  success: boolean;
+  listingsCount: number;
+  listings: PublishedListingRecord[];
+  message: string;
+}> {
+  try {
+    console.log(`🔍 Verifying listing persistence for user: ${userId}`);
+    
+    const allListings = await db.list<PublishedListingRecord>('published_listings');
+    const userListings = allListings.filter(listing => listing.userId === userId);
+    
+    console.log(`📊 Found ${userListings.length} listings for user ${userId}`);
+    
+    // Log listing details for verification
+    userListings.forEach((listing, index) => {
+      console.log(`📋 Listing ${index + 1}:`, {
+        id: listing.id,
+        propertyType: listing.propertyType,
+        address: listing.address?.substring(0, 50) + '...',
+        monthlyRent: listing.monthlyRent,
+        publishedAt: listing.publishedAt,
+        hasPhotos: !!(listing.photos && listing.photos.length > 0),
+        photosCount: listing.photos?.length || 0
+      });
+    });
+    
+    return {
+      success: true,
+      listingsCount: userListings.length,
+      listings: userListings,
+      message: `Successfully verified ${userListings.length} listings for user ${userId}`
+    };
+  } catch (error) {
+    console.error('❌ Error verifying user listings persistence:', error);
+    return {
+      success: false,
+      listingsCount: 0,
+      listings: [],
+      message: `Failed to verify listings: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
 
+// Get all records from a collection
+export async function getAll<T extends AnyRecord>(name: CollectionName): Promise<T[]> {
+  const collection = await readCollection<T>(name);
+  return Object.values(collection);
+}
+
+// Clear cache function
+export async function clearCache(): Promise<void> {
+  collectionCache.clear();
+  console.log('🗑️ Database cache cleared');
+}

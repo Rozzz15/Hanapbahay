@@ -13,8 +13,8 @@ export * from './listings';
 // Common
 export * from './common';
 
-// Property Owner
-export * from './property-owner';
-
 // UI Components (Gluestack UI)
 export * from './ui';
+
+// Navigation
+export { default as OwnerBottomNav } from './OwnerBottomNav';

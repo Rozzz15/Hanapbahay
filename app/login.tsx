@@ -1,47 +1,32 @@
 import { useRouter } from 'expo-router';
-import { VStack } from '@/components/ui/vstack';
-import { HStack } from '@/components/ui/hstack';
-import { Text } from '@/components/ui/text';
-import { ScrollView } from 'react-native';
-import {
-    FormControl,
-    FormControlError,
-    FormControlErrorText,
-    FormControlErrorIcon,
-    FormControlLabel,
-    FormControlLabelText,
-} from "@/components/ui/form-control"
-import { Input, InputField } from '@/components/ui/input';
-import { AlertCircleIcon, Icon, ChevronLeftIcon, EyeIcon, EyeOffIcon, MailIcon, LockIcon, CheckIcon } from "@/components/ui/icon"
+import { ScrollView, Pressable, View, Text, StyleSheet, Dimensions } from 'react-native';
 import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
 import { loginUser, loginSchema } from '@/api/auth/login';
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+// Removed react-hook-form - using React state instead
 import { useAuth } from '@/context/AuthContext';
-import { InteractiveButton } from '@/components/buttons';
+import { ModernButton } from '@/components/buttons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useToast, Toast, ToastTitle, ToastDescription } from "@/components/ui/toast";
+import { useToast } from "@/components/ui/toast";
+import { notifications } from "@/utils";
+import { Ionicons } from '@expo/vector-icons';
+import { TextInput } from 'react-native';
+
+const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { refreshUser } = useAuth();
+    const { refreshUser, redirectOwnerBasedOnListings, redirectTenantToTabs } = useAuth();
     const toast = useToast();
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
     const [savedEmail, setSavedEmail] = useState('');
 
-    // Use React Hook Form with Zod validation
-    const {
-        register,
-        handleSubmit,
-        setValue,
-        formState: { errors, isSubmitting },
-    } = useForm({
-        resolver: zodResolver(loginSchema),
-    });
+    // Use React state for form management
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [errors, setErrors] = useState({ email: '', password: '' });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Load saved email and remember me preference
     useEffect(() => {
@@ -52,7 +37,7 @@ export default function LoginScreen() {
                 
                 if (savedEmail) {
                     setSavedEmail(savedEmail);
-                    setValue("email", savedEmail);
+                    setEmail(savedEmail);
                 }
                 
                 if (rememberMePref === 'true') {
@@ -64,19 +49,54 @@ export default function LoginScreen() {
         };
         
         loadSavedData();
-    }, [setValue]);
+    }, []);
 
-    const onSubmit = async (data: any) => {
+    // Check if user was redirected here due to logout
+    useEffect(() => {
+        const checkLogoutRedirect = async () => {
+            try {
+                // Check if there's a logout flag in storage
+                const logoutFlag = await AsyncStorage.getItem('user_logged_out');
+                if (logoutFlag === 'true') {
+                    // Show logout notification
+                    toast.show(notifications.logoutSuccess());
+                    
+                    // Clear the logout flag
+                    await AsyncStorage.removeItem('user_logged_out');
+                }
+            } catch (error) {
+                console.error('Error checking logout redirect:', error);
+            }
+        };
+        
+        checkLogoutRedirect();
+    }, [toast]);
+
+    const onSubmit = async () => {
         try {
+            // Clear previous errors
+            setErrors({ email: '', password: '' });
+            
+            // Basic validation
+            if (!email.trim()) {
+                setErrors(prev => ({ ...prev, email: 'Email is required' }));
+                return;
+            }
+            if (!password.trim()) {
+                setErrors(prev => ({ ...prev, password: 'Password is required' }));
+                return;
+            }
+            
+            setIsSubmitting(true);
             console.log('Starting sign-in process...');
-            const result = await loginUser(data);
+            const result = await loginUser({ email, password });
             
             if (result.success) {
                 console.log('Sign-in successful, refreshing user context...');
                 
                 // Handle remember me functionality
                 if (rememberMe) {
-                    await AsyncStorage.setItem('remembered_email', data.email);
+                    await AsyncStorage.setItem('remembered_email', email);
                     await AsyncStorage.setItem('remember_me', 'true');
                 } else {
                     await AsyncStorage.removeItem('remembered_email');
@@ -87,22 +107,18 @@ export default function LoginScreen() {
                 
                 console.log('User context refreshed, showing welcome message...');
                 // Show welcome back toast
-                toast.show({
-                    placement: "top",
-                    render: ({ id }) => (
-                        <Toast nativeID={id} action="success">
-                            <ToastTitle>Welcome Back!</ToastTitle>
-                            <ToastDescription>Great to see you again! 🎉</ToastDescription>
-                        </Toast>
-                    ),
-                });
+                toast.show(notifications.loginSuccess());
 
                 console.log('Redirecting based on role...');
-                const roles = result.roles || result.user?.roles || [];
+                const roles = (result as any).roles || (result as any).user?.roles || [];
+                
                 if (Array.isArray(roles) && roles.includes('owner')) {
-                    router.replace('/(owner)/dashboard');
+                    // Use the AuthContext function to handle owner redirect
+                    const ownerId = (result as any).user?.id || (result as any).id;
+                    await redirectOwnerBasedOnListings(ownerId);
                 } else {
-                    router.replace('/(tabs)');
+                    // Redirect tenant to tenant dashboard
+                    await redirectTenantToTabs();
                 }
             } else {
                 console.log('Sign-in failed:', result.error);
@@ -111,6 +127,8 @@ export default function LoginScreen() {
         } catch (error) {
             console.error('Login error:', error);
             alert("Invalid email or password");
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -120,191 +138,299 @@ export default function LoginScreen() {
     };
 
     return (
-        <VStack className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-            {/* Header with Modern Gradient Background */}
-            <LinearGradient
-                colors={['#1E40AF', '#3B82F6', '#60A5FA']}
-                className="px-6 pt-16 pb-12"
-            >
-                <VStack className="items-center">
-                    {/* Back Button */}
-                    <HStack className="w-full justify-start mb-8">
-                        <Button 
-                            className='p-3 bg-white/20 rounded-full' 
-                            variant='link' 
-                            size='lg' 
-                            onPress={() => router.navigate('/')}
-                        >
-                            <Icon as={ChevronLeftIcon} size='xl' className="text-white" />
-                        </Button>
-                    </HStack>
+        <View style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <Pressable 
+                    style={styles.backButton}
+                    onPress={() => router.navigate('/')}
+                >
+                    <Ionicons name="arrow-back" size={24} color="#374151" />
+                </Pressable>
+                
+                <View style={styles.logoContainer}>
+                    <Ionicons name="home" size={32} color="#10B981" />
+                    <Text style={styles.logoText}>HanapBahay</Text>
+                </View>
+                
+                <Text style={styles.welcomeText}>Welcome Back!</Text>
+                <Text style={styles.subtitleText}>
+                    Sign in to continue your journey to find the perfect home
+                </Text>
+            </View>
 
-                    {/* Brand Section with House Search Theme */}
-                    <VStack className="items-center mb-8">
-                        <VStack className="bg-white/20 backdrop-blur-sm rounded-2xl p-6 mb-4">
-                            <Text size="4xl" className="font-bold text-white text-center mb-2">
-                                HanapBahay
-                            </Text>
-                        </VStack>
-                        <Text size="3xl" className="font-bold text-white text-center mb-2">
-                            Welcome Back!
-                        </Text>
-                        <Text size="lg" className="text-white/90 text-center max-w-sm">
-                            Sign in to continue your journey to find the perfect home
-                        </Text>
-                    </VStack>
-                </VStack>
-            </LinearGradient>
-
-            {/* Scrollable Main Content with Modern Card Design */}
+            {/* Form Card */}
             <ScrollView 
-                className="flex-1 px-6 -mt-8"
+                style={styles.scrollView}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 20 }}
+                contentContainerStyle={styles.scrollContent}
             >
-                <VStack className="bg-white rounded-3xl shadow-2xl p-8 space-y-6">
-                    {/* Form Header */}
-                    <VStack className="items-center mb-8">
-                        <Text size="2xl" className="font-bold text-gray-800 text-center mb-2">
-                            Sign In to Your Account
-                        </Text>
-                        <Text size="sm" className="text-gray-600 text-center">
-                            Tenants and Property Owners can sign in here
-                        </Text>
-                    </VStack>
+                <View style={styles.formCard}>
+                    <Text style={styles.formTitle}>Sign In to Your Account</Text>
+                    <Text style={styles.formSubtitle}>
+                        Tenants and Property Owners can sign in here
+                    </Text>
+
                     {/* Email Field */}
-                    <FormControl isInvalid={!!errors.email} className='w-full'>
-                        <FormControlLabel>
-                            <HStack className="items-center space-x-2">
-                                <Icon as={MailIcon} size="sm" className="text-blue-600" />
-                                <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Email Address</FormControlLabelText>
-                            </HStack>
-                        </FormControlLabel>
-                        <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                            borderWidth: 2, 
-                            borderColor: errors.email ? '#EF4444' : '#E5E7EB',
-                            backgroundColor: '#FAFAFA'
-                        }}>
-                            <InputField
-                                id="email"
-                                name="email"
-                                type="text"
+                    <View style={styles.inputContainer}>
+                        <Text style={styles.inputLabel}>Email Address</Text>
+                        <View style={[styles.inputWrapper, errors.email && styles.inputError]}>
+                            <Ionicons name="mail" size={20} color="#10B981" style={styles.inputIcon} />
+                            <TextInput
+                                style={styles.textInput}
                                 placeholder="Enter your email address"
-                                {...register("email")}
-                                onChangeText={(text) => setValue("email", text)}
-                                className="text-gray-800 text-base"
+                                placeholderTextColor="#9CA3AF"
+                                value={email}
+                                onChangeText={(text) => {
+                                    setEmail(text);
+                                    setSavedEmail(text);
+                                }}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoCorrect={false}
                             />
-                        </Input>
+                        </View>
                         {errors.email && (
-                            <FormControlError>
-                                <FormControlErrorIcon as={AlertCircleIcon} />
-                                <FormControlErrorText>{errors.email.message}</FormControlErrorText>
-                            </FormControlError>
+                            <Text style={styles.errorText}>{errors.email}</Text>
                         )}
-                    </FormControl>
+                    </View>
 
                     {/* Password Field */}
-                    <FormControl isInvalid={!!errors.password} className='w-full'>
-                        <FormControlLabel>
-                            <HStack className="items-center space-x-2">
-                                <Icon as={LockIcon} size="sm" className="text-blue-600" />
-                                <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Password</FormControlLabelText>
-                            </HStack>
-                        </FormControlLabel>
-                        <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                            borderWidth: 2, 
-                            borderColor: errors.password ? '#EF4444' : '#E5E7EB',
-                            backgroundColor: '#FAFAFA'
-                        }}>
-                            <InputField
-                                id="password"
-                                name="password"
-                                type={showPassword ? "text" : "password"}
+                    <View style={styles.inputContainer}>
+                        <Text style={styles.inputLabel}>Password</Text>
+                        <View style={[styles.inputWrapper, errors.password && styles.inputError]}>
+                            <Ionicons name="lock-closed" size={20} color="#10B981" style={styles.inputIcon} />
+                            <TextInput
+                                style={styles.textInput}
                                 placeholder="Enter your password"
-                                {...register("password")}
-                                onChangeText={(text) => setValue("password", text)}
-                                className="text-gray-800 text-base"
+                                placeholderTextColor="#9CA3AF"
+                                secureTextEntry={!showPassword}
+                                value={password}
+                                onChangeText={setPassword}
                             />
-                            <Button
-                                variant="link"
-                                size="sm"
+                            <Pressable
+                                style={styles.eyeButton}
                                 onPress={() => setShowPassword(!showPassword)}
-                                className="absolute right-3 top-1/2 transform -translate-y-1/2"
                             >
-                                <Icon 
-                                    as={showPassword ? EyeOffIcon : EyeIcon} 
-                                    size="md" 
-                                    className="text-gray-500"
+                                <Ionicons 
+                                    name={showPassword ? "eye-off" : "eye"} 
+                                    size={20} 
+                                    color="#9CA3AF" 
                                 />
-                            </Button>
-                        </Input>
+                            </Pressable>
+                        </View>
                         {errors.password && (
-                            <FormControlError>
-                                <FormControlErrorIcon as={AlertCircleIcon} />
-                                <FormControlErrorText>{errors.password.message}</FormControlErrorText>
-                            </FormControlError>
+                            <Text style={styles.errorText}>{errors.password}</Text>
                         )}
-                    </FormControl>
+                    </View>
 
                     {/* Remember Me & Forgot Password */}
-                    <HStack className="w-full justify-between items-center mt-6">
-                        <HStack className="items-center space-x-3">
-                            <Pressable
-                                onPress={() => setRememberMe(!rememberMe)}
-                                className={`w-6 h-6 border-2 rounded-lg items-center justify-center ${
-                                    rememberMe ? 'border-blue-500 bg-blue-500' : 'border-gray-300 bg-transparent'
-                                }`}
-                            >
-                                {rememberMe && (
-                                    <Icon as={CheckIcon} size="xs" className="text-white" />
-                                )}
-                            </Pressable>
-                            <Text size="sm" className="text-gray-600">
-                                Remember me
-                            </Text>
-                        </HStack>
-                        <Button
-                            variant="link"
-                            size="sm"
-                            onPress={handleForgotPassword}
-                            className="p-0"
+                    <View style={styles.optionsContainer}>
+                        <Pressable
+                            style={styles.rememberMeContainer}
+                            onPress={() => setRememberMe(!rememberMe)}
                         >
-                            <Text size="sm" className="text-blue-600 font-semibold">
-                                Forgot Password?
-                            </Text>
-                        </Button>
-                    </HStack>
+                            <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                                {rememberMe && (
+                                    <Ionicons name="checkmark" size={16} color="#fff" />
+                                )}
+                            </View>
+                            <Text style={styles.rememberMeText}>Remember me</Text>
+                        </Pressable>
+                        
+                        <Pressable onPress={handleForgotPassword}>
+                            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                        </Pressable>
+                    </View>
 
                     {/* Sign In Button */}
-                    <VStack className='mt-8 w-full items-center'>
-                        <InteractiveButton
-                            isLoading={isSubmitting}
-                            text="Sign In"
-                            onPress={handleSubmit(onSubmit)}
-                            variant="primary"
-                            size="lg"
-                            fullWidth={true}
-                        />
-                    </VStack>
-
+                    <ModernButton
+                        title="Sign In"
+                        onPress={onSubmit}
+                        variant="primary"
+                        size="lg"
+                        isLoading={isSubmitting}
+                        fullWidth={true}
+                        icon="arrow-forward"
+                        iconPosition="right"
+                    />
 
                     {/* Sign Up Link */}
-                    <VStack className="mt-6 w-full items-center">
-                        <Text size="sm" className="text-gray-600">
-                            Don't have an account?{' '}
-                        </Text>
-                        <Button 
-                            variant="link" 
-                            size="sm"
-                            onPress={() => router.push('/sign-up')}
-                        >
-                            <Text size="sm" className="text-blue-600 font-semibold">
-                                Create Account
-                            </Text>
-                        </Button>
-                    </VStack>
-                </VStack>
+                    <View style={styles.signUpContainer}>
+                        <Text style={styles.signUpText}>Don't have an account? </Text>
+                        <Pressable onPress={() => router.push('/sign-up')}>
+                            <Text style={styles.signUpLink}>Create Account</Text>
+                        </Pressable>
+                    </View>
+                </View>
             </ScrollView>
-        </VStack>
+        </View>
     );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    header: {
+        paddingTop: 60,
+        paddingHorizontal: 24,
+        paddingBottom: 30,
+        backgroundColor: '#FFFFFF',
+    },
+    backButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+    logoContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        marginBottom: 20,
+    },
+    logoText: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#111827',
+        letterSpacing: 1,
+    },
+    welcomeText: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: '#111827',
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    subtitleText: {
+        fontSize: 16,
+        color: '#6B7280',
+        textAlign: 'center',
+        lineHeight: 22,
+    },
+    scrollView: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    scrollContent: {
+        paddingHorizontal: 24,
+        paddingBottom: 40,
+    },
+    formCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 24,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    formTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#1F2937',
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    formSubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginBottom: 32,
+    },
+    inputContainer: {
+        marginBottom: 20,
+    },
+    inputLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8,
+    },
+    inputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+    },
+    inputError: {
+        borderColor: '#EF4444',
+    },
+    inputIcon: {
+        marginRight: 12,
+    },
+    textInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#1F2937',
+    },
+    eyeButton: {
+        padding: 4,
+    },
+    errorText: {
+        fontSize: 14,
+        color: '#EF4444',
+        marginTop: 4,
+    },
+    optionsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 32,
+    },
+    rememberMeContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    checkbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 4,
+        borderWidth: 2,
+        borderColor: '#D1D5DB',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    checkboxChecked: {
+        backgroundColor: '#10B981',
+        borderColor: '#10B981',
+    },
+    rememberMeText: {
+        fontSize: 14,
+        color: '#6B7280',
+    },
+    forgotPasswordText: {
+        fontSize: 14,
+        color: '#10B981',
+        fontWeight: '600',
+    },
+    signUpContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 24,
+    },
+    signUpText: {
+        fontSize: 14,
+        color: '#6B7280',
+    },
+    signUpLink: {
+        fontSize: 14,
+        color: '#10B981',
+        fontWeight: '600',
+    },
+});

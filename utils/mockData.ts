@@ -24,8 +24,9 @@ export interface PropertyFacility {
 export const propertyTypes: PropertyType[] = [
   { id: '1', label: 'Any', value: 'any' },
   { id: '2', label: 'House', value: 'house' },
-  { id: '3', label: 'Studio', value: 'studio' },
-  { id: '4', label: 'Cabin', value: 'cabin' },
+  { id: '3', label: 'Apartment', value: 'apartment' },
+  { id: '4', label: 'Condo', value: 'condo' },
+  { id: '5', label: 'Bedspace', value: 'bedspace' },
 ];
 
 export const propertyFacilities: PropertyFacility[] = [

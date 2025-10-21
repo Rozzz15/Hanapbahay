@@ -8,78 +8,77 @@ export interface ButtonOption {
 
 interface ButtonCarouselProps {
   options: ButtonOption[];
-  selectedValue: string;
+  selectedId: string;
   onSelect: (value: string) => void;
-  defaultSelectedValue?: string;
+  defaultSelectedId?: string;
   isPreSelected?: boolean; // Indicates if this comes from user preferences
 }
 
 export default function ButtonCarousel({ 
   options,
-  selectedValue,
+  selectedId,
   onSelect,
-  defaultSelectedValue,
+  defaultSelectedId,
   isPreSelected = false
 }: ButtonCarouselProps) {
   
   // Set default selected if provided and no selection yet
   React.useEffect(() => {
-    if (defaultSelectedValue && !selectedValue) {
-      onSelect(defaultSelectedValue);
+    if (defaultSelectedId && !selectedId) {
+      onSelect(defaultSelectedId);
     }
-  }, [defaultSelectedValue, selectedValue, onSelect]);
+  }, [defaultSelectedId, selectedId, onSelect]);
 
   return (
-    <ScrollView 
-      horizontal 
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{
-        paddingHorizontal: 8,
-        gap: 8,
-      }}
-    >
-      {options.map((option) => {
-        const isSelected = selectedValue === option.id;
-        const isPreSelectedItem = isPreSelected && isSelected;
-        
-        return (
-          <TouchableOpacity
-            selectable={false}
-            key={option.id}
-            onPress={() => {
-              console.log(`🔘 ButtonCarousel: Selected ${option.label} (${option.id})`);
-              onSelect(option.id);
-            }}
-            style={{
-              paddingHorizontal: 24,
-              paddingVertical: 12,
-              borderRadius: 9999,
-              backgroundColor: isSelected ? '#059669' : '#F3F4F6',
-              borderWidth: isSelected ? 3 : 1,
-              borderColor: isSelected ? '#047857' : '#D1D5DB',
-              shadowColor: isSelected ? 'rgba(5, 150, 105, 0.6)' : 'transparent',
-              shadowOffset: isSelected ? { width: 0, height: 6 } : { width: 0, height: 0 },
-              shadowOpacity: isSelected ? 1 : 0,
-              shadowRadius: isSelected ? 12 : 0,
-              elevation: isSelected ? 8 : 0,
-              transform: isSelected ? [{ scale: 1.15 }] : [{ scale: 1 }],
-              opacity: isSelected ? 1 : 0.8,
-            }}
-          >
-            <Text style={{
-              fontSize: 16,
-              fontWeight: isSelected ? '800' : '400',
-              color: isSelected ? '#FFFFFF' : '#6B7280',
-              textShadowColor: isSelected ? 'rgba(0, 0, 0, 0.3)' : 'transparent',
-              textShadowOffset: isSelected ? { width: 0, height: 2 } : { width: 0, height: 0 },
-              textShadowRadius: isSelected ? 2 : 0,
-            }}>
-              {option.label}
-              {isPreSelectedItem && ' ✨'}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
+    <View style={{ marginBottom: 8 }}>
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: 2,
+          gap: 8,
+        }}
+      >
+        {options.map((option) => {
+          const isSelected = selectedId === option.id;
+          const isPreSelectedItem = isPreSelected && isSelected;
+          
+          return (
+            <TouchableOpacity
+              key={option.id}
+              onPress={() => {
+                console.log(`🔘 ButtonCarousel: Selected ${option.label} (${option.id})`);
+                onSelect(option.id);
+              }}
+              style={{
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: isSelected ? '#3B82F6' : '#FFFFFF',
+                borderWidth: isSelected ? 2 : 1,
+                borderColor: isSelected ? '#1D4ED8' : '#E5E7EB',
+                boxShadow: isSelected ? '0 4px 8px rgba(59, 130, 246, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                elevation: isSelected ? 6 : 1,
+                transform: isSelected ? [{ scale: 1.05 }] : [{ scale: 1 }],
+                opacity: isSelected ? 1 : 0.95,
+                minWidth: 80,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{
+                fontSize: 15,
+                fontWeight: isSelected ? '700' : '500',
+                color: isSelected ? '#FFFFFF' : '#374151',
+                textAlign: 'center',
+                letterSpacing: 0.3,
+              }}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
   );
 } 

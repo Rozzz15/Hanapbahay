@@ -1,20 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { View, ScrollView, Pressable, Alert, Modal, TextInput, TouchableOpacity, Image, Platform } from 'react-native';
+import React, { useState, useEffect, useCallback, memo } from 'react';
+import { View, ScrollView, Pressable, Alert, Modal, TextInput, TouchableOpacity, Image, Platform, StyleSheet, Text } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { VStack } from '@/components/ui/vstack';
-import { Text } from '@/components/ui/text';
-import { ChevronRight, User2, CreditCard, HelpCircle, LogOut, X, Image as ImageIcon, Trash2, Home } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { InteractiveButton } from '@/components/buttons';
-import { useToast, Toast, ToastTitle, ToastDescription } from '@/components/ui/toast';
-import { 
-    saveUserProfilePhoto, 
-    getUserProfilePhoto, 
-    deleteUserProfilePhoto, 
-    updateUserProfilePhoto 
-} from '@/utils/profile-photos';
+import { useToast } from '@/components/ui/toast';
+import { notifications, createNotification } from '@/utils';
+import { saveUserProfilePhoto } from '@/utils/user-profile-photos';
 
 type MenuItem = {
     icon: React.ReactNode;
@@ -24,64 +17,49 @@ type MenuItem = {
     isLogout?: boolean;
 };
 
-const MenuButton = ({ item }: { item: MenuItem }) => {
+const MenuButton = memo(({ item }: { item: MenuItem }) => {
     const router = useRouter();
 
-    const handlePress = () => {
+    const handlePress = useCallback(() => {
         console.log('MenuButton pressed:', item.label);
         if (item.onPress) {
             console.log('Calling onPress for:', item.label);
             item.onPress();
         } else if (item.route) {
             console.log('Navigating to route:', item.route);
-            router.push(item.route as any); // Type assertion since we know these are valid routes
+            router.push(item.route as any);
         }
-    };
-
-    // Use TouchableOpacity for better web compatibility
-    if (Platform.OS === 'web') {
-        return (
-            <TouchableOpacity
-                onPress={handlePress}
-                className={`flex-row items-center py-4 px-4 bg-white border-b border-gray-100 ${item.isLogout ? 'bg-red-50' : ''}`}
-                accessibilityRole="button"
-                accessibilityLabel={item.label}
-                accessibilityHint={item.isLogout ? 'Double tap to logout' : `Double tap to open ${item.label}`}
-                activeOpacity={0.7}
-            >
-                <View className={`w-8 h-8 justify-center items-center rounded-full mr-3 ${item.isLogout ? 'bg-red-100' : 'bg-gray-50'}`}>
-                    {item.icon}
-                </View>
-                <Text className={`flex-1 text-base ${item.isLogout ? 'text-red-600 font-semibold' : ''}`}>{item.label}</Text>
-                {!item.isLogout && <ChevronRight size={20} color="#9CA3AF" />}
-            </TouchableOpacity>
-        );
-    }
+    }, [item, router]);
 
     return (
-        <Pressable
+        <TouchableOpacity
             onPress={handlePress}
-            style={({ pressed }) => [
-                {
-                    opacity: pressed ? 0.7 : 1,
-                    transform: [{ scale: pressed ? 0.98 : 1 }]
-                }
+            style={[
+                styles.menuButton,
+                item.isLogout && styles.logoutButton
             ]}
-            className={`flex-row items-center py-4 px-4 bg-white border-b border-gray-100 ${item.isLogout ? 'bg-red-50' : ''}`}
-            accessibilityRole="button"
-            accessibilityLabel={item.label}
-            accessibilityHint={item.isLogout ? 'Double tap to logout' : `Double tap to open ${item.label}`}
+            activeOpacity={0.7}
         >
-            <View className={`w-8 h-8 justify-center items-center rounded-full mr-3 ${item.isLogout ? 'bg-red-100' : 'bg-gray-50'}`}>
+            <View style={[
+                styles.menuIcon,
+                item.isLogout && styles.logoutIcon
+            ]}>
                 {item.icon}
             </View>
-            <Text className={`flex-1 text-base ${item.isLogout ? 'text-red-600 font-semibold' : ''}`}>{item.label}</Text>
-            {!item.isLogout && <ChevronRight size={20} color="#9CA3AF" />}
-        </Pressable>
+            <Text style={[
+                styles.menuText,
+                item.isLogout && styles.logoutText
+            ]}>
+                {item.label}
+            </Text>
+            {!item.isLogout && (
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+            )}
+        </TouchableOpacity>
     );
-};
+});
 
-export default function ProfileScreen() {
+const ProfileScreen = memo(function ProfileScreen() {
     const router = useRouter();
     const { signOut, user, isAuthenticated } = useAuth();
     const isOwner = Array.isArray(user?.roles) && user?.roles.includes('owner');
@@ -89,9 +67,8 @@ export default function ProfileScreen() {
     
     // State for modals
     const [showPersonalDetails, setShowPersonalDetails] = useState(false);
-    const [showPaymentDetails, setShowPaymentDetails] = useState(false);
     const [showFAQ, setShowFAQ] = useState(false);
-    const [showCardNumber, setShowCardNumber] = useState(false);
+    const [hasError, setHasError] = useState(false);
     
     // Personal details state - initialize with empty values, will be loaded from storage/database
     const [personalDetails, setPersonalDetails] = useState({
@@ -103,12 +80,28 @@ export default function ProfileScreen() {
         profilePhoto: null as string | null
     });
     
+    // Temporary form state - changes are only applied when "Save Changes" is clicked
+    const [tempPersonalDetails, setTempPersonalDetails] = useState({
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '+63',
+        address: '',
+        profilePhoto: null as string | null
+    });
+    
+    // Reset temporary state when modal is closed without saving
+    const handleCloseModal = () => {
+        console.log('🚪 Closing personal details modal - resetting temporary state');
+        setTempPersonalDetails({...personalDetails}); // Reset to current saved state
+        setShowPersonalDetails(false);
+    };
+    
     // Fixed country code for Philippines
     const countryCode = '+63';
     
     // Storage keys (per-user)
     const PERSONAL_DETAILS_KEY = user?.id ? `personal_details:${user.id}` : 'personal_details';
-    const PAYMENT_DETAILS_KEY = user?.id ? `payment_details:${user.id}` : 'payment_details';
     
     // Load data from storage on component mount
     useEffect(() => {
@@ -142,7 +135,6 @@ export default function ProfileScreen() {
                 }
                 
                 await loadPersonalDetails();
-                await loadPaymentDetails();
                 console.log('✅ User data loaded successfully');
                 // Note: Removed clearAllStoredData to preserve sign-up data
             } catch (error) {
@@ -156,52 +148,119 @@ export default function ProfileScreen() {
         }
     }, [user?.id]);
     
-    // Force refresh when component becomes visible
+    // Reload profile data when authentication state changes (after login/logout)
     useEffect(() => {
-        const handleFocus = () => {
-            console.log('🔄 Profile screen focused, refreshing data...');
+        console.log('🔄 Auth state effect triggered:', { isAuthenticated, userId: user?.id });
+        if (isAuthenticated && user?.id) {
+            console.log('🔄 Authentication state changed - reloading profile data');
             loadPersonalDetails();
-            loadPaymentDetails();
+            
+            // Also refresh profile photo specifically
+            setTimeout(() => {
+                refreshProfilePhoto();
+            }, 500); // Small delay to ensure user data is loaded first
+        }
+    }, [isAuthenticated, user?.id]);
+
+    // Listen for profile photo loaded events from AuthContext
+    useEffect(() => {
+        const handleProfilePhotoLoaded = (event: CustomEvent) => {
+            const { userId, photoUri } = event.detail;
+            console.log('📸 Received profile photo loaded event:', { userId, hasPhoto: !!photoUri });
+            
+            if (user?.id === userId && photoUri) {
+                console.log('📸 Updating profile photo from event');
+                setPersonalDetails(prev => ({...prev, profilePhoto: photoUri}));
+                
+                // Also save to AsyncStorage for faster access
+                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                AsyncStorage.setItem(photoKey, photoUri).catch(error => {
+                    console.error('❌ Error saving profile photo to storage:', error);
+                });
+            }
         };
+
+        // Add event listener
+        window.addEventListener('profilePhotoLoaded', handleProfilePhotoLoaded as EventListener);
         
-        // This will reload data when the screen comes into focus
-        return () => {};
-    }, []);
+        // Cleanup
+        return () => {
+            window.removeEventListener('profilePhotoLoaded', handleProfilePhotoLoaded as EventListener);
+        };
+    }, [user?.id]);
+    
+    // Reload profile data when screen comes into focus (navigation back to profile)
+    useFocusEffect(
+        useCallback(() => {
+            if (isAuthenticated && user?.id) {
+                console.log('🔄 Profile screen focused - reloading profile data');
+                loadPersonalDetails();
+            }
+        }, [isAuthenticated, user?.id])
+    );
 
     // Add a refresh function that can be called manually
     const refreshProfileData = async () => {
         console.log('🔄 Manually refreshing profile data...');
         try {
             await loadPersonalDetails();
-            await loadPaymentDetails();
             console.log('✅ Profile data refreshed successfully');
         } catch (error) {
             console.error('❌ Error refreshing profile data:', error);
         }
     };
 
-    // Force refresh when personal details modal is opened
+
+    // Add the missing refreshProfilePhoto function
+    const refreshProfilePhoto = async () => {
+        console.log('🔄 Refreshing profile photo...');
+        try {
+            if (user?.id) {
+                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                const storedPhoto = await AsyncStorage.getItem(photoKey);
+                if (storedPhoto) {
+                    setPersonalDetails(prev => ({...prev, profilePhoto: storedPhoto}));
+                    console.log('✅ Profile photo refreshed from storage');
+                } else {
+                    // If not in storage, try loading from database
+                    try {
+                        console.log('🔍 Refreshing profile photo from database for user:', user.id);
+                        const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                        const dbPhoto = await loadUserProfilePhoto(user.id);
+                        console.log('🔍 Database photo result for refresh:', !!dbPhoto, dbPhoto ? 'has data' : 'no data');
+                        if (dbPhoto) {
+                            setPersonalDetails(prev => ({...prev, profilePhoto: dbPhoto}));
+                            console.log('✅ Profile photo refreshed from database');
+                            // Also save to AsyncStorage for faster future access
+                            await AsyncStorage.setItem(photoKey, dbPhoto);
+                        } else {
+                            console.log('❌ No profile photo found in database for refresh:', user.id);
+                        }
+                    } catch (dbPhotoError) {
+                        console.log('⚠️ Could not refresh profile photo from database:', dbPhotoError);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error refreshing profile photo:', error);
+        }
+    };
+
+    // Force refresh when personal details modal is opened (optimized)
     useEffect(() => {
         if (showPersonalDetails) {
             console.log('📱 Personal details modal opened, refreshing photo display...');
-            // Force a re-render to ensure photo is displayed
-            setTimeout(() => {
-                setPersonalDetails(prev => ({...prev}));
-            }, 100);
+            // Force a re-render to ensure photo is displayed (immediate)
+            setPersonalDetails(prev => ({...prev}));
         }
     }, [showPersonalDetails, personalDetails.profilePhoto]);
     
-    // Force refresh photo display
-    const refreshPhotoDisplay = () => {
-        setPersonalDetails(prev => ({...prev}));
-    };
     
     // Clear all stored data to start fresh
     const clearAllStoredData = async () => {
         try {
             await AsyncStorage.removeItem('auth_user');
             await AsyncStorage.removeItem('personal_details');
-            await AsyncStorage.removeItem('payment_details');
             console.log('All stored data cleared - ready for fresh start');
         } catch (error) {
             console.error('Error clearing stored data:', error);
@@ -211,16 +270,17 @@ export default function ProfileScreen() {
     // Safety check - ensure profile is always accessible
     if (!isAuthenticated) {
         return (
-            <View className="flex-1 justify-center items-center bg-gray-50">
+            <View className="flex-1 justify-center items-center bg-white">
                 <Text className="text-lg font-semibold text-gray-600 mb-2">Authentication Required</Text>
                 <Text className="text-gray-500 text-center px-6">
                     Please log in to access your profile
                 </Text>
-                <InteractiveButton
-                    text="Go to Login"
+                <TouchableOpacity
                     onPress={() => router.push('/login')}
-                    variant="primary"
-                />
+                    style={{ backgroundColor: '#007bff', padding: 10, marginTop: 10, borderRadius: 5 }}
+                >
+                    <Text style={{ color: 'white' }}>Go to Login</Text>
+                </TouchableOpacity>
             </View>
         );
     }
@@ -234,25 +294,7 @@ export default function ProfileScreen() {
             console.log('📂 Loading personal details from persistent storage...');
             console.log('🔑 Storage key:', PERSONAL_DETAILS_KEY);
             console.log('👤 Current user ID:', user?.id);
-            
-            // Always try to load profile photo from database first
-            let profilePhoto = null;
-            if (user?.id) {
-                try {
-                    profilePhoto = await getUserProfilePhoto(user.id);
-                    console.log('📸 Profile photo from database:', {
-                        found: !!profilePhoto,
-                        id: profilePhoto?.id,
-                        fileName: profilePhoto?.fileName,
-                        hasPhotoUri: !!profilePhoto?.photoUri,
-                        photoUriPrefix: profilePhoto?.photoUri?.substring(0, 50),
-                        photoUriLength: profilePhoto?.photoUri?.length,
-                        isBase64: profilePhoto?.photoUri?.startsWith('data:') ? 'Yes' : 'No'
-                    });
-                } catch (photoError) {
-                    console.log('⚠️ Could not load profile photo:', photoError);
-                }
-            }
+            console.log('🔐 Is authenticated:', isAuthenticated);
             
             const stored = await AsyncStorage.getItem(PERSONAL_DETAILS_KEY);
             console.log('📦 Stored data found:', !!stored);
@@ -267,27 +309,38 @@ export default function ProfileScreen() {
                     address: parsedData.address
                 });
                 
-                // Try to load profile photo separately
-                let storedPhoto = null;
+                // Load profile photo from storage and database
+                let finalPhotoUri = null;
                 try {
                     const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    storedPhoto = await AsyncStorage.getItem(photoKey);
-                    console.log('📸 Stored photo found:', !!storedPhoto);
+                    const storedPhoto = await AsyncStorage.getItem(photoKey);
                     if (storedPhoto) {
-                        console.log('📸 Stored photo size:', storedPhoto.length, 'characters');
-                        console.log('📸 Stored photo preview:', storedPhoto.substring(0, 50) + '...');
+                        finalPhotoUri = storedPhoto;
+                        console.log('✅ Loaded profile photo from storage');
+                    } else {
+                        // If not in storage, try loading from database
+                        if (user?.id) {
+                            try {
+                                console.log('🔍 Loading profile photo from database for user:', user.id);
+                                const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                                const dbPhoto = await loadUserProfilePhoto(user.id);
+                                console.log('🔍 Database photo result:', !!dbPhoto, dbPhoto ? 'has data' : 'no data');
+                                if (dbPhoto) {
+                                    finalPhotoUri = dbPhoto;
+                                    console.log('✅ Loaded profile photo from database');
+                                    // Also save to AsyncStorage for faster future access
+                                    await AsyncStorage.setItem(photoKey, dbPhoto);
+                                } else {
+                                    console.log('❌ No profile photo found in database for user:', user.id);
+                                }
+                            } catch (dbPhotoError) {
+                                console.log('⚠️ Could not load profile photo from database:', dbPhotoError);
+                            }
+                        }
                     }
                 } catch (photoError) {
                     console.log('⚠️ Could not load stored photo:', photoError);
                 }
-                
-                // Priority: database photo > stored photo > null
-                const finalPhotoUri = profilePhoto?.photoUri || storedPhoto || null;
-                console.log('🎯 Final photo URI source:', {
-                    databasePhoto: !!profilePhoto?.photoUri,
-                    storedPhoto: !!storedPhoto,
-                    finalPhoto: !!finalPhotoUri
-                });
                 
                 const finalDetails = {
                     ...parsedData,
@@ -296,6 +349,10 @@ export default function ProfileScreen() {
                 };
                 
                 setPersonalDetails(finalDetails);
+                setTempPersonalDetails(finalDetails); // Also update temporary state
+                
+                // Force a re-render to ensure photo is displayed
+                console.log('🔄 Profile photo state updated:', { hasPhoto: !!finalPhotoUri });
             } else {
                 console.log('📝 No stored personal details found, checking database for user data...');
                 
@@ -319,14 +376,37 @@ export default function ProfileScreen() {
                     }
                 }
                 
-                // Try to load profile photo from separate storage even if no personal details exist
-                let storedPhoto = null;
+                // Load profile photo from storage and database for new users
+                let profilePhoto = null;
                 try {
                     const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    storedPhoto = await AsyncStorage.getItem(photoKey);
-                    console.log('📸 Stored photo found (no personal details case):', !!storedPhoto);
+                    const storedPhoto = await AsyncStorage.getItem(photoKey);
+                    if (storedPhoto) {
+                        profilePhoto = storedPhoto;
+                        console.log('✅ Profile photo loaded from storage for new user');
+                    } else {
+                        // If not in storage, try loading from database
+                        if (user?.id) {
+                            try {
+                                console.log('🔍 Loading profile photo from database for new user:', user.id);
+                                const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                                const dbPhoto = await loadUserProfilePhoto(user.id);
+                                console.log('🔍 Database photo result for new user:', !!dbPhoto, dbPhoto ? 'has data' : 'no data');
+                                if (dbPhoto) {
+                                    profilePhoto = dbPhoto;
+                                    console.log('✅ Profile photo loaded from database for new user');
+                                    // Also save to AsyncStorage for faster future access
+                                    await AsyncStorage.setItem(photoKey, dbPhoto);
+                                } else {
+                                    console.log('❌ No profile photo found in database for new user:', user.id);
+                                }
+                            } catch (dbPhotoError) {
+                                console.log('⚠️ Could not load profile photo from database for new user:', dbPhotoError);
+                            }
+                        }
+                    }
                 } catch (photoError) {
-                    console.log('⚠️ Could not load stored photo (no personal details case):', photoError);
+                    console.log('⚠️ Could not load profile photo from storage for new user:', photoError);
                 }
                 
                 // Initialize with user data from database or fallback values (no auto-save)
@@ -336,13 +416,14 @@ export default function ProfileScreen() {
                     email: userData?.email || '', // Show email from user data if available
                     phone: userData?.phone || '+63',
                     address: userData?.address || '',
-                    profilePhoto: profilePhoto?.photoUri || storedPhoto || null
+                    profilePhoto: profilePhoto // Use the profile photo loaded from database
                 };
                 
                 console.log('✅ Initialized personal details with user data (no auto-save):', defaultDetails);
                 console.log('🔍 User data from database:', userData);
-                console.log('🔍 Profile photo from database:', profilePhoto);
+                console.log('🔍 Profile photo loaded:', !!profilePhoto);
                 setPersonalDetails(defaultDetails);
+                setTempPersonalDetails(defaultDetails); // Also update temporary state
                 
                 // NO AUTO-SAVE: User must click "Save Changes" to save
             }
@@ -358,21 +439,11 @@ export default function ProfileScreen() {
                 profilePhoto: null
             };
             setPersonalDetails(fallbackDetails);
+            setTempPersonalDetails(fallbackDetails); // Also update temporary state
             console.log('🔄 Using fallback personal details due to error');
         }
     };
     
-    const loadPaymentDetails = async () => {
-        try {
-            const stored = await AsyncStorage.getItem(PAYMENT_DETAILS_KEY);
-            if (stored) {
-                const parsedData = JSON.parse(stored);
-                setPaymentDetails(parsedData);
-            }
-        } catch (error) {
-            console.error('Error loading payment details:', error);
-        }
-    };
     
     
     const savePersonalDetails = async (data: typeof personalDetails) => {
@@ -423,8 +494,33 @@ export default function ProfileScreen() {
                     if (photoSize > 1000000) {
                         console.warn('⚠️ Profile photo too large for storage, keeping in memory only');
                     } else {
+                        // Save to AsyncStorage for immediate access
                         await AsyncStorage.setItem(photoKey, profilePhoto);
                         console.log('✅ Profile photo saved separately to key:', photoKey);
+                        
+                        // Also save to database for persistence across sessions
+                        if (user?.id) {
+                            try {
+                                console.log('💾 Saving profile photo to database for user:', user.id);
+                                const fileName = `profile_photo_${user.id}_${Date.now()}.jpg`;
+                                const mimeType = profilePhoto.startsWith('data:') 
+                                    ? profilePhoto.split(';')[0].split(':')[1] 
+                                    : 'image/jpeg';
+                                
+                                await saveUserProfilePhoto(
+                                    user.id,
+                                    profilePhoto,
+                                    profilePhoto, // Use the same data for both URI and data
+                                    fileName,
+                                    photoSize,
+                                    mimeType
+                                );
+                                console.log('✅ Profile photo saved to database for persistence');
+                            } catch (dbError) {
+                                console.warn('⚠️ Failed to save profile photo to database:', dbError);
+                                // Don't fail the entire save for database issues
+                            }
+                        }
                         
                         // Verify it was saved
                         const verification = await AsyncStorage.getItem(photoKey);
@@ -450,48 +546,33 @@ export default function ProfileScreen() {
         }
     };
     
-    const savePaymentDetails = async (data: typeof paymentDetails) => {
-        try {
-            await AsyncStorage.setItem(PAYMENT_DETAILS_KEY, JSON.stringify(data));
-        } catch (error) {
-            console.error('Error saving payment details:', error);
-        }
-    };
     
     
-    // Payment details state
-    const [paymentDetails, setPaymentDetails] = useState({
-        cardNumber: '',
-        expiryDate: '',
-        cardHolder: '',
-        billingAddress: ''
-    });
-    
-
     const handleLogout = async () => {
-        console.log('Logout button pressed');
-        console.log('Current user before logout:', user);
+        console.log('🚪 Logout button pressed');
+        console.log('🚪 Current user before logout:', user);
         
         try {
-            console.log('Starting logout process...');
+            console.log('🚪 Starting logout process...');
             
-            // Call signOut from AuthContext
+            // Call signOut from AuthContext - this will handle the redirect
             await signOut();
             
-            console.log('Logout successful - user will be redirected automatically');
-            
-            // The tab layout will automatically redirect to login when user becomes null
-            // No need for manual navigation as the TabLayout handles this
+            console.log('✅ Logout successful - redirecting to login');
             
         } catch (error) {
-            console.error('Logout error:', error);
+            console.error('❌ Logout error:', error);
             Alert.alert(
                 'Logout Error', 
-                'Failed to logout. Please try again or refresh the page.',
+                'Failed to logout. Please try again.',
                 [
                     {
                         text: 'OK',
-                        onPress: () => console.log('User acknowledged logout error')
+                        onPress: () => {
+                            console.log('🚪 User acknowledged logout error, forcing redirect');
+                            // Force redirect even if logout failed
+                            router.replace('/login');
+                        }
                     }
                 ]
             );
@@ -500,196 +581,83 @@ export default function ProfileScreen() {
 
     const handleSavePersonalDetails = async () => {
         try {
-            console.log('🔥 NEW VALIDATION LOGIC - No required fields! Timestamp:', new Date().toISOString());
-            console.log('📝 Current personal details:', personalDetails);
+            console.log('🔥 SAVE CHANGES CLICKED - Validating temporary data! Timestamp:', new Date().toISOString());
+            console.log('📝 Temporary personal details:', tempPersonalDetails);
             
             // Only validate fields that have content - allow partial updates
             
             // Validate email format only if email is provided
-            if (personalDetails.email.trim() && personalDetails.email.trim() !== '') {
+            if (tempPersonalDetails.email.trim() && tempPersonalDetails.email.trim() !== '') {
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(personalDetails.email)) {
-                    toast.show({
-                        id: 'validation-email',
-                        placement: "top",
-                        render: ({ id }) => (
-                            <Toast nativeID={id} action="error">
-                                <ToastTitle>Invalid Email</ToastTitle>
-                                <ToastDescription>Please enter a valid email address</ToastDescription>
-                            </Toast>
-                        ),
-                    });
+                if (!emailRegex.test(tempPersonalDetails.email)) {
+                    toast.show(notifications.invalidEmail());
                     return;
                 }
             }
 
             // Validate phone number only if phone is provided
-            if (personalDetails.phone.trim() && personalDetails.phone.trim() !== '' && personalDetails.phone.trim() !== '+63') {
-                if (!personalDetails.phone.startsWith('+63')) {
-                    toast.show({
-                        id: 'validation-phone-prefix',
-                        placement: "top",
-                        render: ({ id }) => (
-                            <Toast nativeID={id} action="error">
-                                <ToastTitle>Invalid Phone Number</ToastTitle>
-                                <ToastDescription>Phone number must start with +63</ToastDescription>
-                            </Toast>
-                        ),
-                    });
+            if (tempPersonalDetails.phone.trim() && tempPersonalDetails.phone.trim() !== '' && tempPersonalDetails.phone.trim() !== '+63') {
+                if (!tempPersonalDetails.phone.startsWith('+63')) {
+                    toast.show(notifications.invalidPhone());
                     return;
                 }
 
                 // Validate phone number length (should be +63 + 10 digits)
-                if (personalDetails.phone.length !== 13) {
-                    toast.show({
-                        id: 'validation-phone-length',
-                        placement: "top",
-                        render: ({ id }) => (
-                            <Toast nativeID={id} action="error">
-                                <ToastTitle>Invalid Phone Number</ToastTitle>
-                                <ToastDescription>Phone number must be exactly 10 digits after +63</ToastDescription>
-                            </Toast>
-                        ),
-                    });
+                if (tempPersonalDetails.phone.length !== 13) {
+                    toast.show(notifications.invalidPhone());
                     return;
                 }
             }
             
-            console.log('✅ All validations passed! Saving personal details:', personalDetails);
+            console.log('✅ All validations passed! Saving personal details:', tempPersonalDetails);
             
-            // Update the display immediately (this always works)
-            setPersonalDetails({...personalDetails});
+            // Update the main state with temporary data (this saves the changes)
+            setPersonalDetails({...tempPersonalDetails});
             
             // Try to save to AsyncStorage (optional - don't fail if this doesn't work)
             try {
-                await savePersonalDetails(personalDetails);
+                await savePersonalDetails(tempPersonalDetails);
                 console.log('✅ Personal details saved to storage successfully');
             } catch (storageError) {
                 console.warn('⚠️ Storage save failed, but profile updated in memory:', storageError);
                 // Don't throw - the profile is still updated in the app
             }
             
-            // Save profile photo to database if it exists and user is authenticated
-            if (personalDetails.profilePhoto && user?.id) {
+            // Save profile photo to storage if it exists
+            if (tempPersonalDetails.profilePhoto) {
                 try {
-                    console.log('📸 Saving profile photo to database...');
-                    const fileName = `profile_photo_${user.id}_${Date.now()}.jpg`;
-                    
-                    if (personalDetails.profilePhoto.trim()) {
-                        // Update the photo in database
-                        await updateUserProfilePhoto(
-                            user.id,
-                            personalDetails.profilePhoto,
-                            fileName,
-                            'image/jpeg'
-                        );
-                        console.log('✅ Profile photo saved to database successfully');
-                    }
+                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                    await AsyncStorage.setItem(photoKey, tempPersonalDetails.profilePhoto);
+                    console.log('✅ Profile photo saved to storage');
                 } catch (photoError) {
-                    console.warn('⚠️ Photo database save failed, but profile saved:', photoError);
-                    // Don't fail the entire save for photo issues
+                    console.error('❌ Photo storage save failed:', photoError);
                 }
-            } else if (!personalDetails.profilePhoto && user?.id) {
-                // If no photo in state but user has previous photo, delete it
+            } else {
+                // Remove photo from storage if no photo
                 try {
-                    console.log('🗑️ Removing profile photo from database...');
-                    await deleteUserProfilePhoto(user.id);
-                    console.log('✅ Profile photo removed from database successfully');
+                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                    await AsyncStorage.removeItem(photoKey);
+                    console.log('✅ Profile photo removed from storage');
                 } catch (photoError) {
-                    console.warn('⚠️ Photo database delete failed:', photoError);
-                    // Don't fail the entire save for photo issues
+                    console.warn('⚠️ Photo storage remove failed:', photoError);
                 }
             }
             
             // Show success toast
-            toast.show({
-                id: 'personal-details-saved',
-                placement: "top",
-                render: ({ id }) => (
-                    <Toast nativeID={id} action="success">
-                        <ToastTitle>Profile Updated!</ToastTitle>
-                        <ToastDescription>Your personal details have been saved successfully</ToastDescription>
-                    </Toast>
-                ),
-            });
+            toast.show(notifications.profileUpdateSuccess());
             
             // Close the modal
             setShowPersonalDetails(false);
         } catch (error) {
             console.error('❌ Unexpected error in handleSavePersonalDetails:', error);
             // This should rarely happen now since we handle storage errors gracefully
-            toast.show({
-                id: 'personal-details-error',
-                placement: "top",
-                render: ({ id }) => (
-                    <Toast nativeID={id} action="error">
-                        <ToastTitle>Unexpected Error</ToastTitle>
-                        <ToastDescription>An unexpected error occurred. Your changes may still be saved.</ToastDescription>
-                    </Toast>
-                ),
-            });
+            toast.show(notifications.profileUpdateError());
         }
     };
 
-    const handleSavePaymentDetails = async () => {
-        try {
-            // Validate required fields
-            if (!paymentDetails.cardNumber.trim() || !paymentDetails.expiryDate.trim() || !paymentDetails.cardHolder.trim()) {
-                Alert.alert('Error', 'Please fill in all required fields');
-                return;
-            }
-
-            // Validate card number (should be 16 digits)
-            const cardNumberDigits = paymentDetails.cardNumber.replace(/\D/g, '');
-            if (cardNumberDigits.length !== 16) {
-                Alert.alert('Error', 'Card number must be 16 digits');
-                return;
-            }
-
-            // Validate expiry date format (MM/YY)
-            const expiryRegex = /^(0[1-9]|1[0-2])\/\d{2}$/;
-            if (!expiryRegex.test(paymentDetails.expiryDate)) {
-                Alert.alert('Error', 'Expiry date must be in MM/YY format');
-                return;
-            }
-
-            // Validate expiry date is not in the past
-            const [month, year] = paymentDetails.expiryDate.split('/');
-            const expiryDate = new Date(2000 + parseInt(year), parseInt(month) - 1);
-            const currentDate = new Date();
-            if (expiryDate < currentDate) {
-                Alert.alert('Error', 'Card has expired');
-                return;
-            }
-
-            console.log('Saving payment details:', paymentDetails);
-            
-            // Save to AsyncStorage
-            await savePaymentDetails(paymentDetails);
-            
-            // Update the display immediately
-            setPaymentDetails({...paymentDetails});
-            
-            console.log('Payment details saved successfully');
-            
-            Alert.alert('Success', 'Payment details updated successfully!', [
-                {
-                    text: 'OK',
-                    onPress: () => setShowPaymentDetails(false)
-                }
-            ]);
-        } catch (error) {
-            console.error('Error saving payment details:', error);
-            Alert.alert('Error', 'Failed to save payment details. Please try again.');
-        }
-    };
 
 
     const handlePhotoAction = async (action: 'gallery' | 'remove') => {
-        console.log('🎯 handlePhotoAction called with action:', action);
-        console.log('👤 Current user:', user?.id);
-        console.log('📸 Current profile photo:', personalDetails.profilePhoto ? 'Has photo' : 'No photo');
-        
         if (action === 'remove') {
             Alert.alert(
                 'Remove Photo',
@@ -699,207 +667,52 @@ export default function ProfileScreen() {
                     {
                         text: 'Remove',
                         style: 'destructive',
-                        onPress: async () => {
-                            try {
-                                console.log('🗑️ Removing profile photo...');
-                                
-                                // Clear the photo from state only (no auto-save to database)
-                                const updatedDetails = {...personalDetails, profilePhoto: null};
-                                
-                                // Update state only - user must click "Save Changes" to persist
-                                setPersonalDetails(updatedDetails);
-                                
-                                // Force a re-render to ensure photo is removed from both main profile and modal
-                                setTimeout(() => {
-                                    setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                }, 100);
-                                
-                                console.log('✅ Profile photo removed from state - requires save to persist');
-                                toast.show({
-                                    id: 'photo-removed',
-                                    placement: "top",
-                                    render: ({ id }) => (
-                                        <Toast nativeID={id} action="success">
-                                            <ToastTitle>Photo Removed</ToastTitle>
-                                            <ToastDescription>Photo removed. Click "Save Changes" to confirm.</ToastDescription>
-                                        </Toast>
-                                    ),
-                                });
-                            } catch (error) {
-                                console.error('❌ Error removing photo:', error);
-                                toast.show({
-                                    id: 'photo-remove-error',
-                                    placement: "top",
-                                    render: ({ id }) => (
-                                        <Toast nativeID={id} action="error">
-                                            <ToastTitle>Remove Failed</ToastTitle>
-                                            <ToastDescription>Failed to remove photo. Please try again.</ToastDescription>
-                                        </Toast>
-                                    ),
-                                });
-                            }
+                        onPress: () => {
+                            setTempPersonalDetails(prev => ({...prev, profilePhoto: null}));
+                            toast.show(notifications.operationSuccess('Photo removed'));
                         }
                     }
                 ]
             );
         } else {
             try {
-                console.log('📸 Starting photo selection process...');
-                console.log('📱 Platform:', Platform.OS);
-                console.log('🔧 ImagePicker available:', !!ImagePicker);
-                
-                // Test if ImagePicker methods are available
-                if (!ImagePicker.requestMediaLibraryPermissionsAsync) {
-                    throw new Error('ImagePicker.requestMediaLibraryPermissionsAsync not available');
-                }
-                
                 // Request permission
-                console.log('🔐 Requesting media library permissions...');
                 const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                console.log('🔐 Permission result:', permissionResult);
                 
                 if (!permissionResult.granted) {
-                    toast.show({
-                        id: 'photo-permission-warning',
-                        placement: "top",
-                        render: ({ id }) => (
-                            <Toast nativeID={id} action="warning">
-                                <ToastTitle>Permission Required</ToastTitle>
-                                <ToastDescription>Please allow access to your photo library</ToastDescription>
-                            </Toast>
-                        ),
-                    });
+                    toast.show(createNotification({
+                        title: 'Permission Required',
+                        description: 'Please allow access to your photo library to select a profile picture.',
+                        type: 'warning',
+                        duration: 0,
+                    }));
                     return;
                 }
                 
-                console.log('✅ Photo library permission granted');
-                
-                // Launch image picker with web-compatible options (compressed for storage)
-                const pickerOptions = {
+                // Launch image picker
+                const result = await ImagePicker.launchImageLibraryAsync({
                     mediaTypes: ImagePicker.MediaTypeOptions.Images,
                     allowsEditing: true,
                     aspect: [1, 1] as [number, number],
-                    quality: 0.3, // Reduced quality to minimize file size
-                    base64: true, // Always include base64 for better compatibility
-                    exif: false, // Reduce data size
-                };
-                
-                console.log('🔧 Image picker options:', pickerOptions);
-                console.log('🚀 Launching image library...');
-                
-                const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
-                console.log('📋 Raw image picker result:', result);
-
-                console.log('📋 Image picker result:', {
-                    canceled: result.canceled,
-                    hasAssets: !!result.assets,
-                    assetsLength: result.assets?.length || 0
+                    quality: 0.7,
+                    base64: true,
                 });
 
                 if (!result.canceled && result.assets && result.assets.length > 0) {
                     const selectedImage = result.assets[0];
-                    console.log('📷 Image selected:', {
-                        uri: selectedImage.uri,
-                        type: selectedImage.type,
-                        width: selectedImage.width,
-                        height: selectedImage.height,
-                        fileSize: selectedImage.fileSize,
-                        base64: selectedImage.base64 ? 'Has base64' : 'No base64'
-                    });
                     
-                    try {
-                        if (!user?.id) {
-                            throw new Error('User not authenticated');
-                        }
-                        
-                        // Generate a filename for the photo
-                        const fileName = `profile_photo_${user.id}_${Date.now()}.jpg`;
-                        
-                        console.log('💾 Saving profile photo to database...');
-                        
-                        // For web, use base64 data URI if available, otherwise use the URI
-                        let imageUri = selectedImage.uri;
-                        if (Platform.OS === 'web' && selectedImage.base64) {
-                            imageUri = `data:${selectedImage.type || 'image/jpeg'};base64,${selectedImage.base64}`;
-                            console.log('🌐 Using base64 data URI for web compatibility');
-                            console.log('📏 Base64 image size:', selectedImage.base64.length, 'characters');
-                            
-                            // If image is still too large, try to compress it further
-                            if (selectedImage.base64.length > 500000) { // ~500KB limit
-                                console.log('⚠️ Image is large, this may cause storage issues');
-                                // Could implement additional compression here if needed
-                            }
-                        }
-                        
-                        // Store the image URI directly without auto-saving to database
-                        console.log('📸 Storing photo URI temporarily - requires save to persist');
-                        let photoUri = imageUri;
-                        
-                        console.log('✅ Profile photo processed:', {
-                            photoUri: photoUri.substring(0, 100) + '...',
-                            fileName: fileName,
-                            imageType: selectedImage.type || 'image/jpeg'
-                        });
-                        
-                        // Update personal details with the photo URI (no auto-save)
-                        const updatedDetails = {
-                            ...personalDetails, 
-                            profilePhoto: photoUri
-                        };
-                        
-                        console.log('🔄 Updating state with new photo (no auto-save)...');
-                        console.log('📸 New photo URI length:', photoUri.length);
-                        
-                        // Update state only - user must click "Save Changes" to persist
-                        setPersonalDetails(updatedDetails);
-                        
-                        console.log('✅ State updated - user must save to persist');
-                        
-                        toast.show({
-                            id: 'photo-updated',
-                            placement: "top",
-                            render: ({ id }) => (
-                                <Toast nativeID={id} action="success">
-                                    <ToastTitle>Photo Selected!</ToastTitle>
-                                    <ToastDescription>Photo selected. Click "Save Changes" to save.</ToastDescription>
-                                </Toast>
-                            ),
-                        });
-                    } catch (error) {
-                        console.error('❌ Error saving photo:', error);
-                        console.error('❌ Error details:', {
-                            message: error instanceof Error ? error.message : 'Unknown error',
-                            stack: error instanceof Error ? error.stack : undefined,
-                            selectedImageUri: selectedImage.uri.substring(0, 100),
-                            userId: user?.id
-                        });
-                        
-                        toast.show({
-                            id: 'photo-save-error',
-                            placement: "top",
-                            render: ({ id }) => (
-                                <Toast nativeID={id} action="error">
-                                    <ToastTitle>Save Failed</ToastTitle>
-                                    <ToastDescription>Failed to save photo: {error instanceof Error ? error.message : 'Unknown error'}</ToastDescription>
-                                </Toast>
-                            ),
-                        });
+                    // Use base64 data URI for better compatibility
+                    let imageUri = selectedImage.uri;
+                    if (Platform.OS === 'web' && selectedImage.base64) {
+                        imageUri = `data:${selectedImage.type || 'image/jpeg'};base64,${selectedImage.base64}`;
                     }
-                } else {
-                    console.log('❌ Photo selection cancelled');
+                    
+                    setTempPersonalDetails(prev => ({...prev, profilePhoto: imageUri}));
+                    toast.show(notifications.operationSuccess('Photo selected'));
                 }
             } catch (error) {
-                console.error('❌ Error picking image:', error);
-                toast.show({
-                    id: 'photo-selection-error',
-                    placement: "top",
-                    render: ({ id }) => (
-                        <Toast nativeID={id} action="error">
-                            <ToastTitle>Selection Failed</ToastTitle>
-                            <ToastDescription>Failed to select photo. Please try again.</ToastDescription>
-                        </Toast>
-                    ),
-                });
+                console.error('Error selecting photo:', error);
+                toast.show(notifications.operationError('select photo'));
             }
         }
     };
@@ -908,101 +721,68 @@ export default function ProfileScreen() {
         // Owner-only actions
         ...(isOwner ? [
             {
-                icon: <Home size={20} color="#4B5563" />,
+                icon: <Ionicons name="home" size={20} color="#4B5563" />,
                 label: 'Create Property Listing',
-                route: '/(owner)/property-owner',
+                route: '/(owner)/create-listing',
             },
             {
-                icon: <Home size={20} color="#4B5563" />,
+                icon: <Ionicons name="list" size={20} color="#4B5563" />,
                 label: 'My Listings',
                 route: '/(owner)/owner-listings',
             },
         ] : []),
         // Common actions
         {
-            icon: <User2 size={20} color="#4B5563" />,
+            icon: <Ionicons name="person" size={20} color="#4B5563" />,
             label: 'Personal details',
             onPress: () => setShowPersonalDetails(true),
         },
         {
-            icon: <CreditCard size={20} color="#4B5563" />,
-            label: `Payment details${paymentDetails.cardNumber ? ' ✓' : ''}`,
-            onPress: () => setShowPaymentDetails(true),
-        },
-        {
-            icon: <HelpCircle size={20} color="#4B5563" />,
+            icon: <Ionicons name="help-circle" size={20} color="#4B5563" />,
             label: 'FAQ',
             onPress: () => setShowFAQ(true),
         },
         {
-            icon: <LogOut size={20} color="#DC2626" />,
+            icon: <Ionicons name="log-out" size={20} color="#DC2626" />,
             label: 'Logout',
             onPress: handleLogout,
             isLogout: true,
         },
     ];
 
-    // Error boundary for profile screen
-    const [hasError, setHasError] = useState(false);
-
     if (hasError) {
         return (
-            <View className="flex-1 justify-center items-center bg-gray-50 p-6">
-                <Text className="text-lg font-semibold text-gray-600 mb-2">Profile Error</Text>
-                <Text className="text-gray-500 text-center mb-4">
+            <View style={styles.errorContainer}>
+                <Text style={styles.errorTitle}>Profile Error</Text>
+                <Text style={styles.errorText}>
                     There was an issue loading your profile. Please try again.
                 </Text>
-                <InteractiveButton
-                    text="Retry"
+                <TouchableOpacity
+                    style={styles.retryButton}
                     onPress={() => {
                         setHasError(false);
-                        // Refresh profile data
                         refreshProfileData();
                     }}
-                    variant="primary"
-                />
+                >
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
             </View>
         );
     }
 
     return (
-        <ScrollView className="flex-1 bg-gray-50">
-            <VStack className="pt-14 pb-6 px-4 bg-white items-center border-b border-gray-100">
-                <View className="w-32 h-32 mb-3 rounded-full bg-gray-200 items-center justify-center overflow-hidden">
+        <ScrollView style={styles.container}>
+            {/* Profile Header */}
+            <View style={styles.profileHeader}>
+                <View style={styles.avatarContainer}>
                     {personalDetails.profilePhoto ? (
                         <Image 
-                            key={`main-profile-${personalDetails.profilePhoto.substring(0, 50)}`}
                             source={{ uri: personalDetails.profilePhoto }}
-                            className="w-full h-full"
-                            style={{ width: 128, height: 128, borderRadius: 64 }}
+                            style={styles.avatarImage}
                             resizeMode="cover"
-                            onError={(error) => {
-                                console.log('❌ Main profile photo failed to load:', error);
-                                console.log('❌ Failed URI:', personalDetails.profilePhoto);
-                                // If image fails to load, try to reload from database
-                                if (user?.id) {
-                                    getUserProfilePhoto(user.id).then(photo => {
-                                        if (photo?.photoUri) {
-                                            console.log('🔄 Reloaded photo from database:', photo.photoUri.substring(0, 100));
-                                            setPersonalDetails(prev => ({...prev, profilePhoto: photo.photoUri}));
-                                        } else {
-                                            console.log('❌ No photo found in database');
-                                            setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                        }
-                                    }).catch((dbError) => {
-                                        console.log('❌ Database reload failed:', dbError);
-                                        setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                    });
-                                } else {
-                                    setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                }
-                            }}
-                            onLoad={() => {
-                                console.log('✅ Main profile photo loaded successfully');
-                            }}
                         />
                     ) : (
-                        <Text className="text-5xl font-semibold text-gray-600">
+                        <Text style={styles.avatarText}>
                             {personalDetails.firstName && personalDetails.lastName 
                                 ? `${personalDetails.firstName.charAt(0)}${personalDetails.lastName.charAt(0)}`
                                 : '?'
@@ -1010,341 +790,552 @@ export default function ProfileScreen() {
                         </Text>
                     )}
                 </View>
-                <Text className="text-xl font-semibold mb-1">
+                <Text style={styles.profileName}>
                     {personalDetails.firstName && personalDetails.lastName 
                         ? `${personalDetails.firstName} ${personalDetails.lastName}`
                         : personalDetails.firstName
                         ? personalDetails.firstName
                         : personalDetails.email
-                        ? personalDetails.email.split('@')[0] // Show email username if no name
+                        ? personalDetails.email.split('@')[0]
                         : 'Complete Your Profile'
                     }
                 </Text>
-                <Text className="text-gray-400 mt-1">
+                <Text style={styles.profileEmail}>
                     {personalDetails.email || 'Please add your email'}
                 </Text>
-            </VStack>
+            </View>
 
-
-            {/* Payment Summary */}
-            {paymentDetails.cardNumber && (
-                <View className="mt-4 mx-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <Text className="text-sm font-medium text-green-800 mb-1">Payment Method</Text>
-                    <Text className="text-green-700">
-                        {paymentDetails.cardNumber.replace(/\d(?=\d{4})/g, '*')} • {paymentDetails.cardHolder}
-                    </Text>
-                </View>
-            )}
-
-            <VStack className="mt-4">
+            {/* Menu Items */}
+            <View style={styles.menuContainer}>
                 {menuItems.map((item, index) => (
                     <MenuButton key={index} item={item} />
                 ))}
-            </VStack>
+            </View>
 
             {/* Personal Details Modal */}
-            <Modal visible={showPersonalDetails} animationType="slide" presentationStyle="pageSheet">
-                <View className="flex-1 bg-white">
-                    <View className="flex-row items-center justify-between p-4 border-b border-gray-200">
-                        <Text className="text-xl font-semibold">Personal Details</Text>
-                        <TouchableOpacity onPress={() => setShowPersonalDetails(false)}>
-                            <X size={24} color="#6B7280" />
+            <Modal 
+                visible={showPersonalDetails} 
+                animationType="slide" 
+                presentationStyle="pageSheet"
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Personal Details</Text>
+                        <TouchableOpacity onPress={handleCloseModal}>
+                            <Ionicons name="close" size={24} color="#6B7280" />
                         </TouchableOpacity>
                     </View>
-                    <ScrollView className="flex-1 p-4">
-                        <VStack className="space-y-4">
+                    <ScrollView style={styles.modalContent}>
+                        <View style={styles.modalForm}>
                             {/* Profile Photo Section */}
-                            <View className="items-center mb-6">
-                                <Text className="text-sm font-medium text-gray-700 mb-4">Profile Photo</Text>
-                                        <View className="relative">
-                                            <View className="w-32 h-32 mb-3 rounded-full bg-gray-200 items-center justify-center overflow-hidden">
-                                                {personalDetails.profilePhoto ? (
-                                                    <Image 
-                                                        key={`modal-profile-${personalDetails.profilePhoto.substring(0, 50)}`}
-                                                        source={{ uri: personalDetails.profilePhoto }}
-                                                        className="w-full h-full"
-                                                        style={{ width: 128, height: 128, borderRadius: 64 }}
-                                                        resizeMode="cover"
-                                                        onError={(error) => {
-                                                            console.log('❌ Modal profile photo failed to load:', error);
-                                                            console.log('❌ Failed URI:', personalDetails.profilePhoto);
-                                                            // If image fails to load, try to reload from database
-                                                            if (user?.id) {
-                                                                getUserProfilePhoto(user.id).then(photo => {
-                                                                    if (photo?.photoUri) {
-                                                                        console.log('🔄 Reloaded modal photo from database:', photo.photoUri.substring(0, 100));
-                                                                        setPersonalDetails(prev => ({...prev, profilePhoto: photo.photoUri}));
-                                                                    } else {
-                                                                        console.log('❌ No photo found in database for modal');
-                                                                        setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                                                    }
-                                                                }).catch((dbError) => {
-                                                                    console.log('❌ Database reload failed for modal:', dbError);
-                                                                    setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                                                });
-                                                            } else {
-                                                                setPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                                                            }
-                                                        }}
-                                                        onLoad={() => {
-                                                            console.log('✅ Modal profile photo loaded successfully');
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <Text className="text-5xl font-semibold text-gray-600">
-                                                        {personalDetails.firstName && personalDetails.lastName 
-                                                            ? `${personalDetails.firstName.charAt(0)}${personalDetails.lastName.charAt(0)}`
-                                                            : '?'
-                                                        }
-                                                    </Text>
-                                                )}
-                                            </View>
-                                    
-                                    {/* Photo Action Buttons */}
-                                    <View className="flex-row space-x-2 mt-3">
-                                        <TouchableOpacity
-                                            onPress={() => handlePhotoAction('gallery')}
-                                            className="flex-row items-center bg-blue-50 border border-blue-200 rounded-lg px-4 py-2"
-                                        >
-                                            <ImageIcon size={16} color="#3B82F6" />
-                                            <Text className="text-blue-600 font-medium ml-1 text-sm">Select Photo</Text>
-                                        </TouchableOpacity>
-                                        
-                                        
-                                        {personalDetails.profilePhoto && (
-                                            <TouchableOpacity
-                                                onPress={() => handlePhotoAction('remove')}
-                                                className="flex-row items-center bg-red-50 border border-red-200 rounded-lg px-4 py-2"
-                                            >
-                                                <Trash2 size={16} color="#EF4444" />
-                                                <Text className="text-red-600 font-medium ml-1 text-sm">Remove</Text>
-                                            </TouchableOpacity>
+                            <View style={styles.photoSection}>
+                                <View style={styles.photoSectionHeader}>
+                                    <Text style={styles.photoSectionTitle}>Profile Photo</Text>
+                                    {tempPersonalDetails.profilePhoto !== personalDetails.profilePhoto && (
+                                        <View style={styles.unsavedBadge}>
+                                            <Text style={styles.unsavedText}>Unsaved</Text>
+                                        </View>
+                                    )}
+                                </View>
+                                <View style={styles.photoContainer}>
+                                    <View style={styles.modalAvatar}>
+                                        {tempPersonalDetails.profilePhoto ? (
+                                            <Image 
+                                                source={{ uri: tempPersonalDetails.profilePhoto }}
+                                                style={styles.modalAvatarImage}
+                                                resizeMode="cover"
+                                            />
+                                        ) : (
+                                            <Text style={styles.modalAvatarText}>
+                                                {tempPersonalDetails.firstName && tempPersonalDetails.lastName 
+                                                    ? `${tempPersonalDetails.firstName.charAt(0)}${tempPersonalDetails.lastName.charAt(0)}`
+                                                    : '?'
+                                                }
+                                            </Text>
                                         )}
                                     </View>
                                     
+                                    {/* Photo Action Buttons */}
+                                    <View style={styles.photoActions}>
+                                        <TouchableOpacity
+                                            onPress={() => handlePhotoAction('gallery')}
+                                            style={styles.selectPhotoButton}
+                                        >
+                                            <Ionicons name="image" size={16} color="#3B82F6" />
+                                            <Text style={styles.selectPhotoText}>Select Photo</Text>
+                                        </TouchableOpacity>
+                                        
+                                        {tempPersonalDetails.profilePhoto && (
+                                            <TouchableOpacity
+                                                onPress={() => handlePhotoAction('remove')}
+                                                style={styles.removePhotoButton}
+                                            >
+                                                <Ionicons name="trash" size={16} color="#EF4444" />
+                                                <Text style={styles.removePhotoText}>Remove</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
                                 </View>
                             </View>
                             
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">First Name</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={personalDetails.firstName}
-                                    onChangeText={(text) => setPersonalDetails({...personalDetails, firstName: text})}
-                                />
-                            </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Last Name</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={personalDetails.lastName}
-                                    onChangeText={(text) => setPersonalDetails({...personalDetails, lastName: text})}
-                                />
-                            </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Email</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={personalDetails.email}
-                                    onChangeText={(text) => setPersonalDetails({...personalDetails, email: text})}
-                                    keyboardType="email-address"
-                                />
-                            </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Phone Number</Text>
-                                <View className="flex-row space-x-2">
-                                    {/* Fixed Country Code Display */}
-                                    <View className="border border-gray-300 rounded-lg p-3 flex-row items-center justify-center min-w-[100px] bg-gray-100">
-                                        <Text className="text-lg mr-1">🇵🇭</Text>
-                                        <Text className="text-base font-medium text-gray-800">
-                                            {countryCode}
-                                        </Text>
-                                    </View>
-                                    
-                                    {/* Phone Number Input */}
+                            {/* Form Fields */}
+                            <View style={styles.formSection}>
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>First Name</Text>
                                     <TextInput
-                                        className="flex-1 border border-gray-300 rounded-lg p-3 text-base"
-                                        value={personalDetails.phone.replace(countryCode + ' ', '')}
-                                        onChangeText={(text) => {
-                                            // Only allow digits and limit to 10
-                                            const digitsOnly = text.replace(/\D/g, '');
-                                            if (digitsOnly.length <= 10) {
-                                                const fullPhone = countryCode + ' ' + digitsOnly;
-                                                setPersonalDetails({...personalDetails, phone: fullPhone});
-                                            }
-                                        }}
-                                        placeholder="912 345 6789"
-                                        keyboardType="phone-pad"
-                                        maxLength={10}
+                                        style={styles.textInput}
+                                        value={tempPersonalDetails.firstName}
+                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, firstName: text})}
+                                    />
+                                </View>
+                                
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Last Name</Text>
+                                    <TextInput
+                                        style={styles.textInput}
+                                        value={tempPersonalDetails.lastName}
+                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, lastName: text})}
+                                    />
+                                </View>
+                                
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Email</Text>
+                                    <TextInput
+                                        style={styles.textInput}
+                                        value={tempPersonalDetails.email}
+                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, email: text})}
+                                        keyboardType="email-address"
+                                    />
+                                </View>
+                                
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Phone Number</Text>
+                                    <View style={styles.phoneContainer}>
+                                        <View style={styles.countryCode}>
+                                            <Text style={styles.countryCodeText}>🇵🇭 {countryCode}</Text>
+                                        </View>
+                                        <TextInput
+                                            style={styles.phoneInput}
+                                            value={tempPersonalDetails.phone.replace(countryCode + ' ', '')}
+                                            onChangeText={(text) => {
+                                                const digitsOnly = text.replace(/\D/g, '');
+                                                if (digitsOnly.length <= 10) {
+                                                    const fullPhone = countryCode + ' ' + digitsOnly;
+                                                    setTempPersonalDetails({...tempPersonalDetails, phone: fullPhone});
+                                                }
+                                            }}
+                                            placeholder="912 345 6789"
+                                            keyboardType="phone-pad"
+                                            maxLength={10}
+                                        />
+                                    </View>
+                                </View>
+                                
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Address</Text>
+                                    <TextInput
+                                        style={[styles.textInput, styles.addressInput]}
+                                        value={tempPersonalDetails.address}
+                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, address: text})}
+                                        multiline
+                                        numberOfLines={3}
                                     />
                                 </View>
                             </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Address</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={personalDetails.address}
-                                    onChangeText={(text) => setPersonalDetails({...personalDetails, address: text})}
-                                    multiline
-                                    numberOfLines={3}
-                                />
-                            </View>
-                        </VStack>
+                        </View>
                     </ScrollView>
-                    <View className="p-4 border-t border-gray-200">
-                        <InteractiveButton
-                            text="Save Changes"
+                    
+                    <View style={styles.modalFooter}>
+                        <TouchableOpacity
+                            style={styles.saveButton}
                             onPress={handleSavePersonalDetails}
-                            variant="primary"
-                            size="lg"
-                            fullWidth={true}
-                        />
+                        >
+                            <Text style={styles.saveButtonText}>Save Changes</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
             </Modal>
 
-            {/* Payment Details Modal */}
-            <Modal visible={showPaymentDetails} animationType="slide" presentationStyle="pageSheet">
-                <View className="flex-1 bg-white">
-                    <View className="flex-row items-center justify-between p-4 border-b border-gray-200">
-                        <Text className="text-xl font-semibold">Payment Details</Text>
-                        <TouchableOpacity onPress={() => setShowPaymentDetails(false)}>
-                            <X size={24} color="#6B7280" />
-                        </TouchableOpacity>
-                    </View>
-                    <ScrollView className="flex-1 p-4">
-                        <VStack className="space-y-4">
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Card Number</Text>
-                                <View className="flex-row items-center border border-gray-300 rounded-lg">
-                                    <TextInput
-                                        className="flex-1 p-3 text-base"
-                                        value={showCardNumber ? paymentDetails.cardNumber : paymentDetails.cardNumber.replace(/\d(?=\d{4})/g, '*')}
-                                        onChangeText={(text) => {
-                                            // Format card number with spaces every 4 digits
-                                            const formatted = text.replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim();
-                                            if (formatted.replace(/\s/g, '').length <= 16) {
-                                                setPaymentDetails({...paymentDetails, cardNumber: formatted});
-                                            }
-                                        }}
-                                        keyboardType="numeric"
-                                        placeholder="1234 5678 9012 3456"
-                                        maxLength={19} // 16 digits + 3 spaces
-                                        secureTextEntry={!showCardNumber}
-                                    />
-                                    <TouchableOpacity
-                                        onPress={() => setShowCardNumber(!showCardNumber)}
-                                        className="p-3"
-                                    >
-                                        <Text className="text-blue-600 font-medium">
-                                            {showCardNumber ? 'Hide' : 'Show'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Expiry Date</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={paymentDetails.expiryDate}
-                                    onChangeText={(text) => {
-                                        // Format expiry date as MM/YY
-                                        const formatted = text.replace(/\D/g, '').replace(/(\d{2})(\d{0,2})/, '$1/$2');
-                                        if (formatted.length <= 5) {
-                                            setPaymentDetails({...paymentDetails, expiryDate: formatted});
-                                        }
-                                    }}
-                                    placeholder="MM/YY"
-                                    maxLength={5}
-                                />
-                            </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Card Holder Name</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={paymentDetails.cardHolder}
-                                    onChangeText={(text) => setPaymentDetails({...paymentDetails, cardHolder: text})}
-                                />
-                            </View>
-                            <View>
-                                <Text className="text-sm font-medium text-gray-700 mb-2">Billing Address</Text>
-                                <TextInput
-                                    className="border border-gray-300 rounded-lg p-3 text-base"
-                                    value={paymentDetails.billingAddress}
-                                    onChangeText={(text) => setPaymentDetails({...paymentDetails, billingAddress: text})}
-                                    multiline
-                                />
-                            </View>
-                        </VStack>
-                    </ScrollView>
-                    <View className="p-4 border-t border-gray-200">
-                        <InteractiveButton
-                            text="Save Changes"
-                            onPress={handleSavePaymentDetails}
-                            variant="primary"
-                            size="lg"
-                            fullWidth={true}
-                        />
-                    </View>
-                </View>
-            </Modal>
 
             {/* FAQ Modal */}
-            <Modal visible={showFAQ} animationType="slide" presentationStyle="pageSheet">
-                <View className="flex-1 bg-white">
-                    <View className="flex-row items-center justify-between p-4 border-b border-gray-200">
-                        <Text className="text-xl font-semibold">Frequently Asked Questions</Text>
+            <Modal 
+                visible={showFAQ} 
+                animationType="slide" 
+                presentationStyle="pageSheet"
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Frequently Asked Questions</Text>
                         <TouchableOpacity onPress={() => setShowFAQ(false)}>
-                            <X size={24} color="#6B7280" />
+                            <Ionicons name="close" size={24} color="#6B7280" />
                         </TouchableOpacity>
                     </View>
-                    <ScrollView className="flex-1 p-4">
-                        <VStack className="space-y-6">
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">How do I book a property?</Text>
-                                <Text className="text-gray-600">You can browse available properties, select your preferred dates, and complete the booking process through our secure payment system.</Text>
+                    <ScrollView style={styles.modalContent}>
+                        <View style={styles.faqContent}>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I search for properties in HanapBahay?</Text>
+                                <Text style={styles.faqAnswer}>Use the search bar on the dashboard to search by location, property type, or keywords. You can also use the filter button to narrow down by barangay, price range, and property type (house, apartment, condo, bedspace).</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">What payment methods do you accept?</Text>
-                                <Text className="text-gray-600">We accept all major credit cards, debit cards, and digital payment methods including PayPal and Apple Pay.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I filter properties by barangay?</Text>
+                                <Text style={styles.faqAnswer}>Tap the filter button on the dashboard, then select your preferred barangay from the dropdown (Danlagan, Gomez, Magsaysay, Rizal, Bocboc, or Talolong). Click "Apply Filters" to see only properties in that area.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">Can I cancel my booking?</Text>
-                                <Text className="text-gray-600">Yes, you can cancel your booking up to 24 hours before check-in. Cancellation policies may vary by property.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I contact a property owner?</Text>
+                                <Text style={styles.faqAnswer}>Tap on any property listing to view details, then use the "Contact Owner" button or go to the Chat tab to start a conversation with the property owner directly.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">How do I contact support?</Text>
-                                <Text className="text-gray-600">You can reach our support team through the chat feature in the app or email us at support@hanapbahay.com</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>What information do I need to provide when contacting owners?</Text>
+                                <Text style={styles.faqAnswer}>Be ready to share your name, contact number, move-in date, rental budget, and any specific requirements. This helps owners respond faster with relevant information.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">Is my payment information secure?</Text>
-                                <Text className="text-gray-600">Yes, we use industry-standard encryption to protect your payment information and never store your full card details.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I book a property viewing?</Text>
+                                <Text style={styles.faqAnswer}>Contact the property owner through the chat feature to schedule a viewing. Owners will coordinate with you to arrange a convenient time for property inspection.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">How do I update my profile?</Text>
-                                <Text className="text-gray-600">Go to your profile tab and tap on "Personal details" to update your information. Changes are saved automatically.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>What types of properties are available?</Text>
+                                <Text style={styles.faqAnswer}>HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of bedrooms, size, amenities, and location information.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">Can I change my payment method?</Text>
-                                <Text className="text-gray-600">Yes, you can update your payment details anytime in the "Payment details" section of your profile.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I set my price range?</Text>
+                                <Text style={styles.faqAnswer}>Use the price range slider in the filter section to set your minimum and maximum monthly rent budget. The app will show only properties within your specified price range.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">What if I forget my password?</Text>
-                                <Text className="text-gray-600">Use the "Forgot Password" option on the login screen. We'll send you a reset link to your email.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I update my profile information?</Text>
+                                <Text style={styles.faqAnswer}>Go to your profile tab and tap "Personal details" to update your name, email, phone number, and address. Changes are saved automatically to help owners contact you easily.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">How do I delete my account?</Text>
-                                <Text className="text-gray-600">Contact our support team to request account deletion. We'll process your request within 24 hours.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I clear my search filters?</Text>
+                                <Text style={styles.faqAnswer}>On the dashboard, tap the "Clear All" button in the Active Filters section to remove all applied filters and see all available properties again.</Text>
                             </View>
-                            <View>
-                                <Text className="text-lg font-semibold text-gray-800 mb-2">Is my data private?</Text>
-                                <Text className="text-gray-600">Yes, we respect your privacy and never share your personal information with third parties without your consent.</Text>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>What if I can't find properties in my preferred area?</Text>
+                                <Text style={styles.faqAnswer}>Try expanding your search criteria by adjusting the price range or selecting "Any Type" for property type. You can also contact owners directly to ask about availability in your preferred location.</Text>
                             </View>
-                        </VStack>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>How do I report an issue with a property listing?</Text>
+                                <Text style={styles.faqAnswer}>Contact our support team through the chat feature or email us at support@hanapbahay.com. Include the property details and description of the issue for faster resolution.</Text>
+                            </View>
+                            <View style={styles.faqItem}>
+                                <Text style={styles.faqQuestion}>Is my personal information secure?</Text>
+                                <Text style={styles.faqAnswer}>Yes, we prioritize your privacy and security. Your personal information is only shared with property owners when you initiate contact, and we never sell your data to third parties.</Text>
+                            </View>
+                        </View>
                     </ScrollView>
                 </View>
             </Modal>
-
         </ScrollView>
     );
-}
+});
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    errorContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        padding: 24,
+    },
+    errorTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8,
+    },
+    errorText: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    retryButton: {
+        backgroundColor: '#10B981',
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 8,
+    },
+    retryButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    profileHeader: {
+        alignItems: 'center',
+        paddingTop: 40,
+        paddingBottom: 24,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    avatarContainer: {
+        width: 128,
+        height: 128,
+        borderRadius: 64,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
+        overflow: 'hidden',
+    },
+    avatarImage: {
+        width: 128,
+        height: 128,
+        borderRadius: 64,
+    },
+    avatarText: {
+        fontSize: 48,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    profileName: {
+        fontSize: 24,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 4,
+        textAlign: 'center',
+    },
+    profileEmail: {
+        fontSize: 16,
+        color: '#9CA3AF',
+        textAlign: 'center',
+    },
+    menuContainer: {
+        paddingTop: 8,
+    },
+    menuButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    logoutButton: {
+        backgroundColor: '#FEF2F2',
+    },
+    menuIcon: {
+        width: 32,
+        height: 32,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 16,
+        backgroundColor: '#F3F4F6',
+        marginRight: 12,
+    },
+    logoutIcon: {
+        backgroundColor: '#FEE2E2',
+    },
+    menuText: {
+        flex: 1,
+        fontSize: 16,
+        color: '#111827',
+    },
+    logoutText: {
+        color: '#DC2626',
+        fontWeight: '600',
+    },
+    // Modal styles
+    modalContainer: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    modalContent: {
+        flex: 1,
+        padding: 20,
+    },
+    modalForm: {
+        gap: 24,
+    },
+    photoSection: {
+        alignItems: 'center',
+    },
+    photoSectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    photoSectionTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#374151',
+    },
+    unsavedBadge: {
+        backgroundColor: '#FEF3C7',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        marginLeft: 8,
+    },
+    unsavedText: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#92400E',
+    },
+    photoContainer: {
+        alignItems: 'center',
+    },
+    modalAvatar: {
+        width: 128,
+        height: 128,
+        borderRadius: 64,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
+        overflow: 'hidden',
+    },
+    modalAvatarImage: {
+        width: 128,
+        height: 128,
+        borderRadius: 64,
+    },
+    modalAvatarText: {
+        fontSize: 48,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    photoActions: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    selectPhotoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EFF6FF',
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        borderRadius: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
+    selectPhotoText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#3B82F6',
+        marginLeft: 4,
+    },
+    removePhotoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF2F2',
+        borderWidth: 1,
+        borderColor: '#FECACA',
+        borderRadius: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
+    removePhotoText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#EF4444',
+        marginLeft: 4,
+    },
+    formSection: {
+        gap: 16,
+    },
+    inputContainer: {
+        gap: 8,
+    },
+    inputLabel: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#374151',
+    },
+    textInput: {
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        fontSize: 16,
+        color: '#111827',
+        backgroundColor: '#FFFFFF',
+    },
+    addressInput: {
+        height: 80,
+        textAlignVertical: 'top',
+    },
+    phoneContainer: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    countryCode: {
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        backgroundColor: '#F9FAFB',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minWidth: 100,
+    },
+    countryCodeText: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: '#374151',
+    },
+    phoneInput: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        fontSize: 16,
+        color: '#111827',
+        backgroundColor: '#FFFFFF',
+    },
+    modalFooter: {
+        padding: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
+    },
+    saveButton: {
+        backgroundColor: '#10B981',
+        borderRadius: 8,
+        paddingVertical: 16,
+        alignItems: 'center',
+    },
+    saveButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    faqContent: {
+        gap: 24,
+    },
+    faqItem: {
+        gap: 8,
+    },
+    faqQuestion: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#111827',
+    },
+    faqAnswer: {
+        fontSize: 16,
+        color: '#6B7280',
+        lineHeight: 24,
+    },
+});
+
+export default ProfileScreen;

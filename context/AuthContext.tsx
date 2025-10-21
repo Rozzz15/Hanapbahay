@@ -1,6 +1,24 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { getAuthUser, clearAuthUser, clearAuthSession } from '../utils/auth-user';
-import { supabase } from '../utils/supabase-client';
+// Conditional import for web compatibility
+let supabase: any;
+if (typeof window !== 'undefined') {
+  // Web environment - use mock
+  supabase = {
+    auth: {
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+    }
+  };
+} else {
+  // Mobile environment - use real Supabase
+  const { supabase: realSupabase } = require('../utils/supabase-client');
+  supabase = realSupabase;
+}
+import { useRouter } from 'expo-router';
+import { hasOwnerListings } from '../utils/db';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { dispatchCustomEvent } from '../utils/custom-events';
 
 interface AuthUser {
   id: string;
@@ -16,6 +34,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  redirectOwnerBasedOnListings: (ownerId: string) => Promise<void>;
+  redirectTenantToTabs: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,8 +43,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const authUser = await getAuthUser();
       if (authUser) {
@@ -32,17 +53,167 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const userWithFallbacks = {
           id: authUser.id || `user-${Date.now()}`,
           roles: authUser.roles || ['tenant'],
-          permissions: authUser.permissions || []
+          permissions: authUser.permissions || [],
+          name: authUser.name,
+          email: authUser.email
         };
+        
+        console.log('🔍 Auth user ID debug:', {
+          originalId: authUser.id,
+          fallbackId: `user-${Date.now()}`,
+          finalId: userWithFallbacks.id,
+          hasOriginalId: !!authUser.id
+        });
+        
         setUser(userWithFallbacks);
+        
+        // Dispatch global event to notify all components to reload data
+        dispatchCustomEvent('userLoggedIn', { 
+          userId: userWithFallbacks.id, 
+          roles: userWithFallbacks.roles 
+        });
+        
+        // Refresh property media for tenant accounts
+        if (userWithFallbacks.roles.includes('tenant')) {
+          console.log('🔄 Tenant logged in - refreshing property media and profile photo...');
+          try {
+            // Clear expired cache first
+            try {
+              const { clearExpiredCachedPropertyMedia } = await import('../utils/property-media-cache');
+              await clearExpiredCachedPropertyMedia();
+              console.log('✅ Cleared expired property media cache');
+            } catch (cacheError) {
+              console.log('⚠️ Could not clear expired cache:', cacheError);
+            }
+            
+            const { refreshAllPropertyMedia } = await import('../utils/media-refresh');
+            await refreshAllPropertyMedia({
+              forceRefresh: true,
+              includeVideos: true,
+              includePhotos: true
+            });
+            console.log('✅ Property media refreshed for tenant');
+            
+            // Dispatch property media refreshed event
+            dispatchCustomEvent('propertyMediaRefreshed', { 
+              userId: userWithFallbacks.id, 
+              timestamp: new Date().toISOString() 
+            });
+
+            // Also dispatch individual media loaded events for each listing (like profile photos)
+            try {
+              const publishedListings = await db.list('published_listings');
+              for (const listing of publishedListings) {
+                const { loadPropertyMediaFromStorage } = await import('../utils/media-storage');
+                const storedMedia = await loadPropertyMediaFromStorage(listing.id);
+                if (storedMedia && storedMedia.coverPhoto) {
+                  dispatchCustomEvent('propertyMediaLoaded', {
+                    listingId: listing.id,
+                    userId: userWithFallbacks.id,
+                    coverPhoto: storedMedia.coverPhoto,
+                    photos: storedMedia.photos,
+                    videos: storedMedia.videos
+                  });
+                }
+              }
+              console.log('✅ Dispatched property media loaded events for all listings (owner)');
+            } catch (mediaEventError) {
+              console.log('⚠️ Could not dispatch property media loaded events (owner):', mediaEventError);
+            }
+
+            // Also refresh tenant profile photo
+            try {
+              const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+              const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
+              if (profilePhoto) {
+                console.log('✅ Tenant profile photo loaded from database');
+                // Dispatch event to update profile photo in UI
+                dispatchCustomEvent('profilePhotoLoaded', { 
+                  userId: userWithFallbacks.id, 
+                  photoUri: profilePhoto 
+                });
+              } else {
+                console.log('📸 No profile photo found for tenant:', userWithFallbacks.id);
+              }
+            } catch (photoError) {
+              console.error('❌ Failed to refresh tenant profile photo:', photoError);
+            }
+          } catch (error) {
+            console.error('❌ Failed to refresh property media:', error);
+          }
+        }
+        
+        // Refresh property media for owner accounts
+        if (userWithFallbacks.roles.includes('owner')) {
+          console.log('🔄 Owner logged in - refreshing property media and profile photo...');
+          try {
+            const { refreshAllPropertyMedia } = await import('../utils/media-refresh');
+            await refreshAllPropertyMedia({
+              forceRefresh: true,
+              includeVideos: true,
+              includePhotos: true
+            });
+            console.log('✅ Property media refreshed for owner');
+            
+            // Also refresh owner profile photo
+            try {
+              const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+              const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
+              if (profilePhoto) {
+                console.log('✅ Owner profile photo loaded from database');
+                // Dispatch event to update profile photo in UI
+                dispatchCustomEvent('profilePhotoLoaded', { 
+                  userId: userWithFallbacks.id, 
+                  photoUri: profilePhoto 
+                });
+              } else {
+                console.log('📸 No profile photo found for owner:', userWithFallbacks.id);
+              }
+            } catch (photoError) {
+              console.error('❌ Failed to refresh owner profile photo:', photoError);
+            }
+          } catch (error) {
+            console.error('❌ Failed to refresh property media:', error);
+          }
+        }
       } else {
+        // No authenticated user - user needs to login
+        console.log('🔧 No auth user found - user needs to login');
         setUser(null);
+        console.log('✅ User is not authenticated - showing login screen');
       }
     } catch (error) {
       console.error('Error refreshing user:', error);
+      
+      // On error, set user to null so they can login
+      console.log('🔧 Error occurred, user needs to login');
       setUser(null);
+      console.log('✅ User is not authenticated due to error - showing login screen');
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  const redirectTenantToTabs = async () => {
+    try {
+      console.log('🏠 Redirecting tenant to tabs layout');
+      router.replace('/(tabs)');
+    } catch (error) {
+      console.error('❌ Error redirecting tenant:', error);
+      // Fallback redirect
+      router.replace('/(tabs)');
+    }
+  };
+
+  const redirectOwnerBasedOnListings = async (ownerId: string) => {
+    try {
+      console.log('🔍 Owner redirection - always going to dashboard:', ownerId);
+      // Always redirect owners to dashboard regardless of listing status
+      router.replace('/(owner)/dashboard');
+    } catch (error) {
+      console.error('❌ Error redirecting owner:', error);
+      // Default to dashboard if there's an error
+      router.replace('/(owner)/dashboard');
     }
   };
 
@@ -73,42 +244,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Continue with state clearing
       }
       
-      // 3. Clear user state - this is the most important step
+      // 3. Dispatch global logout event before clearing user state
+      dispatchCustomEvent('userLoggedOut');
+      console.log('✅ Global logout event dispatched');
+      
+      // 4. Clear user state - this is the most important step
       setUser(null);
       console.log('✅ User state cleared - user is now logged out');
       
-      // 4. Force a small delay to ensure state update is processed
+      // 5. Set logout flag for notification
+      try {
+        await AsyncStorage.setItem('user_logged_out', 'true');
+        console.log('✅ Logout flag set for notification');
+      } catch (flagError) {
+        console.error('❌ Error setting logout flag:', flagError);
+        // Continue with logout process even if flag setting fails
+      }
+      
+      // 6. Force a small delay to ensure state update is processed
       await new Promise(resolve => setTimeout(resolve, 100));
       
       console.log('✅ Comprehensive logout completed successfully');
       
-      // 5. Force redirect to login page
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
-        console.log('🔄 Redirecting to login page...');
-      }
+      // 7. Force redirect to login page using Expo Router
+      console.log('🔄 Redirecting to login page...');
+      router.replace('/login');
       
     } catch (error) {
       console.error('❌ Error signing out:', error);
       // Even if there's an error, try to clear local state
       try {
         await clearAuthSession();
+        
+        // Dispatch global logout event
+        dispatchCustomEvent('userLoggedOut');
+        
         setUser(null);
         
-        // Force redirect even on error
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
+        // Set logout flag for notification
+        try {
+          await AsyncStorage.setItem('user_logged_out', 'true');
+        } catch (flagError) {
+          console.error('❌ Error setting logout flag in emergency:', flagError);
         }
+        
+        // Force redirect even on error
+        console.log('🔄 Emergency redirect to login page...');
+        router.replace('/login');
         
         console.log('✅ Emergency logout completed - user is logged out');
       } catch (emergencyError) {
         console.error('❌ Emergency logout failed:', emergencyError);
+        
+        // Dispatch global logout event
+        dispatchCustomEvent('userLoggedOut');
+        
         setUser(null);
         
-        // Last resort - force redirect
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
+        // Set logout flag for notification
+        try {
+          await AsyncStorage.setItem('user_logged_out', 'true');
+        } catch (flagError) {
+          console.error('❌ Error setting logout flag in force logout:', flagError);
         }
+        
+        // Last resort - force redirect
+        console.log('🔄 Force redirect to login page...');
+        router.replace('/login');
         
         console.log('✅ Force logout completed - user is logged out');
       }
@@ -117,6 +319,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshUser();
+    
   }, []);
 
   const value: AuthContextType = {
@@ -125,6 +328,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: !!user,
     signOut,
     refreshUser,
+    redirectOwnerBasedOnListings,
+    redirectTenantToTabs,
   };
 
   return (

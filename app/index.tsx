@@ -1,223 +1,214 @@
-import { GradientButton, InteractiveButton } from '@/components/buttons';
-import { Image } from '@/components/ui/image';
-import { VStack } from '@/components/ui/vstack';
-import { HStack } from '@/components/ui/hstack';
 import { useRouter } from 'expo-router';
-import { Text } from '@/components/ui/text';
-import { Center } from '@/components/ui/center';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, Image, StyleSheet, TouchableOpacity, Dimensions, SafeAreaView } from 'react-native';
+import React, { useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+
+const { width, height } = Dimensions.get('window');
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { user, isLoading, isAuthenticated } = useAuth();
+
+  // Redirect authenticated users to their appropriate dashboard
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user) {
+      console.log('🔄 User is authenticated, redirecting from onboarding...', user.roles);
+      
+      if (user.roles.includes('owner')) {
+        console.log('🏠 Redirecting owner to dashboard...');
+        router.replace('/(owner)/dashboard');
+      } else if (user.roles.includes('tenant')) {
+        console.log('🏠 Redirecting tenant to tabs...');
+        router.replace('/(tabs)');
+      }
+    }
+  }, [isLoading, isAuthenticated, user, router]);
+
+  // Show loading while checking authentication
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // If user is authenticated, don't show onboarding (redirect will happen)
+  if (isAuthenticated && user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Redirecting...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Sample property images for the grid
+  const propertyImages = [
+    require("../assets/onboarding/h1.jpg"),
+    require("../assets/onboarding/h2.jpg"),
+    require("../assets/onboarding/h3.jpg"),
+    require("../assets/onboarding/h4.jpg"),
+    require("../assets/onboarding/h5.jpg"),
+    require("../assets/onboarding/h6.jpg"),
+    require("../assets/onboarding/h7.jpg"),
+    require("../assets/onboarding/h8.jpg"),
+    require("../assets/onboarding/h9.jpg"),
+  ];
 
   return (
-    <VStack className="px-6 py-10 gap-4 bg-gray-50 h-full w-full items-center justify-center">
-      <VStack className="w-full items-center relative">
-        {/* Mobile Layout (1 column) */}
-        <VStack className="gap-3 w-full max-w-sm md:hidden">
-          <HStack className="gap-3 justify-center">
-            <Image
-              source={require("../assets/onboarding/h1.jpg")}
-              className="h-24 w-20 rounded-xl shadow-md"
-              alt="House image 1"
-            />
-            <Image
-              source={require("../assets/onboarding/h2.jpg")}
-              className="h-32 w-20 rounded-xl shadow-md"
-              alt="House image 2"
-            />
-            <Image
-              source={require("../assets/onboarding/h3.jpg")}
-              className="h-28 w-20 rounded-xl shadow-md"
-              alt="House image 3"
-            />
-          </HStack>
-          <HStack className="gap-3 justify-center">
-            <Image
-              source={require("../assets/onboarding/h4.jpg")}
-              className="h-28 w-20 rounded-xl shadow-md"
-              alt="House image 4"
-            />
-            <Image
-              source={require("../assets/onboarding/h5.jpg")}
-              className="h-24 w-20 rounded-xl shadow-md"
-              alt="House image 5"
-            />
-            <Image
-              source={require("../assets/onboarding/h6.jpg")}
-              className="h-32 w-20 rounded-xl shadow-md"
-              alt="House image 6"
-            />
-          </HStack>
-          <HStack className="gap-3 justify-center">
-            <Image
-              source={require("../assets/onboarding/h7.jpg")}
-              className="h-28 w-20 rounded-xl shadow-md"
-              alt="House image 7"
-            />
-            <Image
-              source={require("../assets/onboarding/h8.jpg")}
-              className="h-32 w-20 rounded-xl shadow-md"
-              alt="House image 8"
-            />
-            <Image
-              source={require("../assets/onboarding/h9.jpg")}
-              className="h-24 w-20 rounded-xl shadow-md"
-              alt="House image 9"
-            />
-          </HStack>
-        </VStack>
+    <React.Fragment>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.content}>
+          {/* Image Grid */}
+          <View style={styles.imageGrid}>
+            {propertyImages.map((image, index) => (
+              <View key={index} style={styles.imageContainer}>
+                <Image source={image} style={styles.gridImage} />
+              </View>
+            ))}
+          </View>
 
-        {/* Tablet Layout (2 columns) */}
-        <HStack className="gap-6 justify-center items-center hidden md:flex lg:hidden">
-          <VStack className="gap-4">
-            <Image
-              source={require("../assets/onboarding/h1.jpg")}
-              className="h-32 w-24 rounded-xl shadow-lg"
-              alt="House image 1"
-            />
-            <Image
-              source={require("../assets/onboarding/h2.jpg")}
-              className="h-40 w-24 rounded-xl shadow-lg"
-              alt="House image 2"
-            />
-            <Image
-              source={require("../assets/onboarding/h3.jpg")}
-              className="h-36 w-24 rounded-xl shadow-lg"
-              alt="House image 3"
-            />
-          </VStack>
-          <VStack className="gap-4">
-            <Image
-              source={require("../assets/onboarding/h4.jpg")}
-              className="h-36 w-24 rounded-xl shadow-lg"
-              alt="House image 4"
-            />
-            <Image
-              source={require("../assets/onboarding/h5.jpg")}
-              className="h-32 w-24 rounded-xl shadow-lg"
-              alt="House image 5"
-            />
-            <Image
-              source={require("../assets/onboarding/h6.jpg")}
-              className="h-40 w-24 rounded-xl shadow-lg"
-              alt="House image 6"
-            />
-          </VStack>
-          <VStack className="gap-4">
-            <Image
-              source={require("../assets/onboarding/h7.jpg")}
-              className="h-36 w-24 rounded-xl shadow-lg"
-              alt="House image 7"
-            />
-            <Image
-              source={require("../assets/onboarding/h8.jpg")}
-              className="h-40 w-24 rounded-xl shadow-lg"
-              alt="House image 8"
-            />
-            <Image
-              source={require("../assets/onboarding/h9.jpg")}
-              className="h-32 w-24 rounded-xl shadow-lg"
-              alt="House image 9"
-            />
-          </VStack>
-        </HStack>
+          {/* Text Content */}
+          <View style={styles.textContainer}>
+            <Text style={styles.title}>New Place, New Home</Text>
+            <Text style={styles.subtitle}>
+              Ready to start fresh in a new place? HanapBahay is here to guide you on your journey!
+            </Text>
+          </View>
 
-        {/* Desktop Layout (3 columns) */}
-        <HStack className="gap-8 justify-center items-center hidden lg:flex">
-          <VStack className="gap-6">
-            <Image
-              source={require("../assets/onboarding/h1.jpg")}
-              className="h-32 w-28 rounded-2xl shadow-xl"
-              alt="House image 1"
-            />
-            <Image
-              source={require("../assets/onboarding/h2.jpg")}
-              className="h-48 w-28 rounded-2xl shadow-xl"
-              alt="House image 2"
-            />
-            <Image
-              source={require("../assets/onboarding/h3.jpg")}
-              className="h-40 w-28 rounded-2xl shadow-xl"
-              alt="House image 3"
-            />
-          </VStack>
-          <VStack className="gap-6">
-            <Image
-              source={require("../assets/onboarding/h4.jpg")}
-              className="h-40 w-28 rounded-2xl shadow-xl"
-              alt="House image 4"
-            />
-            <Image
-              source={require("../assets/onboarding/h5.jpg")}
-              className="h-32 w-28 rounded-2xl shadow-xl"
-              alt="House image 5"
-            />
-            <Image
-              source={require("../assets/onboarding/h6.jpg")}
-              className="h-48 w-28 rounded-2xl shadow-xl"
-              alt="House image 6"
-            />
-          </VStack>
-          <VStack className="gap-6">
-            <Image
-              source={require("../assets/onboarding/h7.jpg")}
-              className="h-40 w-28 rounded-2xl shadow-xl"
-              alt="House image 7"
-            />
-            <Image
-              source={require("../assets/onboarding/h8.jpg")}
-              className="h-48 w-28 rounded-2xl shadow-xl"
-              alt="House image 8"
-            />
-            <Image
-              source={require("../assets/onboarding/h9.jpg")}
-              className="h-32 w-28 rounded-2xl shadow-xl"
-              alt="House image 9"
-            />
-          </VStack>
-        </HStack>
-
-        {/* Fading Overlay */}
-        <LinearGradient
-          colors={['transparent', 'rgba(249,250,251,1)']}
-          locations={[0, 0.85]}
-          className="absolute bottom-0 w-full h-[25%]"
-        />
-      </VStack>
-      <VStack className="gap-6 px-4 items-center justify-center">
-        <Center className="mb-6">
-          <VStack className="items-center">
-            <Text size="3xl" className="font-bold text-gray-800 text-center">
-              New Place, New Home
-            </Text>
-            <Text size="lg" className="text-gray-800 text-center mt-2">
-              Ready to start fresh in a new place?
-            </Text>
-            <Text size="lg" className="text-gray-800 text-center">
-              HanapBahay is here to guide you on your journey!
-            </Text>
-          </VStack>
-        </Center>
-        <VStack className="gap-4 w-full items-center">
-          <InteractiveButton 
-            isLoading={false} 
-            text="Sign In" 
-            onPress={() => router.replace('/login')}
-            variant="primary"
-            size="lg"
-            fullWidth={false}
-          />
-          <InteractiveButton
-            isLoading={false} 
-            text="Create Account" 
-            onPress={() => router.replace('/sign-up')}
-            variant="outline"
-            size="lg"
-            fullWidth={false}
-          />
-        </VStack>
-      </VStack>
-    </VStack>
+          {/* Action Buttons */}
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity 
+              style={styles.loginButton}
+              onPress={() => router.replace('/login')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.loginButtonText}>Login</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.signupButton}
+              onPress={() => router.replace('/sign-up')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.signupButtonText}>Sign Up</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    </React.Fragment>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+  },
+  imageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 300,
+    marginBottom: 40,
+  },
+  imageContainer: {
+    width: '30%',
+    aspectRatio: 1,
+    margin: '1.5%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#F3F4F6',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  textContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+    paddingHorizontal: 20,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 34,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 24,
+    maxWidth: 320,
+  },
+  buttonContainer: {
+    width: '100%',
+    maxWidth: 300,
+    gap: 12,
+  },
+  loginButton: {
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  loginButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  signupButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  signupButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+  },
+});

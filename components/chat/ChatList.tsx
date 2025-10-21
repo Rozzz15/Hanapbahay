@@ -9,7 +9,7 @@ import { VStack } from "../ui/vstack";
 import { HStack } from "../ui/hstack";
 import { Heading } from "../ui/heading";
 import { Text } from "../ui/text";
-import { Pressable } from "react-native";
+import { Pressable, View, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 
 export type ChatItem = {
@@ -47,38 +47,82 @@ const ChatList = ({ chats }: ChatListProps) => {
         <VStack space="2xl">
             {chats.map((chat) => (
                 <Pressable key={chat.id} onPress={() => handleChatPress(chat)}>
-                    <HStack space="md" className="p-2 border-b border-gray-200">
-                        <Avatar className="bg-gray-300">
-                            {chat.avatar ? (
-                                <AvatarImage src={chat.avatar} alt={chat.name} />
-                            ) : (
-                                <AvatarFallbackText className="text-white">
-                                    {chat.name.charAt(0)}
-                                </AvatarFallbackText>
-                            )}
-                            {chat.unreadCount && chat.unreadCount > 0 && (
-                                <AvatarBadge className="bg-red-600 px-2 py-1 rounded-full">
-                                    <Text className="text-white text-sm">{chat.unreadCount}</Text>
-                                </AvatarBadge>
-                            )}
-                        </Avatar>
-                        <VStack className="flex-1">
-                            <HStack className="justify-between">
-                                <Heading size="lg">{chat.name}</Heading>
-                                <Text size="sm" className="text-gray-500">{chat.time}</Text>
-                            </HStack>
-                            <HStack className="justify-between">
-                                <Text size="md" className={chat.read ? "text-gray-500" : "font-bold"}>
-                                    {chat.message}
-                                </Text>
-                                {chat.read ? <CheckCheck className="text-blue-500" size={16} /> : <Check size={16} />}
-                            </HStack>
-                        </VStack>
-                    </HStack>
+                    <View style={styles.chatItem}>
+                        <HStack space="md">
+                            <Avatar style={styles.avatar}>
+                                {chat.avatar ? (
+                                    <AvatarImage source={{ uri: chat.avatar }} />
+                                ) : (
+                                    <AvatarFallbackText style={styles.avatarText}>
+                                        {chat.name.charAt(0)}
+                                    </AvatarFallbackText>
+                                )}
+                                {chat.unreadCount && chat.unreadCount > 0 && (
+                                    <View style={styles.badge}>
+                                        <Text style={styles.badgeText}>{chat.unreadCount}</Text>
+                                    </View>
+                                )}
+                            </Avatar>
+                            <VStack style={styles.chatContent}>
+                                <HStack style={styles.headerRow}>
+                                    <Heading size="lg">{chat.name}</Heading>
+                                    <Text size="sm" style={styles.timeText}>{chat.time}</Text>
+                                </HStack>
+                                <HStack style={styles.messageRow}>
+                                    <Text size="md" style={chat.read ? styles.readMessage : styles.unreadMessage}>
+                                        {chat.message}
+                                    </Text>
+                                    {chat.read ? <CheckCheck color="#3B82F6" size={16} /> : <Check color="#6B7280" size={16} />}
+                                </HStack>
+                            </VStack>
+                        </HStack>
+                    </View>
                 </Pressable>
             ))}
         </VStack>
     );
 };
+
+const styles = StyleSheet.create({
+    chatItem: {
+        padding: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    avatar: {
+        backgroundColor: '#D1D5DB',
+    },
+    avatarText: {
+        color: '#FFFFFF',
+    },
+    badge: {
+        backgroundColor: '#DC2626',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    badgeText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+    },
+    chatContent: {
+        flex: 1,
+    },
+    headerRow: {
+        justifyContent: 'space-between',
+    },
+    timeText: {
+        color: '#6B7280',
+    },
+    messageRow: {
+        justifyContent: 'space-between',
+    },
+    readMessage: {
+        color: '#6B7280',
+    },
+    unreadMessage: {
+        fontWeight: 'bold',
+    },
+});
 
 export default ChatList;

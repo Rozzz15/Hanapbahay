@@ -1,20 +1,25 @@
-import React from "react";
+import React, { useState, useEffect, memo } from "react";
 import { View, Text, Image, TouchableOpacity, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Box } from "@/components/ui/box";
 import { VStack } from "@/components/ui/vstack";
 import { HStack } from "@/components/ui/hstack";
 import { Icon } from "@/components/ui/icon";
-import { Star, Home, Heart, Ruler, MapPin } from "lucide-react-native";
+import { Star, Home, MapPin } from "lucide-react-native";
+import { useAuth } from "@/context/AuthContext";
+import { trackListingView } from "@/utils/view-tracking";
 
 export type ListingType = {
     id?: string;
     image: string;
+    coverPhoto?: string;
     title: string;
     location: string;
     rating: number; 
     reviews: number;
     rooms: number;
+    bedrooms: number;
+    bathrooms: number;
     size: number;
     price: number;
     ownerUserId?: string;
@@ -26,7 +31,6 @@ export type ListingType = {
     rentalType?: string;
     availabilityStatus?: string;
     leaseTerm?: string;
-    baseRent?: number;
     securityDeposit?: number;
     paymentMethods?: string[];
     ownerName?: string;
@@ -36,7 +40,6 @@ export type ListingType = {
     emergencyContact?: string;
     rules?: string[];
     videos?: string[];
-    coverPhoto?: string;
     publishedAt?: string;
 };
 
@@ -48,6 +51,8 @@ const ListingCard: React.FC<ListingType> = ({
     rating, 
     reviews, 
     rooms, 
+    bedrooms,
+    bathrooms,
     size, 
     price, 
     ownerUserId,
@@ -59,7 +64,6 @@ const ListingCard: React.FC<ListingType> = ({
     rentalType,
     availabilityStatus,
     leaseTerm,
-    baseRent,
     securityDeposit,
     paymentMethods,
     ownerName,
@@ -72,12 +76,30 @@ const ListingCard: React.FC<ListingType> = ({
     coverPhoto,
     publishedAt
 }) => {
+    console.log('🖼️ ListingCard received props:', {
+        id,
+        image,
+        coverPhoto,
+        hasImage: !!image,
+        hasCoverPhoto: !!coverPhoto,
+        imageValue: image,
+        coverPhotoValue: coverPhoto
+    });
+    
     const { width } = useWindowDimensions();
     const isMobile = width < 768;
     const router = useRouter();
+    const { user, isAuthenticated } = useAuth();
+    // Removed favorite functionality
 
-    const handleViewDetails = () => {
-        // Navigate to property preview with the listing data
+    // Removed favorite status checking
+
+    // Removed favorite status reloading
+
+    // Removed favorite toggle handler
+
+    const handleViewDetails = async () => {
+        // Navigate immediately - track view in background
         router.push({
             pathname: '/property-preview',
             params: {
@@ -86,6 +108,8 @@ const ListingCard: React.FC<ListingType> = ({
                 location,
                 price: price.toString(),
                 rooms: rooms.toString(),
+                bedrooms: bedrooms.toString(),
+                bathrooms: bathrooms.toString(),
                 size: size.toString(),
                 rating: rating.toString(),
                 reviews: reviews.toString(),
@@ -100,8 +124,7 @@ const ListingCard: React.FC<ListingType> = ({
                 availabilityStatus: availabilityStatus || 'Available',
                 leaseTerm: leaseTerm || 'Not specified',
                 monthlyRent: price.toString(),
-                baseRent: baseRent?.toString() || '',
-                securityDeposit: securityDeposit?.toString() || '',
+                securityDeposit: securityDeposit && securityDeposit > 0 ? securityDeposit.toString() : '',
                 paymentMethods: paymentMethods ? JSON.stringify(paymentMethods) : '',
                 ownerName: ownerName || 'Property Owner',
                 businessName: businessName || '',
@@ -110,7 +133,7 @@ const ListingCard: React.FC<ListingType> = ({
                 emergencyContact: emergencyContact || '',
                 rules: rules ? JSON.stringify(rules) : '',
                 videos: videos ? JSON.stringify(videos) : '',
-                coverPhoto: coverPhoto || '',
+                coverPhoto: coverPhoto || image || '',
                 publishedAt: publishedAt || ''
             }
         });
@@ -118,28 +141,40 @@ const ListingCard: React.FC<ListingType> = ({
 
     return (
         <TouchableOpacity className="w-full mb-4" onPress={handleViewDetails}>
-            <Box className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
+            <Box 
+                key={`listing-${id}-${coverPhoto || image}`}
+                className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden"
+            >
                 {/* Image Section */}
                 <View className="relative">
                     <Image 
-                        source={{ uri: coverPhoto || image }} 
+                        source={{ 
+                            uri: (() => {
+                                // Only use user-uploaded photos, no default fallbacks
+                                const imageUri = coverPhoto || image;
+                                console.log('🖼️ ListingCard image source:', {
+                                    coverPhoto,
+                                    image,
+                                    finalUri: imageUri,
+                                    hasCoverPhoto: !!coverPhoto,
+                                    hasImage: !!image
+                                });
+                                return imageUri;
+                            })()
+                        }} 
                         className="w-full h-48"
                         resizeMode="cover"
                         onError={(error) => {
                             console.log('❌ Listing card image load error:', error.nativeEvent.error);
                             console.log('📸 Attempted to load:', coverPhoto || image);
+                            console.log('📸 Cover photo value:', coverPhoto);
+                            console.log('📸 Image value:', image);
                         }}
                         onLoad={() => {
                             console.log('✅ Listing card image loaded successfully:', coverPhoto || image);
                         }}
                     />
                     
-                    {/* Cover Photo Indicator */}
-                    {coverPhoto && (
-                        <View className="absolute top-3 right-12 bg-yellow-500 px-2 py-1 rounded-full">
-                            <Text className="text-white text-xs font-bold">⭐ Cover</Text>
-                        </View>
-                    )}
                     
                     {/* Rating Badge */}
                     <View className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-full px-3 py-1">
@@ -150,10 +185,7 @@ const ListingCard: React.FC<ListingType> = ({
                             </Text>
                         </HStack>
                     </View>
-                    {/* Favorite Button */}
-                    <TouchableOpacity className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm rounded-full p-2">
-                        <Icon as={Heart} size="sm" color="#6B7280" />
-                    </TouchableOpacity>
+                    {/* Removed favorite button */}
                 </View>
 
                 {/* Content Section */}
@@ -175,6 +207,15 @@ const ListingCard: React.FC<ListingType> = ({
                         </Text>
                     </HStack>
 
+                    {/* Owner/Business Name */}
+                    {(businessName || ownerName) && (
+                        <HStack className="items-center space-x-2 bg-blue-50 px-3 py-2 rounded-lg">
+                            <Icon as={Home} size="sm" color="#3B82F6" />
+                            <Text className="text-sm font-medium text-blue-700 flex-1" numberOfLines={1}>
+                                {businessName || ownerName}
+                            </Text>
+                        </HStack>
+                    )}
 
                     {/* Price Section */}
                     <HStack className="justify-between items-center pt-2 border-t border-gray-100">
@@ -188,7 +229,10 @@ const ListingCard: React.FC<ListingType> = ({
                             {ownerUserId && (
                                 <TouchableOpacity 
                                     className="bg-green-600 rounded-xl px-4 py-3"
-                                    onPress={() => router.push({ pathname: '/chat-room', params: { name: title, otherUserId: ownerUserId } })}
+                                    onPress={() => {
+                                        const displayName = businessName || ownerName || title;
+                                        router.push({ pathname: '/chat-room', params: { name: displayName, otherUserId: ownerUserId } });
+                                    }}
                                 >
                                     <Text className="text-white font-semibold text-sm">Message Owner</Text>
                                 </TouchableOpacity>
@@ -210,4 +254,4 @@ const ListingCard: React.FC<ListingType> = ({
     );
 };
 
-export default ListingCard;
+export default memo(ListingCard);

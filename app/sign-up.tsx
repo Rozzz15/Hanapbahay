@@ -1,60 +1,51 @@
 import { useRouter } from 'expo-router';
-import { VStack } from '@/components/ui/vstack';
-import { HStack } from '@/components/ui/hstack';
-import { Text } from '@/components/ui/text';
-import { ScrollView, View, Text as RNText, TouchableOpacity, Image, Alert } from 'react-native';
-import {
-    FormControl,
-    FormControlError,
-    FormControlErrorText,
-    FormControlErrorIcon,
-    FormControlLabel,
-    FormControlLabelText,
-} from "@/components/ui/form-control";
-import { Input, InputField } from '@/components/ui/input';
-import { AlertCircleIcon, Icon, ChevronLeftIcon, EyeIcon, EyeOffIcon, MailIcon, LockIcon, UserIcon, CheckIcon, PhoneIcon, MapPinIcon } from "@/components/ui/icon";
+import { ScrollView, View, Text, TouchableOpacity, Image, Alert, useWindowDimensions, Pressable, Modal, StyleSheet, TextInput, SafeAreaView } from 'react-native';
 import React, { useState } from 'react';
-import { useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ButtonCarousel, CountSelect } from '@/components/forms';
-import { AMENITIES, PAYMENT_METHODS, PROPERTY_TYPES } from '@/types/property';
-import { Button } from '@/components/ui/button';
 import { signUpUser, signUpSchema } from '@/api/auth/sign-up';
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useToast, Toast, ToastTitle, ToastDescription } from "@/components/ui/toast";
+// Removed react-hook-form - using React state instead
+import { useToast } from "@/components/ui/toast";
+import { notifications, createNotification } from "@/utils";
 import { useAuth } from '@/context/AuthContext';
-import { InteractiveButton } from '@/components/buttons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function SignUpScreen() {
     const router = useRouter();
     const toast = useToast();
-    const { refreshUser } = useAuth();
+    const { refreshUser, redirectOwnerBasedOnListings } = useAuth();
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [phoneInput, setPhoneInput] = useState('');
     const [duplicateAccountError, setDuplicateAccountError] = useState(false);
     const [selectedRole, setSelectedRole] = useState<'tenant' | 'owner'>('tenant');
-    
+    const [showTermsModal, setShowTermsModal] = useState(false);
+    const [showPrivacyModal, setShowPrivacyModal] = useState(false);
     
     const { width } = useWindowDimensions();
-    const isSmall = width < 380;
-    const isTablet = width >= 768;
-    const photoSize = Math.max(64, Math.min(112, Math.floor(width / 4)));
 
     // Owner-specific state
     const [govIdUri, setGovIdUri] = useState<string | null>(null);
-    const [propertyType, setPropertyType] = useState<string>('');
-    const [propertyAddress, setPropertyAddress] = useState<string>('');
-    const [monthlyRate, setMonthlyRate] = useState<string>('');
-    const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
-    const [propertyPhotos, setPropertyPhotos] = useState<string[]>([]);
-    const [paymentMethods, setPaymentMethods] = useState<string[]>([]);
-    const [ownerErrors, setOwnerErrors] = useState<string[]>([]);
+
+    // Form state management with React useState
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        contactNumber: '',
+        address: '',
+        password: '',
+        confirmPassword: ''
+    });
+    const [errors, setErrors] = useState({
+        name: '',
+        email: '',
+        contactNumber: '',
+        address: '',
+        password: '',
+        confirmPassword: ''
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const pickGovId = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -72,105 +63,97 @@ export default function SignUpScreen() {
     };
 
 
-    const pickPropertyPhotos = async () => {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permission required', 'Please allow photo library access to upload property photos.');
-            return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsMultipleSelection: true,
-            quality: 0.8,
-        });
-        if (!result.canceled && result.assets?.length) {
-            const newUris = result.assets.map(a => a.uri).filter(Boolean) as string[];
-            setPropertyPhotos(prev => [...prev, ...newUris]);
-        }
-    };
-
-    const toggleAmenity = (amenity: string) => {
-        setSelectedAmenities(prev => prev.includes(amenity) ? prev.filter(a => a !== amenity) : [...prev, amenity]);
-    };
-
-    const togglePaymentMethod = (method: string) => {
-        setPaymentMethods(prev => prev.includes(method) ? prev.filter(m => m !== method) : [...prev, method]);
-    };
-
-    // React Hook Form with Zod validation
-    const {
-        register,
-        handleSubmit,
-        setValue,
-        formState: { errors, isSubmitting, isValid },
-        getValues,
-    } = useForm({
-        resolver: zodResolver(signUpSchema),
-        defaultValues: {
+    const validateForm = () => {
+        const newErrors = {
             name: '',
-            email: '', // Explicitly prevent auto-generation
+            email: '',
             contactNumber: '',
             address: '',
             password: '',
             confirmPassword: ''
+        };
+        let isValid = true;
+
+        if (!formData.name.trim()) {
+            newErrors.name = 'Name is required';
+            isValid = false;
         }
-    });
 
+        if (!formData.email.trim()) {
+            newErrors.email = 'Email is required';
+            isValid = false;
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+            newErrors.email = 'Email is invalid';
+            isValid = false;
+        }
 
-    const onSubmit = async (data: any) => {
+        if (!formData.contactNumber.trim()) {
+            newErrors.contactNumber = 'Contact number is required';
+            isValid = false;
+        }
+
+        // Address is only required for tenants
+        if (selectedRole === 'tenant' && !formData.address.trim()) {
+            newErrors.address = 'Address is required';
+            isValid = false;
+        }
+
+        if (!formData.password) {
+            newErrors.password = 'Password is required';
+            isValid = false;
+        } else if (formData.password.length < 6) {
+            newErrors.password = 'Password must be at least 6 characters';
+            isValid = false;
+        }
+
+        if (formData.password !== formData.confirmPassword) {
+            newErrors.confirmPassword = 'Passwords do not match';
+            isValid = false;
+        }
+
+        setErrors(newErrors);
+        return isValid;
+    };
+
+    const onSubmit = async () => {
         // Clear any previous duplicate account error
         setDuplicateAccountError(false);
         
         // Validate terms agreement first
         if (!agreeToTerms) {
-            toast.show({
-                placement: "top",
-                render: ({ id }) => (
-                    <Toast nativeID={id} action="error">
-                        <ToastTitle>Terms Required</ToastTitle>
-                        <ToastDescription>You must agree to the Terms and Conditions to create an account</ToastDescription>
-                    </Toast>
-                ),
-            });
+            Alert.alert('Terms Required', 'You must agree to the Terms and Conditions to create an account.');
             return;
         }
+
+        // Validate form
+        if (!validateForm()) {
+            Alert.alert('Validation Error', 'Please fill in all required fields correctly.');
+            return;
+        }
+
+        setIsSubmitting(true);
 
         try {
             // Owner flow: Make government ID optional; warn but do not block submission
             if (selectedRole === 'owner') {
-                setOwnerErrors([]);
                 if (!govIdUri) {
-                    toast.show({
-                        placement: 'top',
-                        render: ({ id }) => (
-                            <Toast nativeID={id} action="warning">
-                                <ToastTitle>Owner Verification</ToastTitle>
-                                <ToastDescription>You can upload your government ID later to verify your account.</ToastDescription>
-                            </Toast>
-                        ),
-                    });
+                    Alert.alert('Owner Verification', 'You can upload your government ID later to verify your account.');
                 }
 
                 // Persist owner extras for later flows (only if provided)
                 if (govIdUri) {
+                console.log('💾 Saving owner verification data:', govIdUri);
                     const ownerVerification = { govIdUri };
                     await AsyncStorage.setItem('owner_verification', JSON.stringify(ownerVerification));
-                }
-                const ownerPayment = { paymentMethods };
-                await AsyncStorage.setItem('owner_payment', JSON.stringify(ownerPayment));
-                
-                // Save owner property preferences for auto-filling listing forms
-                const ownerPropertyPreferences = {
-                    propertyType,
-                    propertyAddress,
-                    monthlyRate,
-                    selectedAmenities,
-                    propertyPhotos
-                };
-                await AsyncStorage.setItem('owner_property_preferences', JSON.stringify(ownerPropertyPreferences));
+                console.log('✅ Owner verification data saved');
+            } else {
+                console.log('ℹ️ No government ID provided, skipping verification storage');
+            }
             }
 
-            const result = await signUpUser({ ...data, role: selectedRole });
+            console.log('🚀 Calling signUpUser with data:', { ...formData, role: selectedRole });
+            const result = await signUpUser({ ...formData, role: selectedRole });
+            console.log('📊 Sign-up result:', result);
             
             if (result.success) {
                 console.log('Account created successfully, storing ID verification...');
@@ -180,40 +163,26 @@ export default function SignUpScreen() {
                 
                 console.log('User context refreshed, showing success message...');
                 // Show success toast
-                toast.show({
-                    placement: "top",
-                    render: ({ id }) => (
-                        <Toast nativeID={id} action="success">
-                            <ToastTitle>Account Created!</ToastTitle>
-                            <ToastDescription>Welcome to HanapBahay! 🎉</ToastDescription>
-                        </Toast>
-                    ),
-                });
+                Alert.alert('Account Created!', 'Welcome to HanapBahay! Your account has been created successfully.');
 
-                // Route by role
+                // Route by role - owners always go to dashboard
                 if (result.role === 'owner') {
+                    console.log('🏠 Owner account created - redirecting to dashboard');
                     router.replace('/(owner)/dashboard');
                 } else {
                     router.replace('/(tabs)');
                 }
             } else {
                 // Handle sign-up failure (e.g., duplicate account)
-                console.log('Account creation failed:', result.error);
+                console.log('Account creation failed');
                 
                 // Check if it's a duplicate account error
-                if (result.error && result.error.includes('already exists')) {
+                const errorMessage = (result as any).error || 'Account creation failed';
+                if (errorMessage.includes('already exists')) {
                     setDuplicateAccountError(true);
                 }
                 
-                toast.show({
-                    placement: "top",
-                    render: ({ id }) => (
-                        <Toast nativeID={id} action="error">
-                            <ToastTitle>Account Creation Failed</ToastTitle>
-                            <ToastDescription>{result.error || "Failed to create account"}</ToastDescription>
-                        </Toast>
-                    ),
-                });
+                Alert.alert('Sign Up Failed', 'Unable to create your account. Please check your information and try again.');
             }
         } catch (error) {
             let errorMessage = "An unexpected error occurred";
@@ -224,845 +193,1133 @@ export default function SignUpScreen() {
             }
 
             // Show error toast
-            toast.show({
-                placement: "top",
-                render: ({ id }) => (
-                    <Toast nativeID={id} action="error">
-                        <ToastTitle>Sign-up failed</ToastTitle>
-                        <ToastDescription>{errorMessage}</ToastDescription>
-                    </Toast>
-                ),
-            });
+            Alert.alert('Sign Up Failed', 'Unable to create your account. Please check your information and try again.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
     const handleTermsPress = () => {
-        // TODO: Navigate to terms and conditions
-        alert("Terms and Conditions will be implemented soon!");
+        setShowTermsModal(true);
     };
 
     const handlePrivacyPress = () => {
-        // TODO: Navigate to privacy policy
-        alert("Privacy Policy will be implemented soon!");
+        setShowPrivacyModal(true);
     };
 
     return (
-        <VStack className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-            {/* Header with Modern Gradient Background */}
-            <LinearGradient
-                colors={['#1E40AF', '#3B82F6', '#60A5FA']}
-                className="px-6 pt-16 pb-12"
-            >
-                <VStack className="items-center">
-                    {/* Back Button */}
-                    <HStack className="w-full justify-start mb-8">
-                        <Button 
-                            className='p-3 bg-white/20 rounded-full' 
-                            variant='link' 
-                            size='lg' 
+        <SafeAreaView style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity 
+                    style={styles.backButton}
                             onPress={() => router.navigate('/')}
                         >
-                            <Icon as={ChevronLeftIcon} size='xl' className="text-white" />
-                        </Button>
-                    </HStack>
-
-                    {/* Brand Section with House Search Theme */}
-                    <VStack className="items-center mb-8">
-                        <VStack className="bg-white/20 backdrop-blur-sm rounded-2xl p-6 mb-4">
-                            <Text size="4xl" className="font-bold text-white text-center mb-2">
-                                HanapBahay
+                    <Ionicons name="arrow-back" size={24} color="#374151" />
+                </TouchableOpacity>
+                
+                <View style={styles.logoContainer}>
+                    <Ionicons name="home" size={32} color="#10B981" />
+                    <Text style={styles.logoText}>HanapBahay</Text>
+                </View>
+                
+                <Text style={styles.welcomeText}>Create Your Account</Text>
+                <Text style={styles.subtitleText}>
+                    Join thousands of users finding their perfect home
                             </Text>
-                        </VStack>
-                        <Text size="3xl" className="font-bold text-white text-center mb-2">
-                            Find Your Dream Home
-                        </Text>
-                        <Text size="lg" className="text-white/90 text-center max-w-sm">
-                            Create your account and start your journey to find the perfect home
-                        </Text>
-                    </VStack>
-                </VStack>
-            </LinearGradient>
+            </View>
 
-            {/* Scrollable Main Content with Modern Card Design */}
+            {/* Form Card */}
             <ScrollView 
-                className="flex-1 px-6 -mt-8"
+                style={styles.scrollView}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 20 }}
+                contentContainerStyle={styles.scrollContent}
             >
-                <VStack className="bg-white rounded-3xl shadow-2xl p-8 space-y-6">
-                    {/* Form Header */}
-                    <VStack className="items-center mb-8">
-                        <Text size="2xl" className="font-bold text-gray-800 text-center mb-2">
-                            Create Your Account
-                        </Text>
-                        <Text size="sm" className="text-gray-600 text-center">
-                            Tell us about yourself to get started
-                        </Text>
-                    </VStack>
-
+                <View style={styles.formCard}>
                     {/* Role Selection */}
-                    <VStack className="space-y-3 mb-2">
-                        <Text size="md" className="font-semibold text-gray-800">I am a</Text>
-                        <HStack className="space-x-3">
+                    <View style={styles.roleSection}>
+                        <Text style={styles.sectionTitle}>I am a</Text>
+                        <View style={styles.roleContainer}>
                             <Pressable
+                                style={[
+                                    styles.roleButton,
+                                    selectedRole === 'tenant' && styles.roleButtonSelected
+                                ]}
                                 onPress={() => setSelectedRole('tenant')}
-                                className={`flex-1 p-4 rounded-2xl border-2 ${selectedRole === 'tenant' ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'}`}
-                                accessibilityRole="button"
-                                accessibilityLabel="Select Tenant"
                             >
-                                <Text size="md" className={`${selectedRole === 'tenant' ? 'text-green-700 font-semibold' : 'text-gray-700'}`}>Tenant</Text>
-                                <Text size="xs" className={`mt-1 ${selectedRole === 'tenant' ? 'text-green-600' : 'text-gray-500'}`}>Looking to rent a place</Text>
+                                <Text style={[
+                                    styles.roleButtonText,
+                                    selectedRole === 'tenant' && styles.roleButtonTextSelected
+                                ]}>
+                                    Tenant
+                                </Text>
+                                <Text style={[
+                                    styles.roleButtonSubtext,
+                                    selectedRole === 'tenant' && styles.roleButtonSubtextSelected
+                                ]}>
+                                    Looking to rent a place
+                                </Text>
                             </Pressable>
                             <Pressable
-                                onPress={() => setSelectedRole('owner')}
-                                className={`flex-1 p-4 rounded-2xl border-2 ${selectedRole === 'owner' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'}`}
-                                accessibilityRole="button"
-                                accessibilityLabel="Select Property Owner"
+                                style={[
+                                    styles.roleButton,
+                                    selectedRole === 'owner' && styles.roleButtonSelected
+                                ]}
+                                onPress={() => {
+                                    setSelectedRole('owner');
+                                    // Address is not required for owners, set to empty if not provided
+                                    if (!formData.address.trim()) {
+                                        setFormData(prev => ({ ...prev, address: '' }));
+                                    }
+                                }}
                             >
-                                <Text size="md" className={`${selectedRole === 'owner' ? 'text-blue-700 font-semibold' : 'text-gray-700'}`}>Property Owner</Text>
-                                <Text size="xs" className={`mt-1 ${selectedRole === 'owner' ? 'text-blue-600' : 'text-gray-500'}`}>List and manage rentals</Text>
+                                <Text style={[
+                                    styles.roleButtonText,
+                                    selectedRole === 'owner' && styles.roleButtonTextSelected
+                                ]}>
+                                    Property Owner
+                                </Text>
+                                <Text style={[
+                                    styles.roleButtonSubtext,
+                                    selectedRole === 'owner' && styles.roleButtonSubtextSelected
+                                ]}>
+                                    List and manage rentals
+                                </Text>
                             </Pressable>
-                        </HStack>
-                    </VStack>
+                        </View>
+                    </View>
 
                     {/* Personal Information Section */}
-                    <VStack className="space-y-6">
-                        {selectedRole === 'owner' ? (
-                            <>
-                                {/* 1. Personal Information (Owner) */}
-                                <VStack className="space-y-6">
-                                    <FormControl isInvalid={!!errors.name} className='w-full'>
-                                        <FormControlLabel>
-                                            <HStack className="items-center space-x-2">
-                                                <Icon as={UserIcon} size="sm" className="text-blue-600" />
-                                                <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Full Name / Business Name</FormControlLabelText>
-                                            </HStack>
-                                        </FormControlLabel>
-                                        <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                            borderWidth: 2, 
-                                            borderColor: errors.name ? '#EF4444' : '#E5E7EB',
-                                            backgroundColor: '#FAFAFA'
-                                        }}>
-                                            <InputField
-                                                id="name"
-                                                type="text"
-                                                placeholder="Enter full name or business name"
-                                                {...register("name")}
-                                                onChangeText={(text) => setValue("name", text)}
-                                                className="text-gray-800 text-base"
-                                            />
-                                        </Input>
+                    <View style={styles.formSection}>
+                        {/* Name Field */}
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.inputLabel}>
+                                {selectedRole === 'owner' ? 'Full Name / Business Name' : 'Full Name'}
+                            </Text>
+                            <View style={[styles.inputWrapper, errors.name && styles.inputError]}>
+                                <Ionicons name="person" size={20} color="#10B981" style={styles.inputIcon} />
+                                <TextInput
+                                    style={styles.textInput}
+                                    placeholder={selectedRole === 'owner' ? "Enter full name or business name" : "Enter your full name"}
+                                    placeholderTextColor="#9CA3AF"
+                                    value={formData.name}
+                                    onChangeText={(text) => setFormData(prev => ({ ...prev, name: text }))}
+                                />
+                            </View>
                                         {errors.name && (
-                                            <FormControlError>
-                                                <FormControlErrorIcon as={AlertCircleIcon} />
-                                                <FormControlErrorText>{errors.name?.message as string}</FormControlErrorText>
-                                            </FormControlError>
+                                <Text style={styles.errorText}>{errors.name}</Text>
                                         )}
-                                    </FormControl>
+                        </View>
 
                                     {/* Contact Number */}
-                                    <FormControl isInvalid={!!errors.contactNumber} className='w-full'>
-                                        <FormControlLabel>
-                                            <HStack className="items-center space-x-2">
-                                                <Icon as={PhoneIcon} size="sm" className="text-blue-600" />
-                                                <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Mobile Number</FormControlLabelText>
-                                            </HStack>
-                                        </FormControlLabel>
-                                        <HStack className="items-center space-x-2">
-                                            <Text className="text-gray-600 font-medium text-base px-3 py-3 bg-gray-100 rounded-lg border-2 border-gray-300">
-                                                +63
-                                            </Text>
-                                            <Input className="my-3 flex-1" size="2xl" variant="rounded" style={{ 
-                                                borderWidth: 2, 
-                                                borderColor: errors.contactNumber ? '#EF4444' : '#E5E7EB',
-                                                backgroundColor: '#FAFAFA'
-                                            }}>
-                                                <InputField
-                                                    id="phone"
-                                                    type="text"
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.inputLabel}>Mobile Number</Text>
+                            <View style={styles.phoneContainer}>
+                                <View style={styles.countryCode}>
+                                    <Text style={styles.countryCodeText}>+63</Text>
+                                </View>
+                                <View style={[styles.inputWrapper, styles.phoneInput, errors.contactNumber && styles.inputError]}>
+                                    <TextInput
+                                        style={styles.textInput}
                                                     placeholder="912 345 6789"
+                                        placeholderTextColor="#9CA3AF"
                                                     value={phoneInput}
                                                     onChangeText={(text) => {
                                                         const digitsOnly = text.replace(/\D/g, '');
                                                         if (digitsOnly.length <= 10) {
                                                             setPhoneInput(digitsOnly);
-                                                            setValue("contactNumber", `+63${digitsOnly}`);
+                                                            setFormData(prev => ({ ...prev, contactNumber: `+63${digitsOnly}` }));
                                                         }
                                                     }}
                                                     maxLength={10}
                                                     keyboardType="phone-pad"
-                                                    className="text-gray-800 text-base"
                                                 />
-                                            </Input>
-                                        </HStack>
+                                </View>
+                            </View>
                                         {errors.contactNumber && (
-                                            <FormControlError>
-                                                <FormControlErrorIcon as={AlertCircleIcon} />
-                                                <FormControlErrorText>{errors.contactNumber?.message as string}</FormControlErrorText>
-                                            </FormControlError>
+                                <Text style={styles.errorText}>{errors.contactNumber}</Text>
                                         )}
-                                    </FormControl>
+                        </View>
 
                                     {/* Email Address */}
-                                    <FormControl isInvalid={!!errors.email || duplicateAccountError} className='w-full'>
-                                        <FormControlLabel>
-                                            <HStack className="items-center space-x-2">
-                                                <Icon as={MailIcon} size="sm" className="text-blue-600" />
-                                                <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Email Address</FormControlLabelText>
-                                            </HStack>
-                                        </FormControlLabel>
-                                        <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                            borderWidth: 2, 
-                                            borderColor: (errors.email || duplicateAccountError) ? '#EF4444' : '#E5E7EB',
-                                            backgroundColor: '#FAFAFA'
-                                        }}>
-                                            <InputField
-                                                id="email"
-                                                name="email"
-                                                type="text"
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.inputLabel}>Email Address</Text>
+                            <View style={[styles.inputWrapper, (errors.email || duplicateAccountError) && styles.inputError]}>
+                                <Ionicons name="mail" size={20} color="#10B981" style={styles.inputIcon} />
+                                <TextInput
+                                    style={styles.textInput}
                                                 placeholder="Enter your email address"
-                                                {...register("email")}
+                                    placeholderTextColor="#9CA3AF"
+                                    value={formData.email}
                                                 onChangeText={(text) => {
-                                                    setValue("email", text);
+                                                    setFormData(prev => ({ ...prev, email: text }));
                                                     if (duplicateAccountError) setDuplicateAccountError(false);
                                                 }}
-                                                className="text-gray-800 text-base"
+                                    keyboardType="email-address"
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
                                             />
-                                        </Input>
+                            </View>
                                         {errors.email && (
-                                            <FormControlError>
-                                                <FormControlErrorIcon as={AlertCircleIcon} />
-                                                <FormControlErrorText>{errors.email?.message as string}</FormControlErrorText>
-                                            </FormControlError>
+                                <Text style={styles.errorText}>{errors.email}</Text>
                                         )}
                                         {duplicateAccountError && !errors.email && (
-                                            <FormControlError>
-                                                <FormControlErrorIcon as={AlertCircleIcon} />
-                                                <FormControlErrorText>An account with this email already exists. Please use a different email or try signing in instead.</FormControlErrorText>
-                                            </FormControlError>
-                                        )}
-                                    </FormControl>
-                                </VStack>
-
-                                {/* 2. Owner Verification */}
-                                <VStack className="space-y-3">
-                                    <Text size="xl" className="font-bold text-gray-800">Owner Verification</Text>
-                                    <Text size="sm" className="text-gray-600">Government ID (Driver’s License, Passport, National ID)</Text>
-                                    {govIdUri ? (
-                                        <View className="items-start">
-                                            <Image source={{ uri: govIdUri }} style={{ width: Math.max(160, Math.min(280, Math.floor(width * 0.6))), height: Math.max(100, Math.min(180, Math.floor(width * 0.35))), borderRadius: 12 }} />
-                                            <TouchableOpacity onPress={() => setGovIdUri(null)} className="mt-2 px-3 py-2 bg-red-100 rounded-lg">
-                                                <RNText className="text-red-600">Remove ID</RNText>
-                                            </TouchableOpacity>
-                                        </View>
-                                    ) : (
-                                        <InteractiveButton
-                                            text="Upload Government ID"
-                                            onPress={pickGovId}
-                                            variant="secondary"
-                                            fullWidth={false}
-                                        />
-                                    )}
-                                </VStack>
-
-                                {/* Error summary for owner flow */}
-                                {ownerErrors.length > 0 && (
-                                    <View className="bg-red-50 border border-red-200 rounded-xl p-3 mt-2">
-                                        <RNText className="text-red-700" style={{ fontWeight: '600' }}>Please complete the following:</RNText>
-                                        {ownerErrors.map((e, i) => (
-                                            <RNText key={i} className="text-red-700">• {e}</RNText>
-                                        ))}
-                                    </View>
-                                )}
-
-                                {/* 3. Property Setup (First Listing Basics) */}
-                                <VStack className="space-y-4 mt-6">
-                                    <Text size="xl" className="font-bold text-gray-800">Property Setup</Text>
-                                    {/* Property Type */}
-                                    <VStack>
-                                        <Text size="sm" className="text-gray-700 font-semibold mb-2">Property Type</Text>
-                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                                            {PROPERTY_TYPES.map((propertyTypeOption) => (
-                                                <TouchableOpacity
-                                                    key={propertyTypeOption}
-                                                    onPress={() => setPropertyType(propertyTypeOption)}
-                                                    style={{
-                                                        paddingHorizontal: 16,
-                                                        paddingVertical: 12,
-                                                        borderRadius: 20,
-                                                        backgroundColor: propertyType === propertyTypeOption ? '#059669' : '#F3F4F6',
-                                                        borderWidth: propertyType === propertyTypeOption ? 2 : 1,
-                                                        borderColor: propertyType === propertyTypeOption ? '#047857' : '#D1D5DB',
-                                                        shadowColor: propertyType === propertyTypeOption ? 'rgba(5, 150, 105, 0.4)' : 'transparent',
-                                                        shadowOffset: propertyType === propertyTypeOption ? { width: 0, height: 4 } : { width: 0, height: 0 },
-                                                        shadowOpacity: propertyType === propertyTypeOption ? 1 : 0,
-                                                        shadowRadius: propertyType === propertyTypeOption ? 8 : 0,
-                                                        elevation: propertyType === propertyTypeOption ? 6 : 0,
-                                                        transform: propertyType === propertyTypeOption ? [{ scale: 1.05 }] : [{ scale: 1 }],
-                                                    }}
-                                                >
-                                                    <Text style={{
-                                                        fontSize: 14,
-                                                        fontWeight: propertyType === propertyTypeOption ? '700' : '500',
-                                                        color: propertyType === propertyTypeOption ? '#FFFFFF' : '#6B7280',
-                                                    }}>
-                                                        {propertyTypeOption}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </View>
-                                    </VStack>
-
-                                    {/* Address */}
-                                    <FormControl className='w-full'>
-                                        <FormControlLabel>
-                                            <HStack className="items-center space-x-2">
-                                                <Icon as={MapPinIcon} size="sm" className="text-blue-600" />
-                                                <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Property Address / Location</FormControlLabelText>
-                                            </HStack>
-                                        </FormControlLabel>
-                                        <Input className="my-3" size="2xl" variant="rounded" style={{ borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FAFAFA' }}>
-                                            <InputField
-                                                id="property-address"
-                                                name="property-address"
-                                                type="text"
-                                                placeholder="Enter property location"
-                                                value={propertyAddress}
-                                                onChangeText={setPropertyAddress}
-                                                className="text-gray-800 text-base"
-                                            />
-                                        </Input>
-                                    </FormControl>
-
-                                    {/* Rates */}
-                                    {isSmall ? (
-                                        <VStack className="space-y-3">
-                                            <Input className="w-full" size="2xl" variant="rounded" style={{ borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FAFAFA' }}>
-                                                <InputField
-                                                    type="text"
-                                                    placeholder="Monthly Rate (₱)"
-                                                    value={monthlyRate}
-                                                    onChangeText={setMonthlyRate}
-                                                    keyboardType="numeric"
-                                                    className="text-gray-800 text-base"
-                                                />
-                                            </Input>
-                                        </VStack>
-                                    ) : (
-                                        <HStack className="space-x-3">
-                                            <Input className="flex-1" size="2xl" variant="rounded" style={{ borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FAFAFA' }}>
-                                                <InputField
-                                                    type="text"
-                                                    placeholder="Monthly Rate (₱)"
-                                                    value={monthlyRate}
-                                                    onChangeText={setMonthlyRate}
-                                                    keyboardType="numeric"
-                                                    className="text-gray-800 text-base"
-                                                />
-                                            </Input>
-                                        </HStack>
-                                    )}
-
-
-                                    {/* Amenities */}
-                                    <VStack>
-                                        <Text size="sm" className="text-gray-700 font-semibold mb-2">Amenities</Text>
-                                        <HStack className="flex-row flex-wrap">
-                                            {AMENITIES.map((a) => (
-                                                <TouchableOpacity
-                                                    key={a}
-                                                    onPress={() => toggleAmenity(a)}
-                                                    className={`mr-2 mb-2 px-3 py-2 rounded-full border ${selectedAmenities.includes(a) ? 'bg-green-100 border-green-500' : 'bg-gray-100 border-gray-300'}`}
-                                                >
-                                                    <RNText className={`${selectedAmenities.includes(a) ? 'text-green-700 font-medium' : 'text-gray-600'} text-sm`}>{a}</RNText>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </HStack>
-                                    </VStack>
-
-                                    {/* Photos */}
-                                    <VStack>
-                                        <Text size="sm" className="text-gray-700 font-semibold mb-2">Upload Photos (at least 1)</Text>
-                                        <HStack className="space-x-2 mb-3">
-                                            <InteractiveButton text="Choose Photos" onPress={pickPropertyPhotos} variant="secondary" />
-                                        </HStack>
-                                        {propertyPhotos.length > 0 && (
-                                            <HStack className="flex-row flex-wrap">
-                                                {propertyPhotos.map((uri, idx) => (
-                                                    <Image key={idx} source={{ uri }} style={{ width: photoSize, height: photoSize, marginRight: 8, marginBottom: 8, borderRadius: 8 }} />
-                                                ))}
-                                            </HStack>
-                                        )}
-                                    </VStack>
-                                </VStack>
-
-                                {/* 4. Payment Setup */}
-                                <VStack className="space-y-3 mt-6">
-                                    <Text size="xl" className="font-bold text-gray-800">Payment Setup</Text>
-                                    {PAYMENT_METHODS.map((method) => (
-                                        <TouchableOpacity
-                                            key={method}
-                                            onPress={() => togglePaymentMethod(method)}
-                                            className={`flex-row items-center justify-between p-3 rounded-lg border ${paymentMethods.includes(method) ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}
-                                        >
-                                            <RNText className={`${paymentMethods.includes(method) ? 'text-green-700 font-medium' : 'text-gray-700'}`}>{method}</RNText>
-                                        </TouchableOpacity>
-                                    ))}
-                                </VStack>
-                            </>
-                        ) : (
-                            <>
-                        {/* Name Field */}
-                        <FormControl isInvalid={!!errors.name} className='w-full'>
-                            <FormControlLabel>
-                                <HStack className="items-center space-x-2">
-                                    <Icon as={UserIcon} size="sm" className="text-blue-600" />
-                                    <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Full Name</FormControlLabelText>
-                                </HStack>
-                            </FormControlLabel>
-                            <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                borderWidth: 2, 
-                                borderColor: errors.name ? '#EF4444' : '#E5E7EB',
-                                backgroundColor: '#FAFAFA'
-                            }}>
-                                <InputField
-                                    type="text"
-                                    placeholder="Enter your full name"
-                                    {...register("name")}
-                                    onChangeText={(text) => setValue("name", text)}
-                                    className="text-gray-800 text-base"
-                                />
-                            </Input>
-                            {errors.name && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>{errors.name?.message as string}</FormControlErrorText>
-                                </FormControlError>
-                            )}
-                        </FormControl>
-
-                        {/* Email Field */}
-                        <FormControl isInvalid={!!errors.email || duplicateAccountError} className='w-full'>
-                            <FormControlLabel>
-                                <HStack className="items-center space-x-2">
-                                    <Icon as={MailIcon} size="sm" className="text-blue-600" />
-                                    <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Email Address</FormControlLabelText>
-                                </HStack>
-                            </FormControlLabel>
-                            <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                borderWidth: 2, 
-                                borderColor: (errors.email || duplicateAccountError) ? '#EF4444' : '#E5E7EB',
-                                backgroundColor: '#FAFAFA'
-                            }}>
-                                <InputField
-                                    type="text"
-                                    placeholder="Enter your email address"
-                                    {...register("email")}
-                                    onChangeText={(text) => {
-                                        setValue("email", text);
-                                        // Clear duplicate account error when user types
-                                        if (duplicateAccountError) {
-                                            setDuplicateAccountError(false);
-                                        }
-                                    }}
-                                    className="text-gray-800 text-base"
-                                />
-                            </Input>
-                            {errors.email && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>{errors.email?.message as string}</FormControlErrorText>
-                                </FormControlError>
-                            )}
-                            {duplicateAccountError && !errors.email && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>An account with this email already exists. Please use a different email or try signing in instead.</FormControlErrorText>
-                                </FormControlError>
-                            )}
-                        </FormControl>
-
-                        {/* Contact Number Field */}
-                        <FormControl isInvalid={!!errors.contactNumber} className='w-full'>
-                            <FormControlLabel>
-                                <HStack className="items-center space-x-2">
-                                    <Icon as={PhoneIcon} size="sm" className="text-blue-600" />
-                                    <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Contact Number</FormControlLabelText>
-                                </HStack>
-                            </FormControlLabel>
-                            <HStack className="items-center space-x-2">
-                                <Text className="text-gray-600 font-medium text-base px-3 py-3 bg-gray-100 rounded-lg border-2 border-gray-300">
-                                    +63
+                                <Text style={styles.errorText}>
+                                    An account with this email already exists. Please use a different email or try signing in instead.
                                 </Text>
-                                <Input className="my-3 flex-1" size="2xl" variant="rounded" style={{ 
-                                    borderWidth: 2, 
-                                    borderColor: errors.contactNumber ? '#EF4444' : '#E5E7EB',
-                                    backgroundColor: '#FAFAFA'
-                                }}>
-                                    <InputField
-                                        type="text"
-                                        placeholder="912 345 6789"
-                                        value={phoneInput}
-                                        onChangeText={(text) => {
-                                            // Only allow digits and limit to 10
-                                            const digitsOnly = text.replace(/\D/g, '');
-                                            if (digitsOnly.length <= 10) {
-                                                setPhoneInput(digitsOnly);
-                                                setValue("contactNumber", `+63${digitsOnly}`);
-                                            }
-                                        }}
-                                        maxLength={10}
-                                        keyboardType="phone-pad"
-                                        className="text-gray-800 text-base"
+                            )}
+                                        </View>
+                        
+                        {/* Address Field (for tenants only) */}
+                        {selectedRole === 'tenant' && (
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Current Address (Optional)</Text>
+                                <View style={[styles.inputWrapper, errors.address && styles.inputError]}>
+                                    <Ionicons name="location" size={20} color="#10B981" style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.textInput}
+                                        placeholder="Enter your current address"
+                                        placeholderTextColor="#9CA3AF"
+                                        value={formData.address}
+                                        onChangeText={(text) => setFormData(prev => ({ ...prev, address: text }))}
                                     />
-                                </Input>
-                            </HStack>
-                            {errors.contactNumber && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>{errors.contactNumber?.message as string}</FormControlErrorText>
-                                </FormControlError>
-                            )}
-                        </FormControl>
-
-                        {/* Address Field */}
-                        <FormControl isInvalid={!!errors.address} className='w-full'>
-                            <FormControlLabel>
-                                <HStack className="items-center space-x-2">
-                                    <Icon as={MailIcon} size="sm" className="text-blue-600" />
-                                    <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Current Address</FormControlLabelText>
-                                </HStack>
-                            </FormControlLabel>
-                            <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                borderWidth: 2, 
-                                borderColor: errors.address ? '#EF4444' : '#E5E7EB',
-                                backgroundColor: '#FAFAFA'
-                            }}>
-                                <InputField
-                                    type="text"
-                                    placeholder="Address (optional)"
-                                    {...register('address')}
-                                    onChangeText={(text) => setValue('address', text)}
-                                    className="text-gray-800 text-base"
-                                />
-                            </Input>
-                            <Text className="text-xs text-gray-500 mt-1">
-                                💡 Optional: Enter your city, province, or any location you prefer
-                            </Text>
-                            {errors.address && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>{errors.address?.message as string}</FormControlErrorText>
-                                </FormControlError>
-                            )}
-                        </FormControl>
-
-                            </>
+                                </View>
+                                {errors.address && (
+                                    <Text style={styles.errorText}>{errors.address}</Text>
+                                )}
+                            </View>
                         )}
 
-                        {/* Security Section Header */}
-                        <VStack className="mt-8 mb-4">
-                            <Text size="xl" className="font-bold text-gray-800 text-center">
-                                Security Settings
-                            </Text>
-                            <Text size="sm" className="text-gray-600 text-center">
+                        {/* Owner Verification Section */}
+                        {selectedRole === 'owner' && (
+                            <View style={styles.verificationSection}>
+                                <Text style={styles.sectionTitle}>Owner Verification</Text>
+                                <Text style={styles.verificationSubtext}>
+                                    Government ID (Driver's License, Passport, National ID)
+                                </Text>
+                                {govIdUri ? (
+                                    <View style={styles.idPreviewContainer}>
+                                        <Image 
+                                            source={{ uri: govIdUri }} 
+                                            style={styles.idPreview} 
+                                        />
+                                        <TouchableOpacity 
+                                            style={styles.removeIdButton}
+                                            onPress={() => setGovIdUri(null)}
+                                        >
+                                            <Text style={styles.removeIdText}>Remove ID</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity 
+                                        style={styles.uploadIdButton}
+                                        onPress={pickGovId}
+                                    >
+                                        <Ionicons name="cloud-upload" size={24} color="#10B981" />
+                                        <Text style={styles.uploadIdText}>Upload Government ID</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
+
+                    {/* Security Section */}
+                    <View style={styles.securitySection}>
+                        <Text style={styles.sectionTitle}>Security Settings</Text>
+                        <Text style={styles.sectionSubtext}>
                                 Create a secure password for your account
                             </Text>
-                        </VStack>
 
                         {/* Password Field */}
-                        <FormControl isInvalid={!!errors.password} className='w-full'>
-                            <FormControlLabel>
-                                <HStack className="items-center space-x-2">
-                                    <Icon as={LockIcon} size="sm" className="text-blue-600" />
-                                    <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Password</FormControlLabelText>
-                                </HStack>
-                            </FormControlLabel>
-                            <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                borderWidth: 2, 
-                                borderColor: errors.password ? '#EF4444' : '#E5E7EB',
-                                backgroundColor: '#FAFAFA'
-                            }}>
-                                <InputField
-                                    type={showPassword ? "text" : "password"}
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.inputLabel}>Password</Text>
+                            <View style={[styles.inputWrapper, errors.password && styles.inputError]}>
+                                <Ionicons name="lock-closed" size={20} color="#10B981" style={styles.inputIcon} />
+                                <TextInput
+                                    style={styles.textInput}
                                     placeholder="Create a strong password"
-                                    {...register("password")}
-                                    onChangeText={(text) => setValue("password", text)}
-                                    className="text-gray-800 text-base"
+                                    placeholderTextColor="#9CA3AF"
+                                    secureTextEntry={!showPassword}
+                                    value={formData.password}
+                                    onChangeText={(text) => setFormData(prev => ({ ...prev, password: text }))}
                                 />
-                                <Button
-                                    variant="link"
-                                    size="sm"
+                                <TouchableOpacity
+                                    style={styles.eyeButton}
                                     onPress={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 transform -translate-y-1/2"
                                 >
-                                    <Icon 
-                                        as={showPassword ? EyeOffIcon : EyeIcon} 
-                                        size="md" 
-                                        className="text-gray-500"
+                                    <Ionicons 
+                                        name={showPassword ? "eye-off" : "eye"} 
+                                        size={20} 
+                                        color="#9CA3AF" 
                                     />
-                                </Button>
-                            </Input>
+                                </TouchableOpacity>
+                            </View>
                             {errors.password && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>{errors.password?.message as string}</FormControlErrorText>
-                                </FormControlError>
+                                <Text style={styles.errorText}>{errors.password}</Text>
                             )}
-                        </FormControl>
+                        </View>
 
                         {/* Confirm Password Field */}
-                        <FormControl isInvalid={!!errors.confirmPassword} className='w-full'>
-                            <FormControlLabel>
-                                <HStack className="items-center space-x-2">
-                                    <Icon as={LockIcon} size="sm" className="text-blue-600" />
-                                    <FormControlLabelText size='lg' className="text-gray-700 font-semibold">Confirm Password</FormControlLabelText>
-                                </HStack>
-                            </FormControlLabel>
-                            <Input className="my-3" size="2xl" variant="rounded" style={{ 
-                                borderWidth: 2, 
-                                borderColor: errors.confirmPassword ? '#EF4444' : '#E5E7EB',
-                                backgroundColor: '#FAFAFA'
-                            }}>
-                                <InputField
-                                    type={showConfirmPassword ? "text" : "password"}
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.inputLabel}>Confirm Password</Text>
+                            <View style={[styles.inputWrapper, errors.confirmPassword && styles.inputError]}>
+                                <Ionicons name="lock-closed" size={20} color="#10B981" style={styles.inputIcon} />
+                                <TextInput
+                                    style={styles.textInput}
                                     placeholder="Confirm your password"
-                                    {...register("confirmPassword")}
-                                    onChangeText={(text) => setValue("confirmPassword", text)}
-                                    className="text-gray-800 text-base"
+                                    placeholderTextColor="#9CA3AF"
+                                    secureTextEntry={!showConfirmPassword}
+                                    value={formData.confirmPassword}
+                                    onChangeText={(text) => setFormData(prev => ({ ...prev, confirmPassword: text }))}
                                 />
-                                <Button
-                                    variant="link"
-                                    size="sm"
+                                <TouchableOpacity
+                                    style={styles.eyeButton}
                                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                                    className="absolute right-3 top-1/2 transform -translate-y-1/2"
                                 >
-                                    <Icon 
-                                        as={showConfirmPassword ? EyeOffIcon : EyeIcon} 
-                                        size="md" 
-                                        className="text-gray-500"
+                                    <Ionicons 
+                                        name={showConfirmPassword ? "eye-off" : "eye"} 
+                                        size={20} 
+                                        color="#9CA3AF" 
                                     />
-                                </Button>
-                            </Input>
+                                </TouchableOpacity>
+                            </View>
                             {errors.confirmPassword && (
-                                <FormControlError>
-                                    <FormControlErrorIcon as={AlertCircleIcon} />
-                                    <FormControlErrorText>{errors.confirmPassword?.message as string}</FormControlErrorText>
-                                </FormControlError>
+                                <Text style={styles.errorText}>{errors.confirmPassword}</Text>
                             )}
-                        </FormControl>
+                        </View>
 
                         {/* Password Requirements */}
-                        <VStack className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-200">
-                            <Text size="sm" className="text-blue-800 font-semibold mb-2">
-                                Password Requirements:
-                            </Text>
-                            <VStack className="space-y-1">
-                                <Text size="xs" className="text-blue-700">
-                                    • At least 6 characters long
-                                </Text>
-                                <Text size="xs" className="text-blue-700">
-                                    • Use a combination of letters and numbers
-                                </Text>
-                                <Text size="xs" className="text-blue-700">
-                                    • Avoid common passwords for better security
-                                </Text>
-                            </VStack>
-                        </VStack>
+                        <View style={styles.passwordRequirements}>
+                            <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+                            <Text style={styles.requirementText}>• At least 6 characters long</Text>
+                            <Text style={styles.requirementText}>• Use a combination of letters and numbers</Text>
+                            <Text style={styles.requirementText}>• Avoid common passwords for better security</Text>
+                        </View>
+                    </View>
 
-                        {/* Terms and Conditions - Simple Section */}
-                        <HStack className="w-full items-center space-x-3 mt-6">
+                    {/* Terms and Conditions */}
+                    <View style={styles.termsContainer}>
                             <Pressable
+                            style={styles.checkboxContainer}
                                 onPress={() => setAgreeToTerms(!agreeToTerms)}
-                                className={`w-5 h-5 border-2 rounded items-center justify-center ${
-                                    agreeToTerms ? 'border-blue-500 bg-blue-500' : 'border-red-300 bg-transparent'
-                                }`}
                             >
+                            <View style={[styles.checkbox, agreeToTerms && styles.checkboxChecked]}>
                                 {agreeToTerms && (
-                                    <Icon as={CheckIcon} size="xs" className="text-white" />
+                                    <Ionicons name="checkmark" size={16} color="#fff" />
                                 )}
-                            </Pressable>
-                            <Text size="sm" className="text-gray-600 flex-1">
+                            </View>
+                            <Text style={styles.termsText}>
                                 I agree to the{' '}
-                                <Button
-                                    variant="link"
-                                    size="sm"
-                                    onPress={handleTermsPress}
-                                    className="p-0"
-                                >
-                                    <Text size="sm" className="text-blue-600 font-semibold">
+                                <Text style={styles.termsLink} onPress={handleTermsPress}>
                                         Terms and Conditions
                                     </Text>
-                                </Button>
                                 {' '}and{' '}
-                                <Button
-                                    variant="link"
-                                    size="sm"
-                                    onPress={handlePrivacyPress}
-                                    className="p-0"
-                                >
-                                    <Text size="sm" className="text-blue-600 font-semibold">
+                                <Text style={styles.termsLink} onPress={handlePrivacyPress}>
                                         Privacy Policy
                                     </Text>
-                                </Button>
                             </Text>
-                        </HStack>
+                        </Pressable>
+                    </View>
 
                         {/* Create Account Button */}
-                        <VStack className='mt-8 w-full items-center'>
                             <TouchableOpacity
-                                onPress={async () => {
-                                    console.log('🔥 Create Account button pressed!');
-                                    console.log('🔥 agreeToTerms:', agreeToTerms);
-                                    console.log('🔥 isSubmitting:', isSubmitting);
-                                    
-                                    if (!agreeToTerms) {
-                                        toast.show({
-                                            id: 'terms-required',
-                                            placement: "top",
-                                            render: ({ id }) => (
-                                                <Toast nativeID={id} action="error">
-                                                    <ToastTitle>Terms Required</ToastTitle>
-                                                    <ToastDescription>You must agree to the Terms and Conditions to create an account</ToastDescription>
-                                                </Toast>
-                                            ),
-                                        });
-                                        return;
-                                    }
-                                    
-                                    if (isSubmitting) {
-                                        console.log('🔥 Already submitting, ignoring click');
-                                        return;
-                                    }
-                                    
-                                    console.log('🔥 Getting form values...');
-                                    const formData = getValues();
-                                    console.log('🔥 Form data:', formData);
-                                    
-                                    // Manual validation
-                                    if (!formData.name || formData.name.length < 2) {
-                                        toast.show({
-                                            id: 'name-error',
-                                            placement: "top",
-                                            render: ({ id }) => (
-                                                <Toast nativeID={id} action="error">
-                                                    <ToastTitle>Name Required</ToastTitle>
-                                                    <ToastDescription>Name must be at least 2 characters</ToastDescription>
-                                                </Toast>
-                                            ),
-                                        });
-                                        return;
-                                    }
-                                    
-                                    if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-                                        toast.show({
-                                            id: 'email-error',
-                                            placement: "top",
-                                            render: ({ id }) => (
-                                                <Toast nativeID={id} action="error">
-                                                    <ToastTitle>Invalid Email</ToastTitle>
-                                                    <ToastDescription>Please enter a valid email address</ToastDescription>
-                                                </Toast>
-                                            ),
-                                        });
-                                        return;
-                                    }
-                                    
-                                    if (!formData.contactNumber || !/^\+63[0-9]{10}$/.test(formData.contactNumber)) {
-                                        toast.show({
-                                            id: 'phone-error',
-                                            placement: "top",
-                                            render: ({ id }) => (
-                                                <Toast nativeID={id} action="error">
-                                                    <ToastTitle>Invalid Phone</ToastTitle>
-                                                    <ToastDescription>Phone number must be +63 followed by 10 digits</ToastDescription>
-                                                </Toast>
-                                            ),
-                                        });
-                                        return;
-                                    }
-                                    
-                                    // Address validation completely removed - optional field
-                                    // Users can enter anything they want or leave it empty
-                                    
-                                    
-                                    if (!formData.password || formData.password.length < 6) {
-                                        toast.show({
-                                            id: 'password-error',
-                                            placement: "top",
-                                            render: ({ id }) => (
-                                                <Toast nativeID={id} action="error">
-                                                    <ToastTitle>Password Required</ToastTitle>
-                                                    <ToastDescription>Password must be at least 6 characters</ToastDescription>
-                                                </Toast>
-                                            ),
-                                        });
-                                        return;
-                                    }
-                                    
-                                    if (formData.password !== formData.confirmPassword) {
-                                        toast.show({
-                                            id: 'password-match-error',
-                                            placement: "top",
-                                            render: ({ id }) => (
-                                                <Toast nativeID={id} action="error">
-                                                    <ToastTitle>Passwords Don't Match</ToastTitle>
-                                                    <ToastDescription>Password and confirm password must match</ToastDescription>
-                                                </Toast>
-                                            ),
-                                        });
-                                        return;
-                                    }
-                                    
-                                    console.log('🔥 All validations passed, calling onSubmit...');
-                                    // Submit form data
-                                    await onSubmit(formData);
-                                }}
-                                disabled={isSubmitting}
-                                className={`w-80 max-w-sm mx-auto py-5 px-16 rounded-2xl shadow-lg border-2 ${
-                                    agreeToTerms && !isSubmitting 
-                                        ? 'bg-green-600 border-green-600 active:opacity-90' 
-                                        : 'bg-gray-400 border-gray-400 opacity-60'
-                                }`}
-                                style={{
-                                    opacity: agreeToTerms && !isSubmitting ? 1 : 0.6
-                                }}
-                            >
-                                <View className="flex-row items-center justify-center">
+                        style={[
+                            styles.createAccountButton,
+                            (!agreeToTerms || isSubmitting) && styles.createAccountButtonDisabled
+                        ]}
+                                onPress={onSubmit}
+                        disabled={!agreeToTerms || isSubmitting}
+                    >
+                        <View style={styles.buttonContent}>
                                     {isSubmitting && (
-                                        <View className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                                <View style={styles.loadingSpinner} />
                                     )}
-                                    <Text className="font-semibold text-center tracking-wide text-lg text-white">
+                            <Text style={styles.createAccountButtonText}>
                                         {isSubmitting ? 'Creating Account...' : 'Create My Account'}
                                     </Text>
                                 </View>
                             </TouchableOpacity>
                             
                             {!agreeToTerms && (
-                                <Text className="text-red-500 mt-2 text-center text-sm">
+                        <Text style={styles.termsErrorText}>
                                     You must agree to the Terms and Conditions to create an account
                                 </Text>
                             )}
-                        </VStack>
 
                         {/* Sign In Link */}
-                        <VStack className="mt-6 w-full items-center">
-                            <Text size="sm" className="text-gray-600">
-                                Already have an account?{' '}
-                            </Text>
-                            <Button 
-                                variant="link" 
-                                size="sm"
-                                onPress={() => router.push('/login')}
-                            >
-                                <Text size="sm" className="text-blue-600 font-semibold">
-                                    Sign In Here
-                                </Text>
-                            </Button>
-                        </VStack>
-                    </VStack>
-                </VStack>
+                    <View style={styles.signInContainer}>
+                        <Text style={styles.signInText}>Already have an account? </Text>
+                        <TouchableOpacity onPress={() => router.push('/login')}>
+                            <Text style={styles.signInLink}>Sign In Here</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+                </View>
             </ScrollView>
-        </VStack>
+
+            {/* Terms and Conditions Modal */}
+            <Modal
+                visible={showTermsModal}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={() => setShowTermsModal(false)}
+            >
+                <View style={styles.modalContainer}>
+                    {/* Header */}
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Terms and Conditions</Text>
+                        <TouchableOpacity
+                            onPress={() => setShowTermsModal(false)}
+                            style={styles.modalCloseButton}
+                        >
+                            <Text style={styles.modalCloseText}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Content */}
+                    <ScrollView style={styles.modalContent}>
+                        <View style={styles.modalTextContainer}>
+                            <Text style={styles.modalDateText}>
+                                Last updated: October 8, 2025
+                            </Text>
+
+                            <Text style={styles.modalBodyText}>
+                                Welcome to HANAPBAHAY, a mobile and web application designed to help users find available houses, apartments, and rooms for rent. By accessing or using the HANAPBAHAY App ("the App"), you agree to be bound by these Terms and Conditions. Please read them carefully before using our services.
+                            </Text>
+
+                            <View style={styles.modalSection}>
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>1. Acceptance of Terms</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        By creating an account or using the App, you agree to comply with and be legally bound by these Terms. If you do not agree, please do not use the App.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>2. Description of Service</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        HANAPBAHAY provides a digital platform that connects property owners who have rental listings and tenants looking for rental properties.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We do not own, manage, or control any property listed in the App. All transactions or rental agreements are made directly between the property owner and tenant.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>3. User Accounts</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • You must be at least 18 years old to create an account.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • You agree to provide accurate and updated information when creating your account.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • You are responsible for maintaining the confidentiality of your password and for all activities under your account.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • If you suspect any unauthorized access, you must notify us immediately.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>4. Owner Listings</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Property owners are responsible for ensuring that all listing details (price, location, photos, descriptions) are accurate and not misleading.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • HANAPBAHAY reserves the right to edit, hide, or remove listings that violate our policies or contain false, offensive, or illegal content.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Owners must comply with local housing, safety, and rental laws.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>5. Tenant Responsibilities</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Tenants must use the App honestly and respectfully when contacting or booking properties.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • HANAPBAHAY is not responsible for disputes between tenants and property owners.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>6. Payments (if applicable)</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • If payments are made through HANAPBAHAY, they are processed by a third-party payment provider.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • HANAPBAHAY does not store or have access to your payment card details.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Refunds or cancellations depend on the property owner's policies.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>7. Prohibited Activities</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        Users must not:
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Post false or misleading property information
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Use the App for scams or fraudulent purposes
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Upload harmful software, viruses, or spam
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Harass or abuse other users
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        Violation of these rules may result in suspension or termination of your account.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>8. Limitation of Liability</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        HANAPBAHAY provides the platform "as is" without warranties of any kind.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We are not responsible for:
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Property condition, safety, or accuracy of listings
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Financial or rental disputes between users
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Damages or losses resulting from use of the App
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>9. Termination</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        HANAPBAHAY may suspend or terminate your access if you violate these Terms or misuse the platform.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>10. Changes to Terms</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We may update these Terms from time to time. Continued use of the App means you accept the updated version.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>11. Contact Us</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        For questions or concerns about these Terms, you can reach us at:
+                                    </Text>
+                                    <Text style={styles.modalContactText}>
+                                        rozelramos17@gmail.com
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+                    </ScrollView>
+
+                    {/* Footer */}
+                    <View style={styles.modalFooter}>
+                        <TouchableOpacity
+                            onPress={() => setShowTermsModal(false)}
+                            style={styles.modalButton}
+                        >
+                            <Text style={styles.modalButtonText}>I Understand</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Privacy Policy Modal */}
+            <Modal
+                visible={showPrivacyModal}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={() => setShowPrivacyModal(false)}
+            >
+                <View style={styles.modalContainer}>
+                    {/* Header */}
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Privacy Policy</Text>
+                        <TouchableOpacity
+                            onPress={() => setShowPrivacyModal(false)}
+                            style={styles.modalCloseButton}
+                        >
+                            <Text style={styles.modalCloseText}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Content */}
+                    <ScrollView style={styles.modalContent}>
+                        <View style={styles.modalTextContainer}>
+                            <Text style={styles.modalDateText}>
+                                Last updated: October 8, 2025
+                            </Text>
+
+                            <Text style={styles.modalBodyText}>
+                                Your privacy is important to us. This Privacy Policy explains how HANAPBAHAY collects, uses, and protects your personal information when you use our App.
+                            </Text>
+
+                            <View style={styles.modalSection}>
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>1. Information We Collect</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We collect the following types of data:
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • <Text style={styles.modalBoldText}>Personal Information:</Text> Name, email, phone number, account details
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • <Text style={styles.modalBoldText}>Property Information:</Text> Details of listings posted by owners
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • <Text style={styles.modalBoldText}>Usage Data:</Text> Device type, IP address, and app usage statistics
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • <Text style={styles.modalBoldText}>Optional Media:</Text> Photos or videos you upload for listings
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We do not collect or store sensitive financial information unless required for payments through a secure provider.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>2. How We Use Your Information</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We use your information to:
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Create and manage your account
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Display rental listings and search results
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Communicate with you (e.g., inquiries, updates, alerts)
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Improve app performance and user experience
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Prevent fraud and maintain safety
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>3. Data Sharing</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We do not sell your personal data.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We may share limited data with:
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Service providers who help us operate the App (hosting, analytics, payment processing)
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Law enforcement, if required by law or to protect users' safety
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>4. Data Storage and Security</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        Your data is stored securely using encrypted systems.
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        However, no digital platform is 100% secure — use the App responsibly and avoid sharing unnecessary personal details publicly.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>5. Your Rights</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        You can:
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Access or update your account information
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Request deletion of your data
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        • Withdraw consent to data collection (may affect app functionality)
+                                    </Text>
+                                    <Text style={styles.modalBodyText}>
+                                        To exercise these rights, contact us at{' '}
+                                        <Text style={styles.modalContactText}>rozelramos17@gmail.com</Text>
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>6. Cookies and Tracking</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        The App may use cookies or similar technologies to improve user experience, personalize content, and analyze usage.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>7. Children's Privacy</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        HANAPBAHAY is not designed for users under 18 years old. We do not knowingly collect information from minors.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>8. Changes to Privacy Policy</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        We may update this Privacy Policy from time to time. The latest version will always be available in the App.
+                                    </Text>
+                                </View>
+
+                                <View style={styles.modalSubsection}>
+                                    <Text style={styles.modalSubtitle}>9. Contact Us</Text>
+                                    <Text style={styles.modalBodyText}>
+                                        If you have any questions or privacy concerns, contact:
+                                    </Text>
+                                    <Text style={styles.modalContactText}>
+                                        rozelramos17@gmail.com
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+                    </ScrollView>
+
+                    {/* Footer */}
+                    <View style={styles.modalFooter}>
+                        <TouchableOpacity
+                            onPress={() => setShowPrivacyModal(false)}
+                            style={styles.modalButton}
+                        >
+                            <Text style={styles.modalButtonText}>I Understand</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView>
     );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    header: {
+        paddingTop: 60,
+        paddingHorizontal: 24,
+        paddingBottom: 30,
+        backgroundColor: '#FFFFFF',
+    },
+    backButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+    logoContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        marginBottom: 20,
+    },
+    logoText: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#111827',
+        letterSpacing: 1,
+    },
+    welcomeText: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: '#111827',
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    subtitleText: {
+        fontSize: 16,
+        color: '#6B7280',
+        textAlign: 'center',
+        lineHeight: 22,
+    },
+    scrollView: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    scrollContent: {
+        paddingHorizontal: 24,
+        paddingBottom: 40,
+    },
+    formCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 24,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    roleSection: {
+        marginBottom: 24,
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 12,
+    },
+    sectionSubtext: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginBottom: 16,
+    },
+    roleContainer: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    roleButton: {
+        flex: 1,
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+    },
+    roleButtonSelected: {
+        borderColor: '#10B981',
+        backgroundColor: '#F0FDF4',
+    },
+    roleButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 4,
+    },
+    roleButtonTextSelected: {
+        color: '#059669',
+    },
+    roleButtonSubtext: {
+        fontSize: 12,
+        color: '#6B7280',
+    },
+    roleButtonSubtextSelected: {
+        color: '#10B981',
+    },
+    formSection: {
+        marginBottom: 24,
+    },
+    inputContainer: {
+        marginBottom: 20,
+    },
+    inputLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8,
+    },
+    inputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+    },
+    inputError: {
+        borderColor: '#EF4444',
+    },
+    inputIcon: {
+        marginRight: 12,
+    },
+    textInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#1F2937',
+    },
+    phoneContainer: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    countryCode: {
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        borderWidth: 2,
+        borderColor: '#D1D5DB',
+        paddingHorizontal: 12,
+        paddingVertical: 14,
+        justifyContent: 'center',
+    },
+    countryCodeText: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: '#6B7280',
+    },
+    phoneInput: {
+        flex: 1,
+    },
+    eyeButton: {
+        padding: 4,
+    },
+    errorText: {
+        fontSize: 14,
+        color: '#EF4444',
+        marginTop: 4,
+    },
+    verificationSection: {
+        marginBottom: 24,
+        padding: 16,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    verificationSubtext: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginBottom: 16,
+    },
+    idPreviewContainer: {
+        alignItems: 'flex-start',
+    },
+    idPreview: {
+        width: Math.max(160, Math.min(280, Math.floor(300 * 0.6))),
+        height: Math.max(100, Math.min(180, Math.floor(300 * 0.35))),
+        borderRadius: 12,
+        marginBottom: 8,
+    },
+    removeIdButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: '#FEF2F2',
+        borderRadius: 8,
+    },
+    removeIdText: {
+        fontSize: 14,
+        color: '#DC2626',
+        fontWeight: '500',
+    },
+    uploadIdButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        padding: 16,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#10B981',
+        borderStyle: 'dashed',
+    },
+    uploadIdText: {
+        fontSize: 16,
+        color: '#10B981',
+        fontWeight: '500',
+    },
+    securitySection: {
+        marginBottom: 24,
+    },
+    passwordRequirements: {
+        backgroundColor: '#F0FDF4',
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#BBF7D0',
+    },
+    requirementsTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#065F46',
+        marginBottom: 8,
+    },
+    requirementText: {
+        fontSize: 12,
+        color: '#047857',
+        marginBottom: 2,
+    },
+    termsContainer: {
+        marginBottom: 24,
+    },
+    checkboxContainer: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    checkbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 4,
+        borderWidth: 2,
+        borderColor: '#D1D5DB',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 2,
+    },
+    checkboxChecked: {
+        backgroundColor: '#10B981',
+        borderColor: '#10B981',
+    },
+    termsText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#6B7280',
+        lineHeight: 20,
+    },
+    termsLink: {
+        color: '#10B981',
+        fontWeight: '600',
+        textDecorationLine: 'underline',
+    },
+    createAccountButton: {
+        backgroundColor: '#10B981',
+        borderRadius: 12,
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+        marginBottom: 12,
+    },
+    createAccountButtonDisabled: {
+        backgroundColor: '#9CA3AF',
+        shadowOpacity: 0,
+        elevation: 0,
+    },
+    buttonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    loadingSpinner: {
+        width: 20,
+        height: 20,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        borderTopColor: 'transparent',
+        borderRadius: 10,
+        marginRight: 8,
+    },
+    createAccountButtonText: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#FFFFFF',
+    },
+    termsErrorText: {
+        fontSize: 14,
+        color: '#EF4444',
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    signInContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    signInText: {
+        fontSize: 14,
+        color: '#6B7280',
+    },
+    signInLink: {
+        fontSize: 14,
+        color: '#10B981',
+        fontWeight: '600',
+    },
+    // Modal styles
+    modalContainer: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    modalCloseButton: {
+        padding: 8,
+    },
+    modalCloseText: {
+        fontSize: 18,
+        color: '#10B981',
+        fontWeight: '600',
+    },
+    modalContent: {
+        flex: 1,
+        padding: 16,
+    },
+    modalTextContainer: {
+        gap: 16,
+    },
+    modalDateText: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginBottom: 16,
+    },
+    modalBodyText: {
+        fontSize: 16,
+        color: '#374151',
+        lineHeight: 24,
+        marginBottom: 8,
+    },
+    modalSection: {
+        gap: 16,
+    },
+    modalSubsection: {
+        gap: 8,
+    },
+    modalSubtitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 8,
+    },
+    modalBoldText: {
+        fontWeight: '600',
+    },
+    modalContactText: {
+        fontSize: 16,
+        color: '#10B981',
+        lineHeight: 24,
+    },
+    modalFooter: {
+        padding: 16,
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
+    },
+    modalButton: {
+        backgroundColor: '#10B981',
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 8,
+    },
+    modalButtonText: {
+        color: '#FFFFFF',
+        textAlign: 'center',
+        fontWeight: '600',
+    },
+});

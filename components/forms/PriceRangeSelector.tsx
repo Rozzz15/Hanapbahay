@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { PriceRange } from '../../utils/mockData';
 import { HStack } from '../ui/hstack';
+import { formatPrice } from '@/utils';
 
 interface PriceRangeSelectorProps {
   priceRange: PriceRange;
@@ -21,10 +22,6 @@ const PriceRangeSelector: React.FC<PriceRangeSelectorProps> = ({
     setMinInput(priceRange.min.toString());
     setMaxInput(priceRange.max.toString());
   }, [priceRange]);
-
-  const formatPrice = (price: number) => {
-    return `₱${price.toLocaleString()}`;
-  };
 
   const validateMin = (value: string): boolean => {
     const numValue = parseInt(value, 10);

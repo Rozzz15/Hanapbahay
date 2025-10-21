@@ -3,6 +3,8 @@ export * from './auth-user';
 export * from './mock-auth';
 export * from './mockData';
 export * from './supabase-client';
+export * from './notifications';
+export * from './view-tracking';
 
 // Utility functions
 export const formatPrice = (price: number): string => {
