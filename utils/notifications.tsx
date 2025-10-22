@@ -201,4 +201,40 @@ export const notifications = {
     type: 'error',
     duration: 4000,
   }),
+
+  // Password Reset
+  passwordResetEmailSent: () => createNotification({
+    title: 'Reset Email Sent! 📧',
+    description: 'Check your email for password reset instructions. The link will expire in 1 hour.',
+    type: 'success',
+    duration: 5000,
+  }),
+
+  passwordResetEmailNotFound: () => createNotification({
+    title: 'Email Not Found',
+    description: 'This email address is not registered in our system. Please check your email or create a new account.',
+    type: 'error',
+    duration: 5000,
+  }),
+
+  passwordResetFailed: () => createNotification({
+    title: 'Reset Failed',
+    description: 'Unable to send password reset email. Please try again later.',
+    type: 'error',
+    duration: 4000,
+  }),
+
+  passwordResetSuccess: () => createNotification({
+    title: 'Password Reset Success! 🔐',
+    description: 'Your password has been updated successfully. You can now sign in with your new password.',
+    type: 'success',
+    duration: 5000,
+  }),
+
+  passwordResetTokenInvalid: () => createNotification({
+    title: 'Invalid Reset Link',
+    description: 'This password reset link is invalid or has expired. Please request a new password reset.',
+    type: 'error',
+    duration: 5000,
+  }),
 };

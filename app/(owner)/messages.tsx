@@ -7,6 +7,7 @@ import {
   getOwnerMessages,
   type OwnerMessage
 } from '../../utils/owner-dashboard';
+import { db } from '../../utils/db';
 import { showAlert } from '../../utils/alert';
 import { 
   ArrowLeft,
@@ -39,13 +40,60 @@ export default function MessagesPage() {
     loadMessages();
   }, [user]);
 
+  // Add refresh on focus
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('🔄 Messages page focused, refreshing...');
+      loadMessages();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+      return () => {
+        window.removeEventListener('focus', handleFocus);
+      };
+    }
+  }, [user]);
+
   const loadMessages = async () => {
     if (!user?.id) return;
 
     try {
       setLoading(true);
-      const ownerMessages = await getOwnerMessages(user.id);
-      setMessages(ownerMessages);
+      console.log('🔄 Loading messages for owner:', user.id);
+      
+      // Debug: Check all conversations and messages
+      const allConversations = await db.list('conversations');
+      const allMessages = await db.list('messages');
+      console.log('🔍 Debug - All conversations:', allConversations.length);
+      console.log('🔍 Debug - All messages:', allMessages.length);
+      console.log('🔍 Debug - Conversations data:', allConversations);
+      console.log('🔍 Debug - Messages data:', allMessages);
+      
+      // Check if there are any conversations where this user is the owner
+      const ownerConversations = allConversations.filter(conv => {
+        const isOwner = conv.ownerId === user.id || conv.owner_id === user.id;
+        const isParticipant = (conv.participantIds && conv.participantIds.includes(user.id)) || 
+                            (conv.participant_ids && conv.participant_ids.includes(user.id));
+        return isOwner || isParticipant;
+      });
+      
+      console.log('🔍 Debug - Owner conversations found:', ownerConversations.length);
+      console.log('🔍 Debug - Owner conversations data:', ownerConversations);
+      
+      // Check messages for these conversations
+      const ownerMessages = allMessages.filter(msg => {
+        const conversationId = msg.conversationId || msg.conversation_id;
+        return ownerConversations.some(conv => conv.id === conversationId);
+      });
+      
+      console.log('🔍 Debug - Messages for owner conversations:', ownerMessages.length);
+      console.log('🔍 Debug - Owner messages data:', ownerMessages);
+      
+      const result = await getOwnerMessages(user.id);
+      console.log('📥 Loaded owner messages:', result.length);
+      console.log('📥 Owner messages data:', result);
+      setMessages(result);
     } catch (error) {
       console.error('Error loading messages:', error);
       showAlert('Error', 'Failed to load messages');

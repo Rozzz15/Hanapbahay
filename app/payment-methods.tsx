@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../utils/db';
+import { BookingRecord } from '../types';
 import { ArrowLeft, CreditCard, Smartphone, Building2, Copy, CheckCircle } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../styles/owner-dashboard-styles';
 import { showAlert } from '../utils/alert';
@@ -72,7 +73,7 @@ export default function PaymentMethods() {
       console.log('💳 Loading payment methods for booking:', bookingId);
 
       // Load booking details
-      const bookingData = await db.get('bookings', bookingId);
+      const bookingData = await db.get('bookings', bookingId) as BookingRecord;
       if (!bookingData) {
         throw new Error('Booking not found');
       }
@@ -333,7 +334,7 @@ export default function PaymentMethods() {
             {/* Payment Instructions */}
             <View style={[sharedStyles.card, { backgroundColor: designTokens.colors.infoLight }]}>
               <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, marginBottom: designTokens.spacing.sm }]}>
-                <Text style={{ fontWeight: designTokens.typography.semibold }}>Payment Instructions:</Text>
+                <Text style={{ fontWeight: '600' as const }}>Payment Instructions:</Text>
               </Text>
               <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, lineHeight: 20 }]}>
                 1. Choose a payment method above{'\n'}

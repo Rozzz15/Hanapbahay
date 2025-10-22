@@ -111,7 +111,28 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
     
     const totalListings = ownerListings.length;
     const totalViews = ownerListings.reduce((sum, listing) => sum + (listing.views || 0), 0);
-    const totalInquiries = ownerListings.reduce((sum, listing) => sum + (listing.inquiries || 0), 0);
+    
+    // Get inquiries from both listing inquiries and conversation messages
+    const listingInquiries = ownerListings.reduce((sum, listing) => sum + (listing.inquiries || 0), 0);
+    
+    // Also count messages from tenants to this owner
+    const allMessages = await db.list<any>('messages');
+    const allConversations = await db.list<any>('conversations');
+    
+    // Find conversations where this user is the owner
+    const ownerConversations = allConversations.filter(conv => 
+      conv.ownerId === ownerId || conv.owner_id === ownerId ||
+      (conv.participantIds && conv.participantIds.includes(ownerId)) ||
+      (conv.participant_ids && conv.participant_ids.includes(ownerId))
+    );
+    
+    // Count messages from tenants (not from the owner)
+    const tenantMessages = allMessages.filter(msg => {
+      const conversation = ownerConversations.find(conv => conv.id === msg.conversationId);
+      return conversation && msg.senderId !== ownerId;
+    });
+    
+    const totalInquiries = Math.max(listingInquiries, tenantMessages.length);
 
     // Get monthly revenue from approved bookings
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
@@ -415,8 +436,40 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
     console.log('💬 All conversations:', conversations.length);
     console.log('💬 Conversations data:', conversations);
     
+    // Debug: Check if there are any conversations with old field names that need migration
+    const needsMigration = conversations.some(conv => 
+      (conv as any).owner_id || (conv as any).tenant_id || (conv as any).participant_ids
+    );
+    if (needsMigration) {
+      console.log('🔄 Found conversations with old field names, attempting migration...');
+      for (const conv of conversations) {
+        if ((conv as any).owner_id || (conv as any).tenant_id || (conv as any).participant_ids) {
+          const migratedConv = {
+            id: conv.id,
+            ownerId: (conv as any).owner_id || conv.ownerId || '',
+            tenantId: (conv as any).tenant_id || conv.tenantId || '',
+            participantIds: (conv as any).participant_ids || conv.participantIds || [],
+            lastMessageText: (conv as any).last_message_text || conv.lastMessageText || conv.last_message_text,
+            lastMessageAt: (conv as any).last_message_at || conv.lastMessageAt || conv.last_message_at,
+            createdAt: (conv as any).created_at || conv.createdAt || conv.created_at || new Date().toISOString(),
+            updatedAt: (conv as any).updated_at || conv.updatedAt || conv.updated_at || new Date().toISOString(),
+            unreadByOwner: (conv as any).unread_by_owner || conv.unreadByOwner || conv.unread_by_owner || 0,
+            unreadByTenant: (conv as any).unread_by_tenant || conv.unreadByTenant || conv.unread_by_tenant || 0,
+            lastReadByOwner: (conv as any).last_read_by_owner || conv.lastReadByOwner || conv.last_read_by_owner,
+            lastReadByTenant: (conv as any).last_read_by_tenant || conv.lastReadByTenant || conv.last_read_by_tenant,
+          };
+          await db.upsert('conversations', conv.id, migratedConv);
+          console.log('✅ Migrated conversation:', conv.id);
+        }
+      }
+      // Reload conversations after migration
+      const updatedConversations = await db.list('conversations');
+      console.log('🔄 Reloaded conversations after migration:', updatedConversations.length);
+    }
+    
     // Normalize conversations and filter where this user is the owner
-    const normalizedConvs = conversations.map(conv => ({
+    const finalConversations = needsMigration ? await db.list('conversations') : conversations;
+    const normalizedConvs = finalConversations.map(conv => ({
       id: conv.id,
       ownerId: conv.ownerId || conv.owner_id || '',
       tenantId: conv.tenantId || conv.tenant_id || '',
@@ -431,7 +484,27 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
       lastReadByTenant: conv.lastReadByTenant || conv.last_read_by_tenant,
     }));
     
-    const ownerConversations = normalizedConvs.filter(conv => conv.ownerId === ownerId);
+    // Improved filtering to catch conversations where ownerId matches or participantIds includes ownerId
+    const ownerConversations = normalizedConvs.filter(conv => {
+      const isOwner = conv.ownerId === ownerId;
+      const isParticipant = conv.participantIds && conv.participantIds.includes(ownerId);
+      const matches = isOwner || isParticipant;
+      
+      console.log('🔍 Conversation filter check:', {
+        convId: conv.id,
+        convOwnerId: conv.ownerId,
+        convTenantId: conv.tenantId,
+        targetOwnerId: ownerId,
+        participantIds: conv.participantIds,
+        isOwner,
+        isParticipant,
+        matches,
+        lastMessageText: conv.lastMessageText,
+        lastMessageAt: conv.lastMessageAt
+      });
+      
+      return matches;
+    });
     console.log('💬 Found owner conversations:', ownerConversations.length);
     console.log('💬 Owner conversations data:', ownerConversations);
     
@@ -498,6 +571,31 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
     
     console.log('📨 Final owner messages:', ownerMessages.length);
     console.log('📨 Final owner messages data:', ownerMessages);
+    
+    // Debug: If no messages found, let's check why
+    if (ownerMessages.length === 0) {
+      console.log('🔍 DEBUG: No owner messages found. Checking details...');
+      console.log('🔍 DEBUG: Owner ID:', ownerId);
+      console.log('🔍 DEBUG: Owner conversations found:', ownerConversations.length);
+      console.log('🔍 DEBUG: All messages count:', normalizedMessages.length);
+      
+      // Check if there are any messages at all
+      if (normalizedMessages.length > 0) {
+        console.log('🔍 DEBUG: There are messages in the system, but none for this owner');
+        console.log('🔍 DEBUG: Sample message:', normalizedMessages[0]);
+      } else {
+        console.log('🔍 DEBUG: No messages found in the system at all');
+      }
+      
+      // Check if there are any conversations at all
+      if (ownerConversations.length > 0) {
+        console.log('🔍 DEBUG: Owner has conversations but no messages');
+        console.log('🔍 DEBUG: Sample conversation:', ownerConversations[0]);
+      } else {
+        console.log('🔍 DEBUG: Owner has no conversations');
+      }
+    }
+    
     return ownerMessages;
   } catch (error) {
     console.error('Error fetching owner messages:', error);

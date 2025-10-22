@@ -820,6 +820,10 @@ export default function ChatRoom() {
                         await db.upsert('messages', msgId, msg);
                             console.log('✅ Message saved successfully');
                             
+                        // Debug: Verify message was saved
+                        const savedMessage = await db.get('messages', msgId);
+                        console.log('🔍 Debug - Saved message verification:', savedMessage);
+                            
                         const existingConvo = await db.get<ConversationRecord>('conversations', convId);
                         const normalizedConv = existingConvo ? normalizeConversation(existingConvo) : null;
                         const isOwner = user.id === normalizedConv?.ownerId;

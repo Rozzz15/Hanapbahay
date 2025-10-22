@@ -597,13 +597,17 @@ const ProfileScreen = memo(function ProfileScreen() {
 
             // Validate phone number only if phone is provided
             if (tempPersonalDetails.phone.trim() && tempPersonalDetails.phone.trim() !== '' && tempPersonalDetails.phone.trim() !== '+63') {
-                if (!tempPersonalDetails.phone.startsWith('+63')) {
+                // Clean the phone number for validation
+                const cleanPhone = tempPersonalDetails.phone.replace(/\s/g, '');
+                
+                if (!cleanPhone.startsWith('+63')) {
                     toast.show(notifications.invalidPhone());
                     return;
                 }
 
-                // Validate phone number length (should be +63 + 10 digits)
-                if (tempPersonalDetails.phone.length !== 13) {
+                // Validate phone number length (should be +63 + 10 digits, ignoring spaces)
+                const digitsOnly = cleanPhone.replace('+63', '');
+                if (digitsOnly.length !== 10) {
                     toast.show(notifications.invalidPhone());
                     return;
                 }
@@ -735,7 +739,13 @@ const ProfileScreen = memo(function ProfileScreen() {
         {
             icon: <Ionicons name="person" size={20} color="#4B5563" />,
             label: 'Personal details',
-            onPress: () => setShowPersonalDetails(true),
+            onPress: () => {
+                console.log('📞 Opening personal details modal');
+                console.log('📞 Current personal details:', personalDetails);
+                setTempPersonalDetails({...personalDetails});
+                console.log('📞 Setting temp personal details:', {...personalDetails});
+                setShowPersonalDetails(true);
+            },
         },
         {
             icon: <Ionicons name="help-circle" size={20} color="#4B5563" />,
@@ -918,15 +928,19 @@ const ProfileScreen = memo(function ProfileScreen() {
                                             style={styles.phoneInput}
                                             value={tempPersonalDetails.phone.replace(countryCode + ' ', '')}
                                             onChangeText={(text) => {
+                                                console.log('📞 Phone input changed:', text);
                                                 const digitsOnly = text.replace(/\D/g, '');
                                                 if (digitsOnly.length <= 10) {
                                                     const fullPhone = countryCode + ' ' + digitsOnly;
+                                                    console.log('📞 Setting phone to:', fullPhone);
                                                     setTempPersonalDetails({...tempPersonalDetails, phone: fullPhone});
                                                 }
                                             }}
                                             placeholder="912 345 6789"
                                             keyboardType="phone-pad"
                                             maxLength={10}
+                                            editable={true}
+                                            selectTextOnFocus={true}
                                         />
                                     </View>
                                 </View>

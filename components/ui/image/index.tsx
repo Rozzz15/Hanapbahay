@@ -4,6 +4,7 @@ import { createImage } from '@gluestack-ui/image';
 import { Platform, Image as RNImage } from 'react-native';
 import { tva } from '@gluestack-ui/nativewind-utils/tva';
 import type { VariantProps } from '@gluestack-ui/nativewind-utils';
+import LoadingImage from './LoadingImage';
 
 const imageStyle = tva({
   base: 'max-w-full',
@@ -26,10 +27,51 @@ const UIImage = createImage({ Root: RNImage });
 
 type ImageProps = VariantProps<typeof imageStyle> &
   React.ComponentProps<typeof UIImage>;
+
+// Enhanced Image component with loading states and fallbacks
 const Image = React.forwardRef<
   React.ComponentRef<typeof UIImage>,
-  ImageProps & { className?: string }
->(function Image({ size = 'md', className, ...props }, ref) {
+  ImageProps & { 
+    className?: string;
+    showSkeleton?: boolean;
+    fallbackIcon?: 'home' | 'image';
+    borderRadius?: number;
+  }
+>(function Image({ 
+  size = 'md', 
+  className, 
+  showSkeleton = true,
+  fallbackIcon = 'home',
+  borderRadius = 0,
+  ...props 
+}, ref) {
+  // If it's a URI source, use LoadingImage for enhanced functionality
+  if (props.source && typeof props.source === 'object' && 'uri' in props.source) {
+    // Create proper style object for web compatibility
+    const combinedStyle = Platform.OS === 'web' 
+      ? { 
+          height: 'revert-layer', 
+          width: 'revert-layer',
+          maxWidth: '100%',
+          objectFit: 'cover'
+        }
+      : undefined;
+    
+    return (
+      <LoadingImage
+        source={props.source}
+        style={combinedStyle}
+        resizeMode={props.resizeMode}
+        showSkeleton={showSkeleton}
+        fallbackIcon={fallbackIcon}
+        borderRadius={borderRadius}
+        onLoad={props.onLoad}
+        onError={props.onError}
+      />
+    );
+  }
+
+  // For non-URI sources, use the original UIImage
   return (
     <UIImage
       className={imageStyle({ size, class: className })}
@@ -47,3 +89,5 @@ const Image = React.forwardRef<
 
 Image.displayName = 'Image';
 export { Image };
+export { default as LoadingImage } from './LoadingImage';
+export { default as ImageGallery } from './ImageGallery';

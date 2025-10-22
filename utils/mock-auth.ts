@@ -96,51 +96,6 @@ const clearDefaultProperties = async () => {
   }
 };
 
-// Create sample conversations between default users
-const createSampleConversations = async () => {
-  const { db } = await import('./db');
-  
-  const sampleConversations = [
-    {
-      id: 'conv_sample_001',
-      ownerId: 'owner_default_001',
-      tenantId: 'tenant_default_001',
-      participantIds: ['owner_default_001', 'tenant_default_001'],
-      lastMessageText: 'Hi! I\'m interested in your Modern 2-Bedroom Apartment. Is it still available?',
-      lastMessageAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      unreadByOwner: 0,
-      unreadByTenant: 1,
-      lastReadByOwner: new Date().toISOString(),
-      lastReadByTenant: new Date(Date.now() - 60000).toISOString()
-    },
-    {
-      id: 'conv_sample_002',
-      ownerId: 'owner_default_002',
-      tenantId: 'tenant_default_001',
-      participantIds: ['owner_default_002', 'tenant_default_001'],
-      lastMessageText: 'Thank you for your interest! When would you like to schedule a viewing?',
-      lastMessageAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      unreadByOwner: 1,
-      unreadByTenant: 0,
-      lastReadByOwner: new Date(Date.now() - 30000).toISOString(),
-      lastReadByTenant: new Date().toISOString()
-    }
-  ];
-
-  try {
-    for (const conversation of sampleConversations) {
-      await db.upsert('conversations', conversation.id, conversation);
-      console.log(`✅ Created sample conversation: ${conversation.id}`);
-    }
-  } catch (error) {
-    console.error('❌ Error creating sample conversations:', error);
-  }
-};
-
 const isBrowser = typeof window !== 'undefined';
 
 // Load users from persistent storage on-demand (guarded for web SSR)
@@ -171,9 +126,6 @@ const loadUsersFromStorage = async () => {
     
     // Clear any existing default properties
     await clearDefaultProperties();
-    
-    // Create sample conversations
-    await createSampleConversations();
   } catch (error) {
     console.error('❌ Error loading users from storage:', error);
     console.error('❌ Error details:', error);

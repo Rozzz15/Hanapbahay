@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -26,6 +26,7 @@ import {
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
+import { Image } from '../../components/ui/image';
 
 // Types are now imported from owner-dashboard.ts
 
@@ -466,6 +467,15 @@ export default function OwnerDashboard() {
                       source={{ uri: listing.coverPhoto }} 
                       style={{ width: '100%', height: '100%' }}
                       resizeMode="cover"
+                      showSkeleton={true}
+                      fallbackIcon="home"
+                      borderRadius={8}
+                      onError={() => {
+                        console.log('❌ Owner dashboard image load error for:', listing.id);
+                      }}
+                      onLoad={() => {
+                        console.log('✅ Owner dashboard image loaded successfully for:', listing.id);
+                      }}
                     />
                   ) : (
                     <View style={{ width: '100%', height: '100%', backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' }}>

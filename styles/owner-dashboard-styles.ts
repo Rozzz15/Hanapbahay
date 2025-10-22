@@ -150,7 +150,7 @@ export const sharedStyles = StyleSheet.create({
   
   primaryButtonText: {
     color: designTokens.colors.white,
-    fontWeight: designTokens.typography.semibold,
+    fontWeight: '600' as const,
     fontSize: designTokens.typography.sm,
   } as TextStyle,
   
@@ -168,7 +168,7 @@ export const sharedStyles = StyleSheet.create({
   
   secondaryButtonText: {
     color: designTokens.colors.textPrimary,
-    fontWeight: designTokens.typography.semibold,
+    fontWeight: '600' as const,
     fontSize: designTokens.typography.sm,
   } as TextStyle,
   
@@ -194,18 +194,20 @@ export const sharedStyles = StyleSheet.create({
     marginBottom: designTokens.spacing.lg,
   } as TextStyle,
   
-  // Grid Styles
+  // Grid Styles - 2x2 grid layout
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: designTokens.spacing.lg,
+    gap: designTokens.spacing.md,
+    justifyContent: 'space-between',
   } as ViewStyle,
   
   gridItem: {
-    width: (width - 80) / 2,
+    width: (width - 80) / 2, // 2 columns with proper spacing
+    marginBottom: designTokens.spacing.md,
   } as ViewStyle,
   
-  // Stat Card Styles
+  // Stat Card Styles - 2x2 grid cards
   statCard: {
     backgroundColor: designTokens.colors.white,
     padding: designTokens.spacing.xl,
@@ -214,6 +216,7 @@ export const sharedStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: designTokens.colors.border,
     minHeight: 120,
+    width: '100%',
   } as ViewStyle,
   
   statIconContainer: {

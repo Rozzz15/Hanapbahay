@@ -12,6 +12,8 @@ import { loadPropertyMedia } from '../../utils/media-storage';
 import { trackListingView } from '../../utils/view-tracking';
 import { trackListingInquiry } from '../../utils/inquiry-tracking';
 import { getPropertyRatingsMap } from '../../utils/property-ratings';
+import { preloadSingleListingImages } from '../../utils/image-preloader';
+import { cleanupTestMessages } from '../../utils/cleanup-test-messages';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -187,6 +189,22 @@ export default function DashboardScreen() {
       }
     } catch (cleanupError) {
       console.log('⚠️ Cleanup of default listings failed (non-fatal):', cleanupError);
+    }
+  }, []);
+
+  // Clean up test messages on app startup
+  const cleanupTestData = useCallback(async () => {
+    try {
+      console.log('🧹 Cleaning up test messages and conversations...');
+      const cleanupResult = await cleanupTestMessages();
+      
+      if (cleanupResult.success) {
+        console.log(`✅ Test data cleanup completed: ${cleanupResult.removedConversations} conversations and ${cleanupResult.removedMessages} messages removed`);
+      } else {
+        console.log('⚠️ Test data cleanup had some issues:', cleanupResult.errors);
+      }
+    } catch (error) {
+      console.log('⚠️ Test data cleanup failed (non-fatal):', error);
     }
   }, []);
 
@@ -823,6 +841,28 @@ export default function DashboardScreen() {
         setOwnerListings(sortedListings);
         setFilteredListings(sortedListings);
         
+        // Preload images for better performance
+        try {
+          const imageUris = sortedListings
+            .map(listing => [listing.image, listing.coverPhoto])
+            .flat()
+            .filter(Boolean) as string[];
+          
+          if (imageUris.length > 0) {
+            console.log(`🔄 Preloading ${imageUris.length} images for better performance...`);
+            preloadSingleListingImages('dashboard', imageUris, {
+              maxConcurrent: 3,
+              timeout: 8000,
+              retryAttempts: 1,
+              enableMetrics: true
+            }).catch(error => {
+              console.log('⚠️ Image preloading failed:', error);
+            });
+          }
+        } catch (preloadError) {
+          console.log('⚠️ Image preloading error:', preloadError);
+        }
+        
         // Force a re-render to ensure media is displayed
         setTimeout(() => {
           setFilteredListings([...sortedListings]);
@@ -1105,6 +1145,7 @@ export default function DashboardScreen() {
         await loadPublishedListings();
         // Clean any previously seeded defaults before loading
         await removeDefaultSeededListings();
+        await cleanupTestData();
         if (isAuthenticated && user?.id) {
           console.log('🚀 Initial tenant dashboard load...');
           console.log('👤 User details:', { id: user.id, roles: user.roles, name: user.name });
@@ -1157,13 +1198,24 @@ export default function DashboardScreen() {
       // Track inquiry
       await trackListingInquiry(listing.id, user.id, 'message');
       
-      // Check if conversation already exists
+      // Check if conversation already exists - improved lookup
       const existingConversations = await db.list('conversations');
       console.log('💬 All existing conversations:', existingConversations);
       
-      const existingConversation = existingConversations.find(conv => 
-        conv.tenant_id === user.id && conv.owner_id === actualOwnerId
-      );
+      // Look for existing conversation with multiple field combinations for better matching
+      const existingConversation = existingConversations.find(conv => {
+        // Check both old and new field naming conventions
+        const tenantMatch = (conv.tenant_id === user.id || conv.tenantId === user.id);
+        const ownerMatch = (conv.owner_id === actualOwnerId || conv.ownerId === actualOwnerId);
+        
+        // Also check participant IDs as fallback
+        const participantMatch = (conv.participant_ids?.includes(user.id) && 
+                                conv.participant_ids?.includes(actualOwnerId)) ||
+                               (conv.participantIds?.includes(user.id) && 
+                                conv.participantIds?.includes(actualOwnerId));
+        
+        return (tenantMatch && ownerMatch) || participantMatch;
+      });
 
       // Get owner display name (business name or owner name)
       const ownerDisplayName = listing.businessName || listing.ownerName || 'Property Owner';
@@ -1186,17 +1238,17 @@ export default function DashboardScreen() {
         const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const conversationData = {
           id: conversationId,
-          tenant_id: user.id,
-          owner_id: actualOwnerId,
-          participant_ids: [user.id, actualOwnerId],
+          tenantId: user.id,
+          ownerId: actualOwnerId,
+          participantIds: [user.id, actualOwnerId],
           tenantName: user.name || 'Tenant',
           ownerName: ownerDisplayName,
-          last_message_text: '',
-          last_message_at: new Date().toISOString(),
-          unread_by_owner: 0,
-          unread_by_tenant: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          lastMessageText: '',
+          lastMessageAt: new Date().toISOString(),
+          unreadByOwner: 0,
+          unreadByTenant: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         };
 
         console.log('💬 Creating conversation with data:', conversationData);

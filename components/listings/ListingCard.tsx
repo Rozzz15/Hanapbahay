@@ -1,10 +1,11 @@
 import React, { useState, useEffect, memo } from "react";
-import { View, Text, Image, TouchableOpacity, useWindowDimensions } from "react-native";
+import { View, Text, TouchableOpacity, useWindowDimensions } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Box } from "@/components/ui/box";
 import { VStack } from "@/components/ui/vstack";
 import { HStack } from "@/components/ui/hstack";
 import { Icon } from "@/components/ui/icon";
+import { Image } from "@/components/ui/image";
 import { Star, Home, MapPin } from "lucide-react-native";
 import { useAuth } from "@/context/AuthContext";
 import { trackListingView } from "@/utils/view-tracking";
@@ -164,8 +165,11 @@ const ListingCard: React.FC<ListingType> = ({
                         }} 
                         className="w-full h-48"
                         resizeMode="cover"
+                        showSkeleton={true}
+                        fallbackIcon="home"
+                        borderRadius={0}
                         onError={(error) => {
-                            console.log('❌ Listing card image load error:', error.nativeEvent.error);
+                            console.log('❌ Listing card image load error:', error);
                             console.log('📸 Attempted to load:', coverPhoto || image);
                             console.log('📸 Cover photo value:', coverPhoto);
                             console.log('📸 Image value:', image);

@@ -15,7 +15,7 @@ import {
   BookingRecord,
   FavoriteRecord,
   PropertyRatingRecord
-} from '@/types';
+} from '../types';
 
 type CollectionName =
   | 'users'

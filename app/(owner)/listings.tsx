@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -23,6 +23,7 @@ import {
 import { sharedStyles, designTokens, iconBackgrounds, statusColors } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import { clearCache } from '../../utils/db';
+import { Image } from '../../components/ui/image';
 
 export default function ListingsPage() {
   const { user, signOut } = useAuth();
@@ -262,6 +263,15 @@ export default function ListingsPage() {
                           source={{ uri: listing.coverPhoto }} 
                           style={styles.coverImage}
                           resizeMode="cover"
+                          showSkeleton={true}
+                          fallbackIcon="home"
+                          borderRadius={0}
+                          onError={() => {
+                            console.log('❌ Owner listing image load error for:', listing.id);
+                          }}
+                          onLoad={() => {
+                            console.log('✅ Owner listing image loaded successfully for:', listing.id);
+                          }}
                         />
                       ) : (
                         <View style={styles.placeholderImage}>

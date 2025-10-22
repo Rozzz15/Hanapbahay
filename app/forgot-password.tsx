@@ -1,8 +1,7 @@
 import { useRouter } from 'expo-router';
-import { View, ScrollView, SafeAreaView, Pressable, TextInput, StyleSheet, Dimensions } from 'react-native';
+import { View, ScrollView, SafeAreaView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
 import { VStack } from '@/components/ui/vstack';
 import { HStack } from '@/components/ui/hstack';
-import { Text } from '@/components/ui/text';
 import {
     FormControl,
     FormControlError,
@@ -18,8 +17,7 @@ import { Button } from '@/components/ui/button';
 import { InteractiveButton } from '@/components/buttons';
 import { useToast } from "@/components/ui/toast";
 import { notifications, createNotification } from "@/utils";
-import { db } from '@/utils/db';
-import { DbUserRecord } from '@/types';
+import { forgotPassword } from '@/api/auth/forgot-password';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -32,83 +30,83 @@ export default function ForgotPasswordScreen() {
     const [isLoading, setIsLoading] = useState(false);
     const [emailSent, setEmailSent] = useState(false);
 
-    // Function to check if email is registered in the app
-    const checkEmailExists = async (emailToCheck: string): Promise<boolean> => {
+    // Function to handle password reset request
+    const handlePasswordReset = async (emailToReset: string) => {
         try {
-            const allUsers = await db.list<DbUserRecord>('users');
-            const userExists = allUsers.some(user => 
-                user.email.toLowerCase() === emailToCheck.toLowerCase()
-            );
-            return userExists;
+            const result = await forgotPassword({ email: emailToReset });
+            return result;
         } catch (error) {
-            console.error('Error checking email existence:', error);
-            return false;
+            console.error('Error during password reset process:', error);
+            return {
+                success: false,
+                error: 'Unable to process your request. Please try again later.',
+                emailExists: false
+            };
         }
     };
 
     const handleSendResetEmail = async () => {
         // Validate email input
         if (!email) {
-            toast.show(createNotification({
-                title: 'Email Required',
-                description: 'Please enter your email address to reset your password.',
-                type: 'error',
-                duration: 4000,
-            }));
+            Alert.alert(
+                'Email Required',
+                'Please enter your email address to reset your password.',
+                [{ text: 'OK' }]
+            );
             return;
         }
 
         // Basic email format validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
-            toast.show(createNotification({
-                title: 'Invalid Email Format',
-                description: 'Please enter a valid email address (e.g., user@example.com).',
-                type: 'error',
-                duration: 4000,
-            }));
+            Alert.alert(
+                'Invalid Email Format',
+                'Please enter a valid email address (e.g., user@example.com).',
+                [{ text: 'OK' }]
+            );
             return;
         }
 
         setIsLoading(true);
         
         try {
-            // Check if email is registered in the app
-            const emailExists = await checkEmailExists(email);
+            // Call the forgot password API
+            const result = await handlePasswordReset(email);
             
-            if (!emailExists) {
-                setIsLoading(false);
-                toast.show(createNotification({
-                    title: 'Email Not Found',
-                    description: 'This email address is not registered in our system. Please check your email or create a new account.',
-                    type: 'error',
-                    duration: 5000,
-                }));
-                return;
-            }
-
-            // Simulate API call for registered email
-            setTimeout(() => {
-                setIsLoading(false);
+            setIsLoading(false);
+            
+            if (result.success) {
                 setEmailSent(true);
-                
-                toast.show(createNotification({
-                    title: 'Reset Email Sent!',
-                    description: 'Check your email for password reset instructions.',
-                    type: 'success',
-                    duration: 5000,
-                }));
-            }, 2000);
+                Alert.alert(
+                    'Reset Email Sent! 📧',
+                    'Check your email for password reset instructions. The link will expire in 1 hour.',
+                    [{ text: 'OK' }]
+                );
+            } else {
+                // Show appropriate error message based on whether email exists
+                if (!result.emailExists) {
+                    Alert.alert(
+                        'Email Not Found',
+                        'This email address is not registered in our system. Please check your email or create a new account.',
+                        [{ text: 'OK' }]
+                    );
+                } else {
+                    Alert.alert(
+                        'Reset Failed',
+                        result.error || 'Unable to send reset email. Please try again later.',
+                        [{ text: 'OK' }]
+                    );
+                }
+            }
             
         } catch (error) {
             setIsLoading(false);
             console.error('Error during password reset process:', error);
-            toast.show(createNotification({
-                title: 'Reset Failed',
-                description: 'Unable to process your request. Please try again later.',
-                type: 'error',
-                duration: 4000,
-            }));
+            Alert.alert(
+                'Reset Failed',
+                'Unable to process your request. Please try again later.',
+                [{ text: 'OK' }]
+            );
         }
     };
 
@@ -155,15 +153,41 @@ export default function ForgotPasswordScreen() {
                                 Please check your inbox and follow the link to reset your password.
                             </Text>
 
+                            {/* Development Testing Link */}
+                            {__DEV__ && (
+                                <View style={styles.devTestingContainer}>
+                                    <Text style={styles.devTestingTitle}>Development Testing:</Text>
+                                    <Pressable
+                                        style={styles.devTestingButton}
+                                        onPress={() => {
+                                            // Navigate to reset password screen with test data
+                                            const testEmail = email || 'test@example.com';
+                                            const testToken = 'test_token_' + Date.now();
+                                            console.log('🔗 Navigating to reset-password with:', { email: testEmail, token: testToken });
+                                            router.push(`/reset-password?email=${encodeURIComponent(testEmail)}&token=${testToken}`);
+                                        }}
+                                    >
+                                        <Text style={styles.devTestingButtonText}>
+                                            Test Reset Password Screen
+                                        </Text>
+                                    </Pressable>
+                                </View>
+                            )}
+
                             <View style={styles.buttonContainer}>
-                                <InteractiveButton
-                                    isLoading={false}
-                                    text="Resend Email"
+                                <Pressable
+                                    style={styles.resendButton}
                                     onPress={handleSendResetEmail}
-                                    variant="outline"
-                                    size="lg"
-                                    fullWidth={true}
-                                />
+                                >
+                                    <LinearGradient
+                                        colors={['#10B981', '#059669']}
+                                        style={styles.resendButtonGradient}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 1 }}
+                                    >
+                                        <Text style={styles.resendButtonText}>Resend Email</Text>
+                                    </LinearGradient>
+                                </Pressable>
                                 
                                 <Pressable
                                     style={styles.backToSignInButton}
@@ -232,14 +256,26 @@ export default function ForgotPasswordScreen() {
 
                         {/* Send Reset Email Button */}
                         <View style={styles.buttonContainer}>
-                            <InteractiveButton
-                                isLoading={isLoading}
-                                text="Send Reset Email"
+                            <Pressable
+                                style={[styles.sendButton, isLoading && styles.sendButtonDisabled]}
                                 onPress={handleSendResetEmail}
-                                variant="primary"
-                                size="lg"
-                                fullWidth={true}
-                            />
+                                disabled={isLoading}
+                            >
+                                <LinearGradient
+                                    colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3B82F6', '#1E40AF']}
+                                    style={styles.sendButtonGradient}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                >
+                                    {isLoading ? (
+                                        <View style={styles.loadingContainer}>
+                                            <Text style={styles.loadingText}>Sending...</Text>
+                                        </View>
+                                    ) : (
+                                        <Text style={styles.sendButtonText}>Send Reset Email</Text>
+                                    )}
+                                </LinearGradient>
+                            </Pressable>
                         </View>
 
                         {/* Back to Sign In Link */}
@@ -392,6 +428,69 @@ const styles = StyleSheet.create({
     buttonContainer: {
         marginBottom: 24,
     },
+    sendButton: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    sendButtonDisabled: {
+        opacity: 0.7,
+    },
+    sendButtonGradient: {
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    sendButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: 'white',
+        textAlign: 'center',
+    },
+    loadingContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    loadingText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: 'white',
+        marginLeft: 8,
+    },
+    resendButton: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 16,
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    resendButtonGradient: {
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    resendButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: 'white',
+        textAlign: 'center',
+    },
     backToSignInContainer: {
         flexDirection: 'row',
         justifyContent: 'center',
@@ -410,5 +509,31 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#3B82F6',
         fontWeight: '600',
+    },
+    devTestingContainer: {
+        backgroundColor: '#F3F4F6',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    devTestingTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8,
+    },
+    devTestingButton: {
+        backgroundColor: '#3B82F6',
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        alignSelf: 'flex-start',
+    },
+    devTestingButtonText: {
+        fontSize: 12,
+        color: 'white',
+        fontWeight: '500',
     },
 });
