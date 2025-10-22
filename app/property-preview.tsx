@@ -11,6 +11,8 @@ import { db, clearCache } from '@/utils/db';
 import { trackListingView } from '@/utils/view-tracking';
 import { trackListingInquiry } from '@/utils/inquiry-tracking';
 import { loadPropertyMedia } from '@/utils/media-storage';
+import StarRating from '@/components/ratings/StarRating';
+import { rateProperty, getUserRatingForProperty, calculatePropertyRating } from '@/utils/property-ratings';
 
 export default function PropertyPreviewScreen() {
   const router = useRouter();
@@ -37,6 +39,12 @@ export default function PropertyPreviewScreen() {
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   
   // Removed favorite state
+  
+  // Rating state
+  const [userRating, setUserRating] = useState(0);
+  const [calculatedRating, setCalculatedRating] = useState(0);
+  const [totalReviews, setTotalReviews] = useState(0);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   
 
 
@@ -211,10 +219,76 @@ export default function PropertyPreviewScreen() {
     }
   };
 
+  // Load rating data
+  const loadRatingData = async () => {
+    const propertyId = params.id as string;
+    
+    if (!propertyId || propertyId === 'unknown') {
+      return;
+    }
+    
+    try {
+      // Calculate overall rating for the property
+      const ratingData = await calculatePropertyRating(propertyId);
+      setCalculatedRating(ratingData.averageRating);
+      setTotalReviews(ratingData.totalReviews);
+      
+      // Get user's rating if authenticated
+      if (isAuthenticated && user?.id) {
+        const userRatingData = await getUserRatingForProperty(propertyId, user.id);
+        if (userRatingData) {
+          setUserRating(userRatingData.rating);
+        }
+      }
+      
+      console.log('✅ Rating data loaded:', {
+        averageRating: ratingData.averageRating,
+        totalReviews: ratingData.totalReviews,
+        userRating: userRating
+      });
+    } catch (error) {
+      console.error('❌ Error loading rating data:', error);
+    }
+  };
+  
+  // Handle rating submission
+  const handleRatingSubmit = async (newRating: number) => {
+    if (!isAuthenticated || !user?.id) {
+      Alert.alert('Login Required', 'Please login to rate this property');
+      return;
+    }
+    
+    if (isOwnerView) {
+      Alert.alert('Not Allowed', 'Owners cannot rate their own properties');
+      return;
+    }
+    
+    setIsSubmittingRating(true);
+    
+    try {
+      const result = await rateProperty(params.id as string, user.id, newRating);
+      
+      if (result.success) {
+        setUserRating(newRating);
+        Alert.alert('Success', result.message);
+        // Reload rating data to update average
+        await loadRatingData();
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch (error) {
+      console.error('❌ Error submitting rating:', error);
+      Alert.alert('Error', 'Failed to submit rating. Please try again.');
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
+
   // Load property data when component mounts
   useEffect(() => {
     console.log('🔄 Property preview mounted - loading property data...');
     loadPropertyData();
+    loadRatingData();
   }, [params.id]);
 
   // Force reload media when user logs in
@@ -548,9 +622,9 @@ const toggleVideoPlayback = async () => {
               
               {/* Rating Badge */}
               <View style={styles.ratingBadge}>
-                <Star size={14} color="#F59E0B" />
+                <Star size={14} color="#F59E0B" fill="#F59E0B" />
                 <Text style={styles.ratingText}>
-                  {propertyData.rating} <Text style={styles.ratingCount}>({propertyData.reviews})</Text>
+                  {calculatedRating > 0 ? calculatedRating.toFixed(1) : 'No ratings'} {calculatedRating > 0 && <Text style={styles.ratingCount}>({totalReviews})</Text>}
                 </Text>
               </View>
               
@@ -610,6 +684,72 @@ const toggleVideoPlayback = async () => {
               ))}
             </View>
           </View>
+
+          {/* Rating Section - Only show for tenants, not owners viewing their own listing */}
+          {!isOwnerView && isAuthenticated && (
+            <View style={styles.section}>
+              <View style={styles.ratingSection}>
+                <View style={styles.ratingHeader}>
+                  <Text style={styles.sectionTitle}>Rating & Reviews</Text>
+                  {calculatedRating > 0 && (
+                    <View style={styles.averageRatingBadge}>
+                      <Star size={18} color="#F59E0B" fill="#F59E0B" />
+                      <Text style={styles.averageRatingText}>{calculatedRating.toFixed(1)}</Text>
+                      <Text style={styles.totalReviewsText}>({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})</Text>
+                    </View>
+                  )}
+                </View>
+                
+                <View style={styles.ratingContent}>
+                  <Text style={styles.ratingLabel}>
+                    {userRating > 0 ? 'Your Rating:' : 'Rate this property:'}
+                  </Text>
+                  <StarRating
+                    rating={userRating}
+                    size={32}
+                    interactive={true}
+                    onRatingChange={handleRatingSubmit}
+                    color="#F59E0B"
+                    inactiveColor="#D1D5DB"
+                    style={styles.starRatingContainer}
+                  />
+                  {userRating > 0 && (
+                    <Text style={styles.ratingFeedback}>
+                      You rated this property {userRating} star{userRating !== 1 ? 's' : ''}
+                    </Text>
+                  )}
+                  {isSubmittingRating && (
+                    <Text style={styles.submittingText}>Submitting your rating...</Text>
+                  )}
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Display overall rating for owner view or non-authenticated users */}
+          {(isOwnerView || !isAuthenticated) && totalReviews > 0 && (
+            <View style={styles.section}>
+              <View style={styles.ratingSection}>
+                <View style={styles.ratingHeader}>
+                  <Text style={styles.sectionTitle}>Rating & Reviews</Text>
+                  <View style={styles.averageRatingBadge}>
+                    <Star size={18} color="#F59E0B" fill="#F59E0B" />
+                    <Text style={styles.averageRatingText}>{calculatedRating.toFixed(1)}</Text>
+                    <Text style={styles.totalReviewsText}>({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})</Text>
+                  </View>
+                </View>
+                <StarRating
+                  rating={calculatedRating}
+                  size={28}
+                  interactive={false}
+                  showCount={false}
+                  color="#F59E0B"
+                  inactiveColor="#D1D5DB"
+                  style={styles.starRatingContainer}
+                />
+              </View>
+            </View>
+          )}
 
           {/* House Rules Section */}
           <View style={styles.section}>
@@ -1743,6 +1883,65 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
+  },
+  ratingSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  ratingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  averageRatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  averageRatingText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#92400E',
+    marginLeft: 4,
+  },
+  totalReviewsText: {
+    fontSize: 14,
+    color: '#92400E',
+    marginLeft: 4,
+  },
+  ratingContent: {
+    alignItems: 'flex-start',
+  },
+  ratingLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  starRatingContainer: {
+    marginVertical: 8,
+  },
+  ratingFeedback: {
+    fontSize: 14,
+    color: '#059669',
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  submittingText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });
 

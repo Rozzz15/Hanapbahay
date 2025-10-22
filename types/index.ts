@@ -300,3 +300,14 @@ export interface FavoriteRecord {
   propertyId: string;
   createdAt: string;
 }
+
+// Property Rating Models
+export interface PropertyRatingRecord {
+  id: string;
+  propertyId: string;
+  userId: string; // Tenant who rated
+  rating: number; // 1-5 stars
+  review?: string; // Optional text review
+  createdAt: string;
+  updatedAt: string;
+}

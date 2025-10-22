@@ -348,6 +348,36 @@ export default function EditListing() {
         videos: formData.videos || []
       });
 
+      // Update owner profile with business name if provided
+      if (formData.businessName && formData.businessName.trim() !== '') {
+        try {
+          const existingProfile = await db.get('owner_profiles', user.id) as any;
+          if (existingProfile) {
+            await db.upsert('owner_profiles', user.id, {
+              ...existingProfile,
+              businessName: formData.businessName.trim(),
+              contactNumber: formData.contactNumber,
+              email: formData.email,
+              updatedAt: now
+            });
+            console.log('✅ Owner profile updated with business name:', formData.businessName);
+          } else {
+            // Create new owner profile if it doesn't exist
+            await db.upsert('owner_profiles', user.id, {
+              userId: user.id,
+              businessName: formData.businessName.trim(),
+              contactNumber: formData.contactNumber,
+              email: formData.email,
+              createdAt: now
+            });
+            console.log('✅ New owner profile created with business name:', formData.businessName);
+          }
+        } catch (profileError) {
+          console.error('⚠️ Could not update owner profile:', profileError);
+          // Don't fail the listing update if profile update fails
+        }
+      }
+
       // Clear cache
       const { clearCache } = await import('../../../utils/db');
       await clearCache();

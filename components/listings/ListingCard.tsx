@@ -179,9 +179,9 @@ const ListingCard: React.FC<ListingType> = ({
                     {/* Rating Badge */}
                     <View className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-full px-3 py-1">
                         <HStack className="items-center space-x-1">
-                            <Icon as={Star} size="xs" color="#F59E0B" />
+                            <Icon as={Star} size="xs" color={rating > 0 ? "#F59E0B" : "#D1D5DB"} />
                             <Text className="text-xs font-semibold text-gray-800">
-                                {rating} <Text className="text-gray-500">({reviews})</Text>
+                                {rating > 0 ? rating.toFixed(1) : 'No ratings'} {rating > 0 && <Text className="text-gray-500">({reviews})</Text>}
                             </Text>
                         </HStack>
                     </View>

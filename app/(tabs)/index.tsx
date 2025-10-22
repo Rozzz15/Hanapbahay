@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { loadPropertyMedia } from '../../utils/media-storage';
 import { trackListingView } from '../../utils/view-tracking';
 import { trackListingInquiry } from '../../utils/inquiry-tracking';
+import { getPropertyRatingsMap } from '../../utils/property-ratings';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -640,6 +641,12 @@ export default function DashboardScreen() {
       
       console.log(`📋 Processing ${listingsToProcess.length} listings...`);
       
+      // Load rating data for all listings
+      console.log('⭐ Loading rating data for all listings...');
+      const listingIds = listingsToProcess.map(p => p.id);
+      const ratingsMap = await getPropertyRatingsMap(listingIds);
+      console.log(`⭐ Loaded ratings for ${ratingsMap.size} listings`);
+      
       // Process listings with media loading
       const mapped = await Promise.all(listingsToProcess.map(async (p: PublishedListingRecord) => {
         console.log(`🔍 Processing listing ${p.id}:`, {
@@ -769,6 +776,9 @@ export default function DashboardScreen() {
           : (p.title || `${p.propertyType || 'Property'} in ${addressPart}`);
         const propertyLocation = p.location || p.address?.split(',')[0] || 'Location not specified';
         
+        // Get rating data for this listing
+        const ratingData = ratingsMap.get(p.id) || { averageRating: 0, totalReviews: 0 };
+        
         return {
           id: p.id,
           image: finalImage,
@@ -777,8 +787,8 @@ export default function DashboardScreen() {
           location: propertyLocation,
           address: p.address || 'Address not specified',
           description: p.description || 'No description available',
-          rating: p.rating || 4.5,
-          reviews: p.reviews || 0,
+          rating: ratingData.averageRating,
+          reviews: ratingData.totalReviews,
           rooms: p.rooms || p.bedrooms || 1,
           bathrooms: p.bathrooms || 0,
           size: p.size || 0,
@@ -792,14 +802,30 @@ export default function DashboardScreen() {
 
       console.log('✅ Mapped listings:', mapped.length);
       
+      // Sort listings by rating (highest first), then by reviews count
+      const sortedListings = mapped.sort((a, b) => {
+        // First, sort by rating (descending)
+        if (b.rating !== a.rating) {
+          return b.rating - a.rating;
+        }
+        // If ratings are equal, sort by number of reviews (descending)
+        return b.reviews - a.reviews;
+      });
+      
+      console.log('✅ Sorted listings by rating:', sortedListings.slice(0, 5).map(l => ({
+        title: l.title,
+        rating: l.rating,
+        reviews: l.reviews
+      })));
+      
       // Ensure we have valid mapped data
-      if (mapped.length > 0) {
-        setOwnerListings(mapped);
-        setFilteredListings(mapped);
+      if (sortedListings.length > 0) {
+        setOwnerListings(sortedListings);
+        setFilteredListings(sortedListings);
         
         // Force a re-render to ensure media is displayed
         setTimeout(() => {
-          setFilteredListings([...mapped]);
+          setFilteredListings([...sortedListings]);
         }, 100);
       } else {
         console.warn('⚠️ No valid listings to display');
@@ -1434,8 +1460,11 @@ export default function DashboardScreen() {
                     <Text style={styles.featuredDescription} numberOfLines={2}>{listing.description}</Text>
                     <Text style={styles.featuredPrice}>₱{listing.price.toLocaleString()}</Text>
                     <View style={styles.featuredRating}>
-                      <Ionicons name="star" size={14} color="#F59E0B" />
-                      <Text style={styles.ratingText}>{listing.rating} ({listing.reviews})</Text>
+                      <Ionicons name="star" size={14} color={listing.rating > 0 ? "#F59E0B" : "#D1D5DB"} />
+                      <Text style={styles.ratingText}>
+                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'} 
+                        {listing.rating > 0 && ` (${listing.reviews})`}
+                      </Text>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -1488,8 +1517,11 @@ export default function DashboardScreen() {
                       <Text style={styles.detailText}>{listing.bathrooms || 0} {(listing.bathrooms || 0) === 1 ? 'Bathroom' : 'Bathrooms'}</Text>
                     </View>
                     <View style={styles.detailItem}>
-                      <Ionicons name="star" size={16} color="#F59E0B" />
-                      <Text style={styles.detailText}>{listing.rating} ({listing.reviews})</Text>
+                      <Ionicons name="star" size={16} color={listing.rating > 0 ? "#F59E0B" : "#D1D5DB"} />
+                      <Text style={styles.detailText}>
+                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'} 
+                        {listing.rating > 0 && ` (${listing.reviews})`}
+                      </Text>
                     </View>
                   </View>
                     

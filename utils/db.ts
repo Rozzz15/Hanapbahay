@@ -13,7 +13,8 @@ import {
   PropertyPhotoRecord,
   PropertyVideoRecord,
   BookingRecord,
-  FavoriteRecord
+  FavoriteRecord,
+  PropertyRatingRecord
 } from '@/types';
 
 type CollectionName =
@@ -31,9 +32,10 @@ type CollectionName =
   | 'property_videos'
   | 'published_listings'
   | 'bookings'
-  | 'favorites';
+  | 'favorites'
+  | 'property_ratings';
 
-type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord;
+type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord;
 
 export const KEY_PREFIX = 'hb_db_';
 

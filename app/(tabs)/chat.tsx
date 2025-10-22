@@ -65,6 +65,33 @@ const ChatPage = () => {
     const [selectedOwner, setSelectedOwner] = useState<ChatItem | null>(null);
     const [showOwnerDetails, setShowOwnerDetails] = useState(false);
 
+    // Run business name migration once on app startup
+    useEffect(() => {
+        const runMigration = async () => {
+            try {
+                const migrationKey = 'business_name_migration_completed';
+                const migrationCompleted = await AsyncStorage.getItem(migrationKey);
+                
+                if (!migrationCompleted) {
+                    console.log('🔄 Running business name migration...');
+                    const { migrateBusinessNamesToProfiles } = await import('../../utils/migrate-business-names');
+                    const result = await migrateBusinessNamesToProfiles();
+                    
+                    if (result.success) {
+                        await AsyncStorage.setItem(migrationKey, 'true');
+                        console.log('✅ Business name migration completed');
+                        // Reload conversations to show updated business names
+                        loadConvos();
+                    }
+                }
+            } catch (error) {
+                console.error('❌ Migration error:', error);
+            }
+        };
+        
+        runMigration();
+    }, []);
+
     const loadConvos = useCallback(async () => {
         try {
             setLoading(true);
