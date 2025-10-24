@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { View, ScrollView, Pressable, Alert, Modal, TextInput, TouchableOpacity, Image, Platform, StyleSheet, Text } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
-import { useToast } from '@/components/ui/toast';
-import { notifications, createNotification } from '@/utils';
-import { saveUserProfilePhoto } from '@/utils/user-profile-photos';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../components/ui/toast';
+import { saveUserProfilePhoto } from '../../utils/user-profile-photos';
 
 type MenuItem = {
     icon: React.ReactNode;
@@ -70,7 +69,7 @@ const ProfileScreen = memo(function ProfileScreen() {
     const [showFAQ, setShowFAQ] = useState(false);
     const [hasError, setHasError] = useState(false);
     
-    // Personal details state - initialize with empty values, will be loaded from storage/database
+    // Personal details state - single source of truth
     const [personalDetails, setPersonalDetails] = useState({
         firstName: '',
         lastName: '',
@@ -80,8 +79,8 @@ const ProfileScreen = memo(function ProfileScreen() {
         profilePhoto: null as string | null
     });
     
-    // Temporary form state - changes are only applied when "Save Changes" is clicked
-    const [tempPersonalDetails, setTempPersonalDetails] = useState({
+    // Form state for editing
+    const [formData, setFormData] = useState({
         firstName: '',
         lastName: '',
         email: '',
@@ -90,10 +89,9 @@ const ProfileScreen = memo(function ProfileScreen() {
         profilePhoto: null as string | null
     });
     
-    // Reset temporary state when modal is closed without saving
+    // Reset form state when modal is closed without saving
     const handleCloseModal = () => {
-        console.log('🚪 Closing personal details modal - resetting temporary state');
-        setTempPersonalDetails({...personalDetails}); // Reset to current saved state
+        setFormData({...personalDetails}); // Reset to current saved state
         setShowPersonalDetails(false);
     };
     
@@ -154,118 +152,11 @@ const ProfileScreen = memo(function ProfileScreen() {
         if (isAuthenticated && user?.id) {
             console.log('🔄 Authentication state changed - reloading profile data');
             loadPersonalDetails();
-            
-            // Also refresh profile photo specifically
-            setTimeout(() => {
-                refreshProfilePhoto();
-            }, 500); // Small delay to ensure user data is loaded first
         }
     }, [isAuthenticated, user?.id]);
 
-    // Listen for profile photo loaded events from AuthContext
-    useEffect(() => {
-        const handleProfilePhotoLoaded = (event: CustomEvent) => {
-            const { userId, photoUri } = event.detail;
-            console.log('📸 Received profile photo loaded event:', { userId, hasPhoto: !!photoUri });
-            
-            if (user?.id === userId && photoUri) {
-                console.log('📸 Updating profile photo from event');
-                setPersonalDetails(prev => ({...prev, profilePhoto: photoUri}));
-                
-                // Also save to AsyncStorage for faster access
-                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                AsyncStorage.setItem(photoKey, photoUri).catch(error => {
-                    console.error('❌ Error saving profile photo to storage:', error);
-                });
-            }
-        };
 
-        // Add event listener
-        window.addEventListener('profilePhotoLoaded', handleProfilePhotoLoaded as EventListener);
-        
-        // Cleanup
-        return () => {
-            window.removeEventListener('profilePhotoLoaded', handleProfilePhotoLoaded as EventListener);
-        };
-    }, [user?.id]);
     
-    // Reload profile data when screen comes into focus (navigation back to profile)
-    useFocusEffect(
-        useCallback(() => {
-            if (isAuthenticated && user?.id) {
-                console.log('🔄 Profile screen focused - reloading profile data');
-                loadPersonalDetails();
-            }
-        }, [isAuthenticated, user?.id])
-    );
-
-    // Add a refresh function that can be called manually
-    const refreshProfileData = async () => {
-        console.log('🔄 Manually refreshing profile data...');
-        try {
-            await loadPersonalDetails();
-            console.log('✅ Profile data refreshed successfully');
-        } catch (error) {
-            console.error('❌ Error refreshing profile data:', error);
-        }
-    };
-
-
-    // Add the missing refreshProfilePhoto function
-    const refreshProfilePhoto = async () => {
-        console.log('🔄 Refreshing profile photo...');
-        try {
-            if (user?.id) {
-                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                const storedPhoto = await AsyncStorage.getItem(photoKey);
-                if (storedPhoto) {
-                    setPersonalDetails(prev => ({...prev, profilePhoto: storedPhoto}));
-                    console.log('✅ Profile photo refreshed from storage');
-                } else {
-                    // If not in storage, try loading from database
-                    try {
-                        console.log('🔍 Refreshing profile photo from database for user:', user.id);
-                        const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
-                        const dbPhoto = await loadUserProfilePhoto(user.id);
-                        console.log('🔍 Database photo result for refresh:', !!dbPhoto, dbPhoto ? 'has data' : 'no data');
-                        if (dbPhoto) {
-                            setPersonalDetails(prev => ({...prev, profilePhoto: dbPhoto}));
-                            console.log('✅ Profile photo refreshed from database');
-                            // Also save to AsyncStorage for faster future access
-                            await AsyncStorage.setItem(photoKey, dbPhoto);
-                        } else {
-                            console.log('❌ No profile photo found in database for refresh:', user.id);
-                        }
-                    } catch (dbPhotoError) {
-                        console.log('⚠️ Could not refresh profile photo from database:', dbPhotoError);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('❌ Error refreshing profile photo:', error);
-        }
-    };
-
-    // Force refresh when personal details modal is opened (optimized)
-    useEffect(() => {
-        if (showPersonalDetails) {
-            console.log('📱 Personal details modal opened, refreshing photo display...');
-            // Force a re-render to ensure photo is displayed (immediate)
-            setPersonalDetails(prev => ({...prev}));
-        }
-    }, [showPersonalDetails, personalDetails.profilePhoto]);
-    
-    
-    // Clear all stored data to start fresh
-    const clearAllStoredData = async () => {
-        try {
-            await AsyncStorage.removeItem('auth_user');
-            await AsyncStorage.removeItem('personal_details');
-            console.log('All stored data cleared - ready for fresh start');
-        } catch (error) {
-            console.error('Error clearing stored data:', error);
-        }
-    };
 
     // Safety check - ensure profile is always accessible
     if (!isAuthenticated) {
@@ -291,258 +182,97 @@ const ProfileScreen = memo(function ProfileScreen() {
     
     const loadPersonalDetails = async () => {
         try {
-            console.log('📂 Loading personal details from persistent storage...');
-            console.log('🔑 Storage key:', PERSONAL_DETAILS_KEY);
-            console.log('👤 Current user ID:', user?.id);
-            console.log('🔐 Is authenticated:', isAuthenticated);
+            console.log('📂 Loading personal details...');
             
+            if (!user?.id) {
+                console.log('❌ No user ID available');
+                return;
+            }
+            
+            // Load from AsyncStorage
             const stored = await AsyncStorage.getItem(PERSONAL_DETAILS_KEY);
-            console.log('📦 Stored data found:', !!stored);
+            let details = {
+                firstName: '',
+                lastName: '',
+                email: user.email || '',
+                phone: '+63',
+                address: '',
+                profilePhoto: null as string | null
+            };
             
             if (stored) {
                 const parsedData = JSON.parse(stored);
-                console.log('✅ Personal details loaded from storage:', {
-                    firstName: parsedData.firstName,
-                    lastName: parsedData.lastName,
-                    email: parsedData.email,
-                    phone: parsedData.phone,
-                    address: parsedData.address
-                });
-                
-                // Load profile photo from storage and database
-                let finalPhotoUri = null;
-                try {
-                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    const storedPhoto = await AsyncStorage.getItem(photoKey);
-                    if (storedPhoto) {
-                        finalPhotoUri = storedPhoto;
-                        console.log('✅ Loaded profile photo from storage');
-                    } else {
-                        // If not in storage, try loading from database
-                        if (user?.id) {
-                            try {
-                                console.log('🔍 Loading profile photo from database for user:', user.id);
-                                const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
-                                const dbPhoto = await loadUserProfilePhoto(user.id);
-                                console.log('🔍 Database photo result:', !!dbPhoto, dbPhoto ? 'has data' : 'no data');
-                                if (dbPhoto) {
-                                    finalPhotoUri = dbPhoto;
-                                    console.log('✅ Loaded profile photo from database');
-                                    // Also save to AsyncStorage for faster future access
-                                    await AsyncStorage.setItem(photoKey, dbPhoto);
-                                } else {
-                                    console.log('❌ No profile photo found in database for user:', user.id);
-                                }
-                            } catch (dbPhotoError) {
-                                console.log('⚠️ Could not load profile photo from database:', dbPhotoError);
-                            }
-                        }
-                    }
-                } catch (photoError) {
-                    console.log('⚠️ Could not load stored photo:', photoError);
-                }
-                
-                const finalDetails = {
-                    ...parsedData,
-                    email: parsedData.email || '', // Show stored email if available
-                    profilePhoto: finalPhotoUri
-                };
-                
-                setPersonalDetails(finalDetails);
-                setTempPersonalDetails(finalDetails); // Also update temporary state
-                
-                // Force a re-render to ensure photo is displayed
-                console.log('🔄 Profile photo state updated:', { hasPhoto: !!finalPhotoUri });
-            } else {
-                console.log('📝 No stored personal details found, checking database for user data...');
-                
-                // Try to load user data from database if available
-                let userData = null;
-                
-                if (user?.id) {
-                    try {
-                        const { db } = await import('@/utils/db');
-                        userData = await db.get('users', user.id) as any;
-                        console.log('📊 User data from database:', userData);
-                        
-                        if (!userData) {
-                            console.log('⚠️ No user data found in database for ID:', user.id);
-                            // Let's also check what users exist in the database
-                            const allUsers = await db.list('users');
-                            console.log('📋 All users in database:', allUsers);
-                        }
-                    } catch (dbError) {
-                        console.log('⚠️ Could not load user data from database:', dbError);
-                    }
-                }
-                
-                // Load profile photo from storage and database for new users
-                let profilePhoto = null;
-                try {
-                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    const storedPhoto = await AsyncStorage.getItem(photoKey);
-                    if (storedPhoto) {
-                        profilePhoto = storedPhoto;
-                        console.log('✅ Profile photo loaded from storage for new user');
-                    } else {
-                        // If not in storage, try loading from database
-                        if (user?.id) {
-                            try {
-                                console.log('🔍 Loading profile photo from database for new user:', user.id);
-                                const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
-                                const dbPhoto = await loadUserProfilePhoto(user.id);
-                                console.log('🔍 Database photo result for new user:', !!dbPhoto, dbPhoto ? 'has data' : 'no data');
-                                if (dbPhoto) {
-                                    profilePhoto = dbPhoto;
-                                    console.log('✅ Profile photo loaded from database for new user');
-                                    // Also save to AsyncStorage for faster future access
-                                    await AsyncStorage.setItem(photoKey, dbPhoto);
-                                } else {
-                                    console.log('❌ No profile photo found in database for new user:', user.id);
-                                }
-                            } catch (dbPhotoError) {
-                                console.log('⚠️ Could not load profile photo from database for new user:', dbPhotoError);
-                            }
-                        }
-                    }
-                } catch (photoError) {
-                    console.log('⚠️ Could not load profile photo from storage for new user:', photoError);
-                }
-                
-                // Initialize with user data from database or fallback values (no auto-save)
-                const defaultDetails = {
-                    firstName: userData?.name?.split(' ')[0] || userData?.name || '',
-                    lastName: userData?.name?.split(' ').slice(1).join(' ') || '',
-                    email: userData?.email || '', // Show email from user data if available
-                    phone: userData?.phone || '+63',
-                    address: userData?.address || '',
-                    profilePhoto: profilePhoto // Use the profile photo loaded from database
-                };
-                
-                console.log('✅ Initialized personal details with user data (no auto-save):', defaultDetails);
-                console.log('🔍 User data from database:', userData);
-                console.log('🔍 Profile photo loaded:', !!profilePhoto);
-                setPersonalDetails(defaultDetails);
-                setTempPersonalDetails(defaultDetails); // Also update temporary state
-                
-                // NO AUTO-SAVE: User must click "Save Changes" to save
+                details = { ...details, ...parsedData };
             }
+            
+            // Load profile photo
+            try {
+                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                const storedPhoto = await AsyncStorage.getItem(photoKey);
+                if (storedPhoto) {
+                    details.profilePhoto = storedPhoto;
+                }
+            } catch (photoError) {
+                console.log('⚠️ Could not load profile photo:', photoError);
+            }
+            
+            setPersonalDetails(details);
+            setFormData(details);
+            console.log('✅ Personal details loaded successfully');
+            
         } catch (error) {
             console.error('❌ Error loading personal details:', error);
-            // Set default values if loading fails
             const fallbackDetails = {
                 firstName: '',
                 lastName: '',
-                email: '',
+                email: user?.email || '',
                 phone: '+63',
                 address: '',
                 profilePhoto: null
             };
             setPersonalDetails(fallbackDetails);
-            setTempPersonalDetails(fallbackDetails); // Also update temporary state
-            console.log('🔄 Using fallback personal details due to error');
+            setFormData(fallbackDetails);
         }
     };
     
-    
+    // Reload profile data when screen comes into focus (navigation back to profile)
+    useFocusEffect(
+        useCallback(() => {
+            if (isAuthenticated && user?.id) {
+                console.log('🔄 Profile screen focused - reloading profile data');
+                loadPersonalDetails();
+            }
+        }, [isAuthenticated, user?.id])
+    );
     
     const savePersonalDetails = async (data: typeof personalDetails) => {
         try {
-            console.log('💾 Saving personal details to persistent storage...');
-            console.log('🔑 Storage key:', PERSONAL_DETAILS_KEY);
-            console.log('👤 User ID available:', !!user?.id);
+            console.log('💾 Saving personal details...');
             
-            // Separate photo from other details to avoid storage quota issues
+            if (!user?.id) {
+                throw new Error('No user ID available');
+            }
+            
+            // Save basic details
             const { profilePhoto, ...detailsWithoutPhoto } = data;
-            const dataToStore = detailsWithoutPhoto;
+            await AsyncStorage.setItem(PERSONAL_DETAILS_KEY, JSON.stringify(detailsWithoutPhoto));
             
-            console.log('📊 Data being saved (without photo):', {
-                firstName: data.firstName,
-                lastName: data.lastName,
-                email: data.email,
-                phone: data.phone,
-                address: data.address,
-                hasProfilePhoto: !!profilePhoto,
-                dataSize: JSON.stringify(dataToStore).length
-            });
-            
-            // Check if AsyncStorage is available
-            if (!AsyncStorage) {
-                throw new Error('AsyncStorage is not available');
-            }
-            
-            // Validate the storage key
-            if (!PERSONAL_DETAILS_KEY || PERSONAL_DETAILS_KEY === 'personal_details:undefined') {
-                console.warn('⚠️ Invalid storage key, using fallback');
-                const fallbackKey = 'personal_details_fallback';
-                await AsyncStorage.setItem(fallbackKey, JSON.stringify(dataToStore));
-            } else {
-                await AsyncStorage.setItem(PERSONAL_DETAILS_KEY, JSON.stringify(dataToStore));
-            }
-            
-            // Store profile photo separately if it exists and isn't too large
+            // Save profile photo separately
             if (profilePhoto) {
-                try {
-                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    const photoSize = profilePhoto.length;
-                    console.log('📸 Saving profile photo:');
-                    console.log('📸 Photo key:', photoKey);
-                    console.log('📸 Photo size:', photoSize, 'characters');
-                    console.log('📸 Photo preview:', profilePhoto.substring(0, 50) + '...');
-                    
-                    // Check if photo is too large (limit to ~1MB in base64)
-                    if (photoSize > 1000000) {
-                        console.warn('⚠️ Profile photo too large for storage, keeping in memory only');
-                    } else {
-                        // Save to AsyncStorage for immediate access
-                        await AsyncStorage.setItem(photoKey, profilePhoto);
-                        console.log('✅ Profile photo saved separately to key:', photoKey);
-                        
-                        // Also save to database for persistence across sessions
-                        if (user?.id) {
-                            try {
-                                console.log('💾 Saving profile photo to database for user:', user.id);
-                                const fileName = `profile_photo_${user.id}_${Date.now()}.jpg`;
-                                const mimeType = profilePhoto.startsWith('data:') 
-                                    ? profilePhoto.split(';')[0].split(':')[1] 
-                                    : 'image/jpeg';
-                                
-                                await saveUserProfilePhoto(
-                                    user.id,
-                                    profilePhoto,
-                                    profilePhoto, // Use the same data for both URI and data
-                                    fileName,
-                                    photoSize,
-                                    mimeType
-                                );
-                                console.log('✅ Profile photo saved to database for persistence');
-                            } catch (dbError) {
-                                console.warn('⚠️ Failed to save profile photo to database:', dbError);
-                                // Don't fail the entire save for database issues
-                            }
-                        }
-                        
-                        // Verify it was saved
-                        const verification = await AsyncStorage.getItem(photoKey);
-                        console.log('🔍 Photo save verification:', !!verification);
-                    }
-                } catch (photoError) {
-                    console.warn('⚠️ Failed to save profile photo to storage:', photoError);
-                    // Don't fail the entire save for photo storage issues
-                }
+                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                await AsyncStorage.setItem(photoKey, profilePhoto);
+                console.log('✅ Profile photo saved');
+            } else {
+                // Remove photo if none
+                const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
+                await AsyncStorage.removeItem(photoKey);
             }
             
-            console.log('✅ Personal details saved successfully to persistent storage');
+            console.log('✅ Personal details saved successfully');
+            
         } catch (error) {
             console.error('❌ Error saving personal details:', error);
-            console.error('❌ Error details:', {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                stack: error instanceof Error ? error.stack : undefined,
-                storageKey: PERSONAL_DETAILS_KEY,
-                userId: user?.id,
-                dataValid: !!data
-            });
-            throw error; // Re-throw to allow calling functions to handle
+            throw error;
         }
     };
     
@@ -581,81 +311,35 @@ const ProfileScreen = memo(function ProfileScreen() {
 
     const handleSavePersonalDetails = async () => {
         try {
-            console.log('🔥 SAVE CHANGES CLICKED - Validating temporary data! Timestamp:', new Date().toISOString());
-            console.log('📝 Temporary personal details:', tempPersonalDetails);
+            console.log('💾 Saving personal details...');
             
-            // Only validate fields that have content - allow partial updates
-            
-            // Validate email format only if email is provided
-            if (tempPersonalDetails.email.trim() && tempPersonalDetails.email.trim() !== '') {
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(tempPersonalDetails.email)) {
-                    toast.show(notifications.invalidEmail());
-                    return;
-                }
+            // Validate email format if provided
+            if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+                toast.show('Please enter a valid email address');
+                return;
             }
 
-            // Validate phone number only if phone is provided
-            if (tempPersonalDetails.phone.trim() && tempPersonalDetails.phone.trim() !== '' && tempPersonalDetails.phone.trim() !== '+63') {
-                // Clean the phone number for validation
-                const cleanPhone = tempPersonalDetails.phone.replace(/\s/g, '');
-                
-                if (!cleanPhone.startsWith('+63')) {
-                    toast.show(notifications.invalidPhone());
-                    return;
-                }
-
-                // Validate phone number length (should be +63 + 10 digits, ignoring spaces)
-                const digitsOnly = cleanPhone.replace('+63', '');
-                if (digitsOnly.length !== 10) {
-                    toast.show(notifications.invalidPhone());
+            // Validate phone number if provided
+            if (formData.phone.trim() && formData.phone.trim() !== '+63') {
+                const cleanPhone = formData.phone.replace(/\s/g, '');
+                if (!cleanPhone.startsWith('+63') || cleanPhone.length !== 13) {
+                    toast.show('Please enter a valid Philippine phone number (+63XXXXXXXXXX)');
                     return;
                 }
             }
             
-            console.log('✅ All validations passed! Saving personal details:', tempPersonalDetails);
+            // Update main state
+            setPersonalDetails({...formData});
             
-            // Update the main state with temporary data (this saves the changes)
-            setPersonalDetails({...tempPersonalDetails});
+            // Save to storage
+            await savePersonalDetails(formData);
             
-            // Try to save to AsyncStorage (optional - don't fail if this doesn't work)
-            try {
-                await savePersonalDetails(tempPersonalDetails);
-                console.log('✅ Personal details saved to storage successfully');
-            } catch (storageError) {
-                console.warn('⚠️ Storage save failed, but profile updated in memory:', storageError);
-                // Don't throw - the profile is still updated in the app
-            }
-            
-            // Save profile photo to storage if it exists
-            if (tempPersonalDetails.profilePhoto) {
-                try {
-                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    await AsyncStorage.setItem(photoKey, tempPersonalDetails.profilePhoto);
-                    console.log('✅ Profile photo saved to storage');
-                } catch (photoError) {
-                    console.error('❌ Photo storage save failed:', photoError);
-                }
-            } else {
-                // Remove photo from storage if no photo
-                try {
-                    const photoKey = `${PERSONAL_DETAILS_KEY}_photo`;
-                    await AsyncStorage.removeItem(photoKey);
-                    console.log('✅ Profile photo removed from storage');
-                } catch (photoError) {
-                    console.warn('⚠️ Photo storage remove failed:', photoError);
-                }
-            }
-            
-            // Show success toast
-            toast.show(notifications.profileUpdateSuccess());
-            
-            // Close the modal
+            toast.show('Profile updated successfully!');
             setShowPersonalDetails(false);
+            
         } catch (error) {
-            console.error('❌ Unexpected error in handleSavePersonalDetails:', error);
-            // This should rarely happen now since we handle storage errors gracefully
-            toast.show(notifications.profileUpdateError());
+            console.error('❌ Error saving personal details:', error);
+            toast.show('Failed to update profile. Please try again.');
         }
     };
 
@@ -672,28 +356,21 @@ const ProfileScreen = memo(function ProfileScreen() {
                         text: 'Remove',
                         style: 'destructive',
                         onPress: () => {
-                            setTempPersonalDetails(prev => ({...prev, profilePhoto: null}));
-                            toast.show(notifications.operationSuccess('Photo removed'));
+                            setFormData(prev => ({...prev, profilePhoto: null}));
+                            toast.show('Photo removed');
                         }
                     }
                 ]
             );
         } else {
             try {
-                // Request permission
                 const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 
                 if (!permissionResult.granted) {
-                    toast.show(createNotification({
-                        title: 'Permission Required',
-                        description: 'Please allow access to your photo library to select a profile picture.',
-                        type: 'warning',
-                        duration: 0,
-                    }));
+                    toast.show('Permission required to access photo library');
                     return;
                 }
                 
-                // Launch image picker
                 const result = await ImagePicker.launchImageLibraryAsync({
                     mediaTypes: ImagePicker.MediaTypeOptions.Images,
                     allowsEditing: true,
@@ -705,23 +382,22 @@ const ProfileScreen = memo(function ProfileScreen() {
                 if (!result.canceled && result.assets && result.assets.length > 0) {
                     const selectedImage = result.assets[0];
                     
-                    // Use base64 data URI for better compatibility
                     let imageUri = selectedImage.uri;
                     if (Platform.OS === 'web' && selectedImage.base64) {
                         imageUri = `data:${selectedImage.type || 'image/jpeg'};base64,${selectedImage.base64}`;
                     }
                     
-                    setTempPersonalDetails(prev => ({...prev, profilePhoto: imageUri}));
-                    toast.show(notifications.operationSuccess('Photo selected'));
+                    setFormData(prev => ({...prev, profilePhoto: imageUri}));
+                    toast.show('Photo selected');
                 }
             } catch (error) {
                 console.error('Error selecting photo:', error);
-                toast.show(notifications.operationError('select photo'));
+                toast.show('Failed to select photo');
             }
         }
     };
 
-    const menuItems: MenuItem[] = [
+    const menuItems: MenuItem[] = useMemo(() => [
         // Owner-only actions
         ...(isOwner ? [
             {
@@ -740,10 +416,7 @@ const ProfileScreen = memo(function ProfileScreen() {
             icon: <Ionicons name="person" size={20} color="#4B5563" />,
             label: 'Personal details',
             onPress: () => {
-                console.log('📞 Opening personal details modal');
-                console.log('📞 Current personal details:', personalDetails);
-                setTempPersonalDetails({...personalDetails});
-                console.log('📞 Setting temp personal details:', {...personalDetails});
+                setFormData({...personalDetails});
                 setShowPersonalDetails(true);
             },
         },
@@ -758,7 +431,7 @@ const ProfileScreen = memo(function ProfileScreen() {
             onPress: handleLogout,
             isLogout: true,
         },
-    ];
+    ], [isOwner, personalDetails, handleLogout]);
 
     if (hasError) {
         return (
@@ -771,7 +444,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                     style={styles.retryButton}
                     onPress={() => {
                         setHasError(false);
-                        refreshProfileData();
+                        loadPersonalDetails();
                     }}
                 >
                     <Text style={styles.retryButtonText}>Retry</Text>
@@ -822,11 +495,13 @@ const ProfileScreen = memo(function ProfileScreen() {
                 ))}
             </View>
 
+
             {/* Personal Details Modal */}
             <Modal 
                 visible={showPersonalDetails} 
                 animationType="slide" 
                 presentationStyle="pageSheet"
+                onRequestClose={handleCloseModal}
             >
                 <View style={styles.modalContainer}>
                     <View style={styles.modalHeader}>
@@ -841,7 +516,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                             <View style={styles.photoSection}>
                                 <View style={styles.photoSectionHeader}>
                                     <Text style={styles.photoSectionTitle}>Profile Photo</Text>
-                                    {tempPersonalDetails.profilePhoto !== personalDetails.profilePhoto && (
+                                    {formData.profilePhoto !== personalDetails.profilePhoto && (
                                         <View style={styles.unsavedBadge}>
                                             <Text style={styles.unsavedText}>Unsaved</Text>
                                         </View>
@@ -849,16 +524,16 @@ const ProfileScreen = memo(function ProfileScreen() {
                                 </View>
                                 <View style={styles.photoContainer}>
                                     <View style={styles.modalAvatar}>
-                                        {tempPersonalDetails.profilePhoto ? (
+                                        {formData.profilePhoto ? (
                                             <Image 
-                                                source={{ uri: tempPersonalDetails.profilePhoto }}
+                                                source={{ uri: formData.profilePhoto }}
                                                 style={styles.modalAvatarImage}
                                                 resizeMode="cover"
                                             />
                                         ) : (
                                             <Text style={styles.modalAvatarText}>
-                                                {tempPersonalDetails.firstName && tempPersonalDetails.lastName 
-                                                    ? `${tempPersonalDetails.firstName.charAt(0)}${tempPersonalDetails.lastName.charAt(0)}`
+                                                {formData.firstName && formData.lastName 
+                                                    ? `${formData.firstName.charAt(0)}${formData.lastName.charAt(0)}`
                                                     : '?'
                                                 }
                                             </Text>
@@ -875,7 +550,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                                             <Text style={styles.selectPhotoText}>Select Photo</Text>
                                         </TouchableOpacity>
                                         
-                                        {tempPersonalDetails.profilePhoto && (
+                                        {formData.profilePhoto && (
                                             <TouchableOpacity
                                                 onPress={() => handlePhotoAction('remove')}
                                                 style={styles.removePhotoButton}
@@ -894,8 +569,9 @@ const ProfileScreen = memo(function ProfileScreen() {
                                     <Text style={styles.inputLabel}>First Name</Text>
                                     <TextInput
                                         style={styles.textInput}
-                                        value={tempPersonalDetails.firstName}
-                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, firstName: text})}
+                                        value={formData.firstName}
+                                        onChangeText={(text) => setFormData({...formData, firstName: text})}
+                                        placeholder="Enter your first name"
                                     />
                                 </View>
                                 
@@ -903,8 +579,9 @@ const ProfileScreen = memo(function ProfileScreen() {
                                     <Text style={styles.inputLabel}>Last Name</Text>
                                     <TextInput
                                         style={styles.textInput}
-                                        value={tempPersonalDetails.lastName}
-                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, lastName: text})}
+                                        value={formData.lastName}
+                                        onChangeText={(text) => setFormData({...formData, lastName: text})}
+                                        placeholder="Enter your last name"
                                     />
                                 </View>
                                 
@@ -912,9 +589,10 @@ const ProfileScreen = memo(function ProfileScreen() {
                                     <Text style={styles.inputLabel}>Email</Text>
                                     <TextInput
                                         style={styles.textInput}
-                                        value={tempPersonalDetails.email}
-                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, email: text})}
+                                        value={formData.email}
+                                        onChangeText={(text) => setFormData({...formData, email: text})}
                                         keyboardType="email-address"
+                                        placeholder="Enter your email"
                                     />
                                 </View>
                                 
@@ -926,21 +604,17 @@ const ProfileScreen = memo(function ProfileScreen() {
                                         </View>
                                         <TextInput
                                             style={styles.phoneInput}
-                                            value={tempPersonalDetails.phone.replace(countryCode + ' ', '')}
+                                            value={formData.phone.replace(countryCode + ' ', '')}
                                             onChangeText={(text) => {
-                                                console.log('📞 Phone input changed:', text);
                                                 const digitsOnly = text.replace(/\D/g, '');
                                                 if (digitsOnly.length <= 10) {
                                                     const fullPhone = countryCode + ' ' + digitsOnly;
-                                                    console.log('📞 Setting phone to:', fullPhone);
-                                                    setTempPersonalDetails({...tempPersonalDetails, phone: fullPhone});
+                                                    setFormData({...formData, phone: fullPhone});
                                                 }
                                             }}
                                             placeholder="912 345 6789"
                                             keyboardType="phone-pad"
                                             maxLength={10}
-                                            editable={true}
-                                            selectTextOnFocus={true}
                                         />
                                     </View>
                                 </View>
@@ -949,10 +623,11 @@ const ProfileScreen = memo(function ProfileScreen() {
                                     <Text style={styles.inputLabel}>Address</Text>
                                     <TextInput
                                         style={[styles.textInput, styles.addressInput]}
-                                        value={tempPersonalDetails.address}
-                                        onChangeText={(text) => setTempPersonalDetails({...tempPersonalDetails, address: text})}
+                                        value={formData.address}
+                                        onChangeText={(text) => setFormData({...formData, address: text})}
                                         multiline
                                         numberOfLines={3}
+                                        placeholder="Enter your address"
                                     />
                                 </View>
                             </View>
@@ -1157,6 +832,7 @@ const styles = StyleSheet.create({
     modalContainer: {
         flex: 1,
         backgroundColor: '#FFFFFF',
+        zIndex: 1000,
     },
     modalHeader: {
         flexDirection: 'row',

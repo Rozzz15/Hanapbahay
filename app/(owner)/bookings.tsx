@@ -63,14 +63,18 @@ export default function BookingsPage() {
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('bookingCreated', handleNewBooking);
-      window.addEventListener('bookingCancelled', handleBookingCancelled);
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('bookingCreated', handleNewBooking);
+        window.addEventListener('bookingCancelled', handleBookingCancelled);
+      }
       return () => {
-        window.removeEventListener('bookingCreated', handleNewBooking);
-        window.removeEventListener('bookingCancelled', handleBookingCancelled);
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+          window.removeEventListener('bookingCreated', handleNewBooking);
+          window.removeEventListener('bookingCancelled', handleBookingCancelled);
+        }
       };
     }
-  }, [loadBookings]);
+  }, []); // Remove loadBookings dependency to prevent infinite re-renders
 
   const handleBookingAction = async (bookingId: string, action: 'approve' | 'reject') => {
     if (!user?.id) return;

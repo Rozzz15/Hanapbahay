@@ -16,13 +16,12 @@ import {
   Home, 
   List, 
   Calendar, 
-  MessageSquare, 
+  MessageSquare,
   CreditCard, 
   LogOut,
   Plus,
-  Eye,
+  Eye
   // DollarSign, // Replaced with peso symbol ₱
-  Users
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -75,14 +74,18 @@ export default function OwnerDashboard() {
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('listingChanged', handleListingChange);
-      window.addEventListener('bookingCreated', handleBookingCreated);
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('listingChanged', handleListingChange);
+        window.addEventListener('bookingCreated', handleBookingCreated);
+      }
       return () => {
-        window.removeEventListener('listingChanged', handleListingChange);
-        window.removeEventListener('bookingCreated', handleBookingCreated);
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+          window.removeEventListener('listingChanged', handleListingChange);
+          window.removeEventListener('bookingCreated', handleBookingCreated);
+        }
       };
     }
-  }, [user]);
+  }, []); // Remove user dependency to prevent infinite re-renders
 
   const loadDashboardData = async () => {
     if (!user?.id) return;
@@ -119,6 +122,15 @@ export default function OwnerDashboard() {
 
     try {
       console.log('🔍 Loading owner listings for user:', user.id);
+      
+      // REFRESH MEDIA FIRST (like tenant profile pictures)
+      try {
+        const { refreshAllPropertyMedia } = await import('../../utils/media-storage');
+        await refreshAllPropertyMedia();
+        console.log('✅ Owner media refreshed successfully (like tenant profile pictures)');
+      } catch (mediaError) {
+        console.log('⚠️ Owner media refresh failed:', mediaError);
+      }
       
       // First, verify database storage
       const { db, generateId } = await import('../../utils/db');
@@ -162,6 +174,13 @@ export default function OwnerDashboard() {
       const ownerBookings = await getBookingsByOwner(user.id);
       setBookings(ownerBookings);
       console.log(`✅ Loaded ${ownerBookings.length} bookings for owner ${user.id}`);
+      console.log('📊 Bookings data:', ownerBookings.map(b => ({
+        id: b.id,
+        tenantName: b.tenantName,
+        tenantId: b.tenantId,
+        status: b.status,
+        propertyTitle: b.propertyTitle
+      })));
     } catch (error) {
       console.error('Error loading bookings:', error);
     }
@@ -201,6 +220,8 @@ export default function OwnerDashboard() {
       showAlert('Error', `Failed to ${action} booking`);
     }
   };
+
+
 
   const handleLogout = () => {
     console.log('🔘 Dashboard logout button clicked');
@@ -370,6 +391,7 @@ export default function OwnerDashboard() {
             </View>
             <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
           </TouchableOpacity>
+
         </View>
       </View>
 
@@ -623,22 +645,26 @@ export default function OwnerDashboard() {
                   </Text>
                 </View>
                 
-                {booking.status === 'pending' && (
-                  <View style={{ flexDirection: 'row', gap: designTokens.spacing.md }}>
-                    <TouchableOpacity 
-                      style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.success, paddingVertical: designTokens.spacing.md }]}
-                      onPress={() => handleBookingAction(booking.id, 'approve')}
-                    >
-                      <Text style={sharedStyles.primaryButtonText}>Approve</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.md }]}
-                      onPress={() => handleBookingAction(booking.id, 'reject')}
-                    >
-                      <Text style={sharedStyles.primaryButtonText}>Reject</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <View style={{ flexDirection: 'row', gap: designTokens.spacing.md }}>
+                  
+                  {/* Approve/Reject buttons - Only for pending bookings */}
+                  {booking.status === 'pending' && (
+                    <>
+                      <TouchableOpacity 
+                        style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.success, paddingVertical: designTokens.spacing.md }]}
+                        onPress={() => handleBookingAction(booking.id, 'approve')}
+                      >
+                        <Text style={sharedStyles.primaryButtonText}>Approve</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.md }]}
+                        onPress={() => handleBookingAction(booking.id, 'reject')}
+                      >
+                        <Text style={sharedStyles.primaryButtonText}>Reject</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
               </View>
             </View>
           ))}
@@ -706,6 +732,7 @@ export default function OwnerDashboard() {
       )}
     </View>
   );
+
 
   const renderPaymentSettings = () => (
     <View style={sharedStyles.pageContainer}>

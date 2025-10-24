@@ -69,12 +69,16 @@ export default function TenantBookings() {
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('bookingStatusChanged', handleBookingStatusChange);
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('bookingStatusChanged', handleBookingStatusChange);
+      }
       return () => {
-        window.removeEventListener('bookingStatusChanged', handleBookingStatusChange);
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+          window.removeEventListener('bookingStatusChanged', handleBookingStatusChange);
+        }
       };
     }
-  }, [loadBookings]);
+  }, [user?.id, loadBookings]);
 
   const handleCancelBooking = async (bookingId: string) => {
     console.log('🔄 Starting cancel booking process for:', bookingId);

@@ -209,6 +209,14 @@ export interface PublishedListingRecord {
   leaseTerm: string;
   status: 'published';
   publishedAt: string;
+  // Additional properties used in the app
+  title?: string;
+  location?: string;
+  description?: string;
+  rooms?: number;
+  size?: number;
+  price?: number;
+  ownerUserId?: string;
 }
 
 export interface PropertyPhotoRecord {

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from './db';
+import { PropertyMedia } from './property-media-cache';
 
 export interface MediaItem {
   uri: string;
@@ -7,12 +8,6 @@ export interface MediaItem {
   fileSize: number;
   mimeType: string;
   data?: string; // Base64 encoded data for persistence
-}
-
-export interface PropertyMedia {
-  coverPhoto: string | null;
-  photos: string[];
-  videos: string[];
 }
 
 // AsyncStorage keys for property media persistence
@@ -237,13 +232,13 @@ export const loadPropertyMedia = async (listingId: string, userId?: string): Pro
     }
     
     // Third, load from media tables (property_photos and property_videos)
-    const photos = await db.getAll('property_photos');
+    const photos = await db.list('property_photos');
     console.log('📸 All photos in database:', photos.length);
     const listingPhotos = photos.filter((photo: any) => photo.listingId === listingId);
     console.log('📸 Photos for this listing:', listingPhotos.length);
     
     // Load videos
-    const videos = await db.getAll('property_videos');
+    const videos = await db.list('property_videos');
     console.log('🎥 All videos in database:', videos.length);
     const listingVideos = videos.filter((video: any) => video.listingId === listingId);
     console.log('🎥 Videos for this listing:', listingVideos.length);
@@ -350,7 +345,7 @@ export const deletePropertyMedia = async (listingId: string): Promise<void> => {
     console.log('🗑️ Deleting property media for listing:', listingId);
     
     // Delete photos
-    const photos = await db.getAll('property_photos');
+    const photos = await db.list('property_photos');
     const listingPhotos = photos.filter((photo: any) => photo.listingId === listingId);
     
     for (const photo of listingPhotos) {
@@ -358,7 +353,7 @@ export const deletePropertyMedia = async (listingId: string): Promise<void> => {
     }
     
     // Delete videos
-    const videos = await db.getAll('property_videos');
+    const videos = await db.list('property_videos');
     const listingVideos = videos.filter((video: any) => video.listingId === listingId);
     
     for (const video of listingVideos) {

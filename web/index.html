@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
         script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com;
@@ -33,22 +33,55 @@
             overflow-x: hidden;
         }
         
-        /* Responsive design enhancements */
+        /* Mobile-first responsive design */
         @media (max-width: 480px) {
             body {
-                font-size: 14px;
+                font-size: 12px;
+                transform: scale(0.9);
+                transform-origin: top left;
+                width: 111.11%; /* Compensate for scale */
+            }
+            #root {
+                transform: scale(0.9);
+                transform-origin: top left;
+                width: 111.11%;
+                height: 111.11%;
             }
         }
         
         @media (min-width: 481px) and (max-width: 768px) {
             body {
-                font-size: 15px;
+                font-size: 13px;
+                transform: scale(0.95);
+                transform-origin: top left;
+                width: 105.26%; /* Compensate for scale */
+            }
+            #root {
+                transform: scale(0.95);
+                transform-origin: top left;
+                width: 105.26%;
+                height: 105.26%;
             }
         }
         
         @media (min-width: 769px) {
             body {
-                font-size: 16px;
+                font-size: 14px;
+            }
+        }
+        
+        /* Additional mobile optimizations */
+        @media (max-width: 480px) {
+            * {
+                -webkit-text-size-adjust: 100%;
+                -ms-text-size-adjust: 100%;
+            }
+            
+            /* Ensure touch targets are appropriately sized */
+            button, a, input, select, textarea {
+                min-height: 40px;
+                min-width: 40px;
+                font-size: 14px;
             }
         }
         

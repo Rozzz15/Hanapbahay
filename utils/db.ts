@@ -33,9 +33,51 @@ type CollectionName =
   | 'published_listings'
   | 'bookings'
   | 'favorites'
-  | 'property_ratings';
+  | 'property_ratings'
+  | 'personal_details'
+  | 'listing_inquiries'
+  | 'media_backups'
+  | 'user_favorites'
+  | 'listings';
 
 type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord;
+
+// Type guards for better type safety
+export function isPublishedListingRecord(record: AnyRecord): record is PublishedListingRecord {
+  return 'propertyType' in record && 'rentalType' in record && 'monthlyRent' in record;
+}
+
+export function isConversationRecord(record: AnyRecord): record is ConversationRecord {
+  return 'ownerId' in record && 'tenantId' in record && 'participantIds' in record;
+}
+
+export function isMessageRecord(record: AnyRecord): record is MessageRecord {
+  return 'conversationId' in record && 'senderId' in record && 'text' in record;
+}
+
+export function isPropertyPhotoRecord(record: AnyRecord): record is PropertyPhotoRecord {
+  return 'listingId' in record && 'photoUri' in record && 'isCoverPhoto' in record;
+}
+
+export function isPropertyVideoRecord(record: AnyRecord): record is PropertyVideoRecord {
+  return 'listingId' in record && 'videoUri' in record && 'duration' in record;
+}
+
+export function isUserProfilePhotoRecord(record: AnyRecord): record is UserProfilePhotoRecord {
+  return 'userId' in record && 'photoUri' in record && 'fileName' in record;
+}
+
+export function isBookingRecord(record: AnyRecord): record is BookingRecord {
+  return 'propertyId' in record && 'tenantId' in record && 'ownerId' in record && 'status' in record;
+}
+
+export function isFavoriteRecord(record: AnyRecord): record is FavoriteRecord {
+  return 'userId' in record && 'propertyId' in record && 'createdAt' in record;
+}
+
+export function isPropertyRatingRecord(record: AnyRecord): record is PropertyRatingRecord {
+  return 'propertyId' in record && 'userId' in record && 'rating' in record;
+}
 
 export const KEY_PREFIX = 'hb_db_';
 
@@ -79,6 +121,10 @@ export const db = {
     return col[id] ?? null;
   },
   async list<T extends AnyRecord>(name: CollectionName): Promise<T[]> {
+    const col = await readCollection<T>(name);
+    return Object.values(col);
+  },
+  async getAll<T extends AnyRecord>(name: CollectionName): Promise<T[]> {
     const col = await readCollection<T>(name);
     return Object.values(col);
   },
@@ -237,4 +283,10 @@ export async function getAll<T extends AnyRecord>(name: CollectionName): Promise
 export async function clearCache(): Promise<void> {
   collectionCache.clear();
   console.log('🗑️ Database cache cleared');
+}
+
+// Get all published listings with proper typing
+export async function getAllPublishedListings(): Promise<PublishedListingRecord[]> {
+  const rawListings = await db.list('published_listings');
+  return rawListings.filter(isPublishedListingRecord);
 }

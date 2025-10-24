@@ -1,5 +1,5 @@
 import React from 'react';
-import { Toast, ToastTitle, ToastDescription } from '@/components/ui/toast';
+import { Toast, ToastTitle, ToastDescription } from '../components/ui/toast';
 
 export interface NotificationConfig {
   title: string;
@@ -76,19 +76,9 @@ export const createNotification = (config: NotificationConfig) => {
 // Predefined notification templates
 export const notifications = {
   // Authentication
-  loginSuccess: () => createNotification({
-    title: 'Welcome Back!',
-    description: 'You\'ve successfully signed in. Ready to find your perfect home? 🏠',
-    type: 'success',
-    duration: 4000,
-  }),
+  loginSuccess: () => 'Welcome back! You\'ve successfully signed in. Ready to find your perfect home? 🏠',
 
-  logoutSuccess: () => createNotification({
-    title: 'Signed Out',
-    description: 'You\'ve been logged out successfully. See you next time! 👋',
-    type: 'info',
-    duration: 3000,
-  }),
+  logoutSuccess: () => 'You\'ve been logged out successfully. See you next time! 👋',
 
   // Profile Updates
   profileUpdateSuccess: () => createNotification({
@@ -173,12 +163,7 @@ export const notifications = {
   }),
 
   // General
-  operationSuccess: (operation: string) => createNotification({
-    title: 'Success',
-    description: `${operation} completed successfully.`,
-    type: 'success',
-    duration: 3000,
-  }),
+  operationSuccess: (operation: string) => `${operation} completed successfully.`,
 
   operationError: (operation: string) => createNotification({
     title: 'Error',

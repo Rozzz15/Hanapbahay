@@ -16,7 +16,7 @@ const createDefaultUsers = async () => {
       name: 'John Tenant',
       phone: '+63 912 345 6789',
       address: '123 Tenant Street, Dumaguete City',
-      role: 'tenant',
+      roles: ['tenant'],
       createdAt: new Date().toISOString()
     },
     // Default Owner 1

@@ -101,7 +101,7 @@ export default function CreateListing() {
         email: user.email || prev.email
       }));
     }
-  }, [user]);
+  }, [user?.id, user?.name, user?.email]); // Only depend on specific user properties that matter
 
   const updateFormData = (field: keyof ListingFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));

@@ -304,13 +304,13 @@ export default function PropertyPreviewScreen() {
 
   // Listen for property media refresh events
   useEffect(() => {
-    const handlePropertyMediaRefreshed = (event: CustomEvent) => {
-      console.log('🔄 Property media refreshed, reloading property details...', event.detail);
+    const handlePropertyMediaRefreshed = (event: Event) => {
+      console.log('🔄 Property media refreshed, reloading property details...', (event as any).detail);
       refreshPropertyMedia();
     };
 
-    const handleUserLoggedIn = (event: CustomEvent) => {
-      console.log('🔄 User logged in event, refreshing property media...', event.detail);
+    const handleUserLoggedIn = (event: Event) => {
+      console.log('🔄 User logged in event, refreshing property media...', (event as any).detail);
       // Add a small delay to ensure all cache clearing is complete
       setTimeout(() => {
         refreshPropertyMedia();
@@ -318,14 +318,18 @@ export default function PropertyPreviewScreen() {
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
-      window.addEventListener('userLoggedIn', handleUserLoggedIn);
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
+        window.addEventListener('userLoggedIn', handleUserLoggedIn);
+      }
       console.log('👂 Property preview: Added media refresh and user login listeners');
       
       return () => {
-        window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
-        window.removeEventListener('userLoggedIn', handleUserLoggedIn);
-        console.log('👂 Property preview: Removed media refresh and user login listeners');
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+          window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
+          window.removeEventListener('userLoggedIn', handleUserLoggedIn);
+          console.log('👂 Property preview: Removed media refresh and user login listeners');
+        }
       };
     }
   }, [refreshPropertyMedia]);

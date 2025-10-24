@@ -1,20 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { getAuthUser, clearAuthUser, clearAuthSession } from '../utils/auth-user';
-// Conditional import for web compatibility
-let supabase: any;
-if (typeof window !== 'undefined') {
-  // Web environment - use mock
-  supabase = {
-    auth: {
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-    }
-  };
-} else {
-  // Mobile environment - use real Supabase
-  const { supabase: realSupabase } = require('../utils/supabase-client');
-  supabase = realSupabase;
-}
+import { supabase } from '../utils/supabase-client';
 import { useRouter } from 'expo-router';
 import { hasOwnerListings } from '../utils/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -116,14 +102,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   });
                 }
               }
-              console.log('✅ Dispatched property media loaded events for all listings (owner)');
+              console.log('✅ Dispatched property media loaded events for all listings (tenant)');
             } catch (mediaEventError) {
-              console.log('⚠️ Could not dispatch property media loaded events (owner):', mediaEventError);
+              console.log('⚠️ Could not dispatch property media loaded events (tenant):', mediaEventError);
             }
 
             // Also refresh tenant profile photo
             try {
-              const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+              const { loadUserProfilePhoto, migratePhotoRecords } = await import('../utils/user-profile-photos');
+              
+              // Run migration first to fix any data issues
+              await migratePhotoRecords();
+              
               const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
               if (profilePhoto) {
                 console.log('✅ Tenant profile photo loaded from database');
@@ -157,7 +147,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             
             // Also refresh owner profile photo
             try {
-              const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+              const { loadUserProfilePhoto, migratePhotoRecords } = await import('../utils/user-profile-photos');
+              
+              // Run migration first to fix any data issues
+              await migratePhotoRecords();
+              
               const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
               if (profilePhoto) {
                 console.log('✅ Owner profile photo loaded from database');
@@ -223,12 +217,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // 1. Sign out from Supabase
       try {
-        const { error: supabaseError } = await supabase.auth.signOut();
-        if (supabaseError) {
-          console.error('❌ Supabase signout error:', supabaseError);
-          // Continue with local cleanup even if Supabase signout fails
+        if (supabase && supabase.auth && typeof supabase.auth.signOut === 'function') {
+          const { error: supabaseError } = await supabase.auth.signOut();
+          if (supabaseError) {
+            console.error('❌ Supabase signout error:', supabaseError);
+            // Continue with local cleanup even if Supabase signout fails
+          } else {
+            console.log('✅ Successfully signed out from Supabase');
+          }
         } else {
-          console.log('✅ Successfully signed out from Supabase');
+          console.log('⚠️ Supabase auth.signOut not available, skipping Supabase signout');
         }
       } catch (supabaseError) {
         console.error('❌ Supabase signout failed:', supabaseError);
@@ -320,7 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshUser();
     
-  }, []);
+  }, [refreshUser]);
 
   const value: AuthContextType = {
     user,

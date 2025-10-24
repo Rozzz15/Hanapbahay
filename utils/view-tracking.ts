@@ -1,4 +1,5 @@
 import { db } from './db';
+import { PublishedListingRecord } from '../types';
 
 /**
  * Increment the view count for a specific listing
@@ -13,7 +14,7 @@ export async function incrementListingViews(listingId: string): Promise<{
     console.log(`👁️ Incrementing views for listing: ${listingId}`);
     
     // Get the current listing
-    const listing = await db.get('published_listings', listingId);
+    const listing = await db.get<PublishedListingRecord>('published_listings', listingId);
     
     if (!listing) {
       console.log(`❌ Listing not found: ${listingId}`);
@@ -25,7 +26,7 @@ export async function incrementListingViews(listingId: string): Promise<{
     }
     
     // Increment the view count
-    const currentViews = listing.views || 0;
+    const currentViews = (listing as any).views || 0;
     const newViewCount = currentViews + 1;
     
     // Update the listing with the new view count
@@ -33,7 +34,7 @@ export async function incrementListingViews(listingId: string): Promise<{
       ...listing,
       views: newViewCount,
       updatedAt: new Date().toISOString()
-    };
+    } as PublishedListingRecord;
     
     await db.upsert('published_listings', listingId, updatedListing);
     
@@ -60,8 +61,8 @@ export async function incrementListingViews(listingId: string): Promise<{
  */
 export async function getListingViews(listingId: string): Promise<number> {
   try {
-    const listing = await db.get('published_listings', listingId);
-    return listing?.views || 0;
+    const listing = await db.get<PublishedListingRecord>('published_listings', listingId);
+    return (listing as any)?.views || 0;
   } catch (error) {
     console.error(`❌ Error getting views for listing ${listingId}:`, error);
     return 0;
@@ -106,12 +107,12 @@ export async function trackListingView(
     // Check if viewer is the owner of this listing
     if (viewerId) {
       try {
-        const listing = await db.get('published_listings', listingId);
+        const listing = await db.get<PublishedListingRecord>('published_listings', listingId);
         if (listing && listing.userId === viewerId) {
           console.log(`👁️ Skipping view tracking - viewer is owner of listing: ${listingId}`);
           return {
             success: true,
-            newViewCount: listing.views || 0,
+            newViewCount: (listing as any).views || 0,
             message: 'View tracking skipped - viewer is owner of listing'
           };
         }

@@ -54,18 +54,24 @@ export default function ListingsPage() {
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('listingChanged', handleListingChange);
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('listingChanged', handleListingChange);
+      }
       return () => {
-        window.removeEventListener('listingChanged', handleListingChange);
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+          window.removeEventListener('listingChanged', handleListingChange);
+        }
       };
     }
-  }, [user]);
+  }, []); // Remove user dependency to prevent infinite re-renders
 
   // Refresh listings when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      loadListings();
-    }, [])
+      if (user?.id) {
+        loadListings();
+      }
+    }, [user?.id]) // Add user.id dependency to ensure we have user before loading
   );
 
   const loadListings = async () => {
@@ -95,8 +101,56 @@ export default function ListingsPage() {
         coverPhotoLength: listing.coverPhoto?.length || 0,
         photosCount: listing.photos?.length || 0,
         videosCount: listing.videos?.length || 0,
-        coverPhotoPreview: listing.coverPhoto?.substring(0, 50) + '...'
+        coverPhotoPreview: listing.coverPhoto?.substring(0, 50) + '...',
+        coverPhotoValue: listing.coverPhoto
       })));
+      
+      // DEBUG: Check if any listings have cover photos
+      const listingsWithCoverPhotos = ownerListings.filter(listing => listing.coverPhoto);
+      console.log(`📊 Owner Listings Summary: ${listingsWithCoverPhotos.length}/${ownerListings.length} have cover photos`);
+      
+      if (listingsWithCoverPhotos.length === 0) {
+        console.log('❌ NO COVER PHOTOS FOUND! This is why you see home icons.');
+        console.log('🔍 Checking database directly...');
+        
+        // Check database directly
+        const { db } = await import('../../utils/db');
+        const allPhotos = await db.list('property_photos');
+        console.log(`📸 Total photos in database: ${allPhotos.length}`);
+        
+        for (const listing of ownerListings) {
+          const listingPhotos = allPhotos.filter(photo => photo.listingId === listing.id);
+          console.log(`📸 Photos for listing ${listing.id}: ${listingPhotos.length}`);
+          if (listingPhotos.length > 0) {
+            const coverPhoto = listingPhotos.find(photo => photo.isCoverPhoto);
+            if (coverPhoto) {
+              console.log(`✅ Cover photo found in database for ${listing.id}:`, {
+                id: coverPhoto.id,
+                hasPhotoData: !!coverPhoto.photoData,
+                hasPhotoUri: !!coverPhoto.photoUri,
+                photoDataPreview: coverPhoto.photoData?.substring(0, 50) + '...'
+              });
+            }
+          }
+        }
+        
+        // Test loadPropertyMedia function directly
+        console.log('🔍 Testing loadPropertyMedia function...');
+        try {
+          const { loadPropertyMedia } = await import('../../utils/media-storage');
+          for (const listing of ownerListings) {
+            const media = await loadPropertyMedia(listing.id);
+            console.log(`📸 loadPropertyMedia for ${listing.id}:`, {
+              hasCoverPhoto: !!media.coverPhoto,
+              photosCount: media.photos.length,
+              videosCount: media.videos.length,
+              coverPhotoPreview: media.coverPhoto?.substring(0, 50) + '...'
+            });
+          }
+        } catch (mediaError) {
+          console.log('❌ Error testing loadPropertyMedia:', mediaError);
+        }
+      }
       
       if (ownerListings && ownerListings.length > 0) {
         setListings(ownerListings);

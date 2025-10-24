@@ -26,17 +26,21 @@ export function dispatchCustomEvent(eventName: string, detail?: any): void {
   }
 
   try {
-    // Try to use CustomEvent if available
-    if (typeof CustomEvent !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(eventName, { detail }));
+    if (window.dispatchEvent) {
+      // Try to use CustomEvent if available
+      if (typeof CustomEvent !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(eventName, { detail }));
+      } else {
+        // Fallback: Use regular Event and attach detail manually
+        const event = new Event(eventName);
+        // @ts-ignore
+        event.detail = detail;
+        window.dispatchEvent(event);
+      }
+      console.log(`✅ Event "${eventName}" dispatched successfully`, detail ? `with detail: ${JSON.stringify(detail)}` : '');
     } else {
-      // Fallback: Use regular Event and attach detail manually
-      const event = new Event(eventName);
-      // @ts-ignore
-      event.detail = detail;
-      window.dispatchEvent(event);
+      console.log(`⚠️ window.dispatchEvent not available for "${eventName}"`);
     }
-    console.log(`✅ Event "${eventName}" dispatched successfully`, detail ? `with detail: ${JSON.stringify(detail)}` : '');
   } catch (error) {
     console.error(`❌ Error dispatching "${eventName}" event:`, error);
   }
@@ -50,7 +54,7 @@ export function dispatchCustomEvent(eventName: string, detail?: any): void {
  */
 export function addCustomEventListener(
   eventName: string,
-  handler: (event: any) => void
+  handler: (event: Event) => void
 ): () => void {
   if (typeof window === 'undefined') {
     console.log(`👂 Listener for "${eventName}" skipped (server-side)`);
@@ -58,14 +62,21 @@ export function addCustomEventListener(
   }
 
   try {
-    window.addEventListener(eventName, handler);
-    console.log(`👂 Listener added for "${eventName}"`);
-    
-    // Return cleanup function
-    return () => {
-      window.removeEventListener(eventName, handler);
-      console.log(`🔇 Listener removed for "${eventName}"`);
-    };
+    if (window.addEventListener) {
+      window.addEventListener(eventName, handler);
+      console.log(`👂 Listener added for "${eventName}"`);
+      
+      // Return cleanup function
+      return () => {
+        if (window.removeEventListener) {
+          window.removeEventListener(eventName, handler);
+          console.log(`🔇 Listener removed for "${eventName}"`);
+        }
+      };
+    } else {
+      console.log(`⚠️ window.addEventListener not available for "${eventName}"`);
+      return () => {};
+    }
   } catch (error) {
     console.error(`❌ Error adding listener for "${eventName}":`, error);
     return () => {};

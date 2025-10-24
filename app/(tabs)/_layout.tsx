@@ -81,7 +81,7 @@ export default function TabLayout() {
         } catch (error) {
             console.error('❌ Error handling bookings tab focus:', error);
         }
-    }, [user?.id, loadBookingUpdatesCount]);
+    }, [user?.id]);
 
     // Refresh counts when tab layout comes into focus
     useFocusEffect(
@@ -192,15 +192,6 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="profile"
-                options={{
-                    tabBarIcon: ({ color, focused }) => (
-                        <User size={24} color={focused ? '#10B981' : '#9ca3af'} />
-                    ),
-                    tabBarActiveTintColor: '#10B981',
-                }}
-            />
-            <Tabs.Screen
                 name="bookings"
                 options={{
                     tabBarIcon: ({ color, focused }) => (
@@ -235,6 +226,15 @@ export default function TabLayout() {
                 }}
                 listeners={{
                     tabPress: handleBookingsTabFocus,
+                }}
+            />
+            <Tabs.Screen
+                name="profile"
+                options={{
+                    tabBarIcon: ({ color, focused }) => (
+                        <User size={24} color={focused ? '#10B981' : '#9ca3af'} />
+                    ),
+                    tabBarActiveTintColor: '#10B981',
                 }}
             />
         </Tabs>

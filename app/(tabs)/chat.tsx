@@ -1,398 +1,251 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { ScrollView, View, TouchableOpacity, StyleSheet, TextInput, Modal, Image, Text, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+    View, 
+    Text, 
+    ScrollView, 
+    TouchableOpacity, 
+    StyleSheet, 
+    TextInput, 
+    Image, 
+    ActivityIndicator,
+    RefreshControl
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
-import { ConversationRecord } from '@/types';
 
-// Utility function to normalize conversation data
-const normalizeConversation = (conv: any): ConversationRecord => {
-    return {
-        id: conv.id,
-        ownerId: conv.ownerId || conv.owner_id || '',
-        tenantId: conv.tenantId || conv.tenant_id || '',
-        participantIds: conv.participantIds || conv.participant_ids || [],
-        lastMessageText: conv.lastMessageText || conv.last_message_text,
-        lastMessageAt: conv.lastMessageAt || conv.last_message_at,
-        createdAt: conv.createdAt || conv.created_at || new Date().toISOString(),
-        updatedAt: conv.updatedAt || conv.updated_at || new Date().toISOString(),
-        unreadByOwner: conv.unreadByOwner || conv.unread_by_owner || 0,
-        unreadByTenant: conv.unreadByTenant || conv.unread_by_tenant || 0,
-        lastReadByOwner: conv.lastReadByOwner || conv.last_read_by_owner,
-        lastReadByTenant: conv.lastReadByTenant || conv.last_read_by_tenant,
-    };
-};
-// Removed profile-photos import - functionality removed
-
-interface ChatItem {
-  id: string;
-  name: string;
-  message: string;
-  time: string;
-  unreadCount?: number;
-  avatar?: string;
-  read?: boolean;
-  conversationId?: string;
-  otherUserId?: string;
-  propertyId?: string;
-  propertyTitle?: string;
-  ownerDetails?: {
+interface Conversation {
     id: string;
-    name: string;
-    businessName?: string;
-    email: string;
-    phone: string;
-    address: string;
-    role: string;
-    createdAt: string;
-    profilePhoto?: string;
-  };
+    ownerId: string;
+    tenantId: string;
+    lastMessage?: string;
+    lastMessageAt?: string;
+    unreadCount: number;
+    ownerName: string;
+    ownerAvatar?: string;
+    propertyTitle?: string;
 }
 
-const ChatPage = () => {
+export default function TenantMessages() {
     const router = useRouter();
     const { user } = useAuth();
     const { unreadCount } = useNotifications();
-    const [conversations, setConversations] = useState<ChatItem[]>([]);
-    const [filteredConversations, setFilteredConversations] = useState<ChatItem[]>([]);
+    const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedOwner, setSelectedOwner] = useState<ChatItem | null>(null);
-    const [showOwnerDetails, setShowOwnerDetails] = useState(false);
 
-    // Run business name migration once on app startup
-    useEffect(() => {
-        const runMigration = async () => {
-            try {
-                const migrationKey = 'business_name_migration_completed';
-                const migrationCompleted = await AsyncStorage.getItem(migrationKey);
-                
-                if (!migrationCompleted) {
-                    console.log('🔄 Running business name migration...');
-                    const { migrateBusinessNamesToProfiles } = await import('../../utils/migrate-business-names');
-                    const result = await migrateBusinessNamesToProfiles();
-                    
-                    if (result.success) {
-                        await AsyncStorage.setItem(migrationKey, 'true');
-                        console.log('✅ Business name migration completed');
-                        // Reload conversations to show updated business names
-                        loadConvos();
-                    }
-                }
-            } catch (error) {
-                console.error('❌ Migration error:', error);
-            }
-        };
-        
-        runMigration();
-    }, []);
+    const loadConversations = useCallback(async () => {
+        if (!user?.id) return;
 
-    const loadConvos = useCallback(async () => {
         try {
             setLoading(true);
-            const convos = await db.list<ConversationRecord>('conversations');
-            // Normalize and filter by membership
-            const normalizedConvos = convos.map(normalizeConversation);
-            const myConvos = user ? normalizedConvos.filter(c => c.participantIds.includes(user.id)) : [];
-            
-            const mapped: ChatItem[] = await Promise.all(myConvos.map(async c => {
-                const otherUserId = user ? c.participantIds.find(pid => pid !== user.id) : undefined;
-                
-                // Get owner name and profile photo from user database
-                let ownerName = `Owner ${otherUserId?.slice(-4) || 'Unknown'}`;
-                let ownerAvatar = '';
-                let ownerDetails = undefined;
-                
-                try {
-                    const ownerRecord = await db.get('users', otherUserId || '') as any;
-                    if (ownerRecord) {
-                        // PRIORITY 1: Check for business name in owner profile
-                        try {
-                            const ownerProfile = await db.get('owner_profiles', otherUserId || '') as any;
-                            if (ownerProfile?.businessName) {
-                                ownerName = ownerProfile.businessName;
-                                console.log(`✅ Using business name for chat list: ${ownerProfile.businessName}`);
-                            } else {
-                                ownerName = ownerRecord.name || ownerName;
-                                console.log(`⚠️ No business name found, using owner name: ${ownerRecord.name}`);
-                            }
-                        } catch (profileError) {
-                            // Fallback to owner name if no business name
-                            ownerName = ownerRecord.name || ownerName;
-                            console.log(`⚠️ Profile error, using owner name: ${ownerRecord.name}`);
+            console.log('🔄 Loading conversations for tenant:', user.id);
+
+            // Get all conversations where user is a participant
+            const allConversations = await db.list('conversations');
+            const userConversations = allConversations.filter((conv: any) => 
+                conv.tenantId === user.id || 
+                (conv.participantIds && conv.participantIds.includes(user.id))
+            );
+
+            console.log(`📊 Found ${userConversations.length} conversations for tenant`);
+
+            const conversationsWithDetails: Conversation[] = await Promise.all(
+                userConversations.map(async (conv: any) => {
+                    const ownerId = conv.ownerId || conv.participantIds?.find((id: string) => id !== user.id);
+                    
+                    // Get owner details
+                    let ownerName = 'Unknown Owner';
+                    let ownerAvatar = '';
+                    let propertyTitle = '';
+
+                    try {
+                        const ownerRecord = await db.get('users', ownerId);
+                        if (ownerRecord) {
+                            ownerName = (ownerRecord as any).name || ownerName;
+                            ownerAvatar = (ownerRecord as any).profilePhoto || '';
                         }
-                        
-                        // Get profile photo - functionality removed
-                        try {
-                            console.log(`🔍 Profile photo loading removed for owner: ${otherUserId}`);
-                            // Removed profile photo loading - functionality removed
-                            console.log(`❌ Profile photo functionality removed for ${otherUserId}`);
-                            // Try to get profile photo from user record directly
-                            if ((ownerRecord as any).profilePhoto) {
-                                ownerAvatar = (ownerRecord as any).profilePhoto;
-                                console.log(`✅ Using profile photo from user record for ${otherUserId}`);
-                            }
-                        } catch (photoError) {
-                            console.log('❌ Could not load profile photo:', photoError);
-                            // Fallback to user record profile photo
-                            if ((ownerRecord as any).profilePhoto) {
-                                ownerAvatar = (ownerRecord as any).profilePhoto;
-                                console.log(`✅ Using fallback profile photo from user record for ${otherUserId}`);
+
+                        // Get property title if available
+                        if (conv.propertyId) {
+                            const property = await db.get('published_listings', conv.propertyId);
+                            if (property) {
+                                propertyTitle = (property as any).propertyType || '';
                             }
                         }
-                        
-                        // Get owner profile for business name
-                        let businessName = undefined;
-                        try {
-                            const ownerProfile = await db.get('owner_profiles', otherUserId || '') as any;
-                            if (ownerProfile?.businessName) {
-                                businessName = ownerProfile.businessName;
-                            }
-                        } catch (profileError) {
-                            // No business name found
-                        }
-                        
-                        // Get owner address - prioritize property address if available
-                        let ownerAddress = (ownerRecord as any).address || 'No address provided';
-                        
-                        // First, try to get property address from published listings
-                        try {
-                            const publishedListings = await db.list('published_listings') as any[];
-                            const ownerListings = publishedListings.filter(listing => listing.userId === otherUserId);
-                            
-                            if (ownerListings.length > 0) {
-                                // Use the first property's address as the business address
-                                const firstProperty = ownerListings[0];
-                                if (firstProperty.address) {
-                                    ownerAddress = firstProperty.address;
-                                    console.log(`🏢 Using property address for ${ownerName}: ${ownerAddress}`);
-                                }
-                            }
-                        } catch (propertyError) {
-                            console.log('Could not load property address:', propertyError);
-                        }
-                        
-                        // Fallback to personal address from AsyncStorage if no property address found
-                        if (ownerAddress === (ownerRecord as any).address || ownerAddress === 'No address provided') {
-                            try {
-                                const personalDetailsKey = `personal_details:${otherUserId}`;
-                                const personalDetailsData = await AsyncStorage.getItem(personalDetailsKey);
-                                if (personalDetailsData) {
-                                    const personalDetails = JSON.parse(personalDetailsData);
-                                    if (personalDetails.address) {
-                                        ownerAddress = personalDetails.address;
-                                        console.log(`🏠 Using personal address for ${ownerName}: ${ownerAddress}`);
-                                    }
-                                }
-                            } catch (storageError) {
-                                console.log('Could not load owner address from AsyncStorage:', storageError);
-                            }
-                        }
-                        
-                        ownerDetails = {
-                            id: (ownerRecord as any).id,
-                            name: (ownerRecord as any).name,
-                            businessName: businessName,
-                            email: (ownerRecord as any).email,
-                            phone: (ownerRecord as any).phone,
-                            address: ownerAddress,
-                            role: (ownerRecord as any).role,
-                            createdAt: (ownerRecord as any).createdAt,
-                            profilePhoto: ownerAvatar
-                        };
+                    } catch (error) {
+                        console.log('Error loading owner details:', error);
                     }
-                } catch (error) {
-                    console.log('Could not load owner details:', error);
-                }
-                
-                // Calculate unread count for tenant
-                const unreadCount = c.unreadByTenant || 0;
-                const isRead = unreadCount === 0;
-                
-                return {
-                    id: c.id,
-                    conversationId: c.id,
-                    otherUserId: otherUserId,
-                    name: ownerName,
-                    message: c.lastMessageText || 'Start chatting',
-                    time: c.lastMessageAt ? new Date(c.lastMessageAt).toLocaleTimeString() : '',
-                    avatar: ownerAvatar,
-                    read: isRead,
-                    unreadCount: unreadCount,
-                    ownerDetails: ownerDetails
-                };
-            }));
-            
-            // Sort by last message time (newest first)
-            mapped.sort((a, b) => {
-                const convA = myConvos.find(c => c.id === a.id);
-                const convB = myConvos.find(c => c.id === b.id);
-                const timeA = convA?.lastMessageAt || convA?.createdAt || '';
-                const timeB = convB?.lastMessageAt || convB?.createdAt || '';
-                return timeB.localeCompare(timeA);
+
+                    return {
+                        id: conv.id,
+                        ownerId: ownerId || '',
+                        tenantId: user.id,
+                        lastMessage: conv.lastMessageText || 'Start conversation',
+                        lastMessageAt: conv.lastMessageAt,
+                        unreadCount: conv.unreadByTenant || 0,
+                        ownerName,
+                        ownerAvatar,
+                        propertyTitle
+                    };
+                })
+            );
+
+            // Sort by last message time
+            conversationsWithDetails.sort((a, b) => {
+                const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+                const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+                return timeB - timeA;
             });
-            
-            setConversations(mapped);
-            setFilteredConversations(mapped);
-            
-            console.log(`📱 Loaded ${mapped.length} conversations for tenant ${user?.id}`);
-            console.log('📱 Conversations loaded:', mapped.map(c => ({ id: c.id, name: c.name, conversationId: c.conversationId })));
-        } catch (e) {
-            console.error('Error loading conversations:', e);
+
+            setConversations(conversationsWithDetails);
+            console.log(`✅ Loaded ${conversationsWithDetails.length} conversations`);
+        } catch (error) {
+            console.error('❌ Error loading conversations:', error);
+            showAlert('Error', 'Failed to load conversations');
         } finally {
             setLoading(false);
         }
-    }, [user]);
+    }, [user?.id]);
 
     useEffect(() => {
-        loadConvos();
-    }, [loadConvos]);
+        if (user?.id) {
+            loadConversations();
+        }
+    }, [user?.id, loadConversations]);
 
-    // Refresh conversations when screen comes into focus
     useFocusEffect(
         useCallback(() => {
             if (user?.id) {
-                console.log('🔄 Tenant chat screen focused - refreshing conversations...');
-                loadConvos();
+                loadConversations();
             }
-        }, [user?.id, loadConvos])
+        }, [user?.id, loadConversations])
     );
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await loadConversations();
+        setRefreshing(false);
+    }, [loadConversations]);
 
     const handleSearch = (query: string) => {
         setSearchQuery(query);
-        if (!query.trim()) {
-            setFilteredConversations(conversations);
-        } else {
-            const filtered = conversations.filter(conv =>
-                conv.name.toLowerCase().includes(query.toLowerCase()) ||
-                conv.message.toLowerCase().includes(query.toLowerCase())
-            );
-            setFilteredConversations(filtered);
-        }
     };
 
-    const handleViewOwnerDetails = (chat: ChatItem) => {
-        setSelectedOwner(chat);
-        setShowOwnerDetails(true);
-    };
+    const filteredConversations = conversations.filter(conv =>
+        conv.ownerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (conv.propertyTitle && conv.propertyTitle.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
 
-    const handleCloseOwnerDetails = () => {
-        setShowOwnerDetails(false);
-        setSelectedOwner(null);
-    };
-
-    // Define before any effect that might reference it
-    const deleteConversationById = useCallback(async (conversationId: string, chatId?: string) => {
+    const handleChatPress = async (conversation: Conversation) => {
+        // Mark as read
         try {
-            // Delete the conversation from database
-            await db.remove('conversations', conversationId);
-            // Delete all messages in this conversation
-            const allMessages = await db.list('messages');
-            const conversationMessages = allMessages.filter((msg: any) =>
-                msg.conversationId === conversationId || msg.conversation_id === conversationId
-            );
-            for (const message of conversationMessages) {
-                await db.remove('messages', message.id);
-            }
-            // Remove from local state if provided
-            if (chatId) {
-                setConversations(prev => prev.filter(c => c.id !== chatId));
-                setFilteredConversations(prev => prev.filter(c => c.id !== chatId));
-            }
-            console.log(`✅ Deleted conversation ${conversationId} with ${conversationMessages.length} messages`);
-            return { ok: true, deletedMessages: conversationMessages.length } as const;
+            await db.upsert('conversations', conversation.id, {
+                ...conversation,
+                unreadByTenant: 0,
+                lastReadByTenant: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            });
+
+            // Update local state
+            setConversations(prev => prev.map(c => 
+                c.id === conversation.id ? { ...c, unreadCount: 0 } : c
+            ));
         } catch (error) {
-            console.error('❌ Error deleting conversation:', error);
-            return { ok: false, error } as const;
+            console.error('Error marking conversation as read:', error);
         }
-    }, []);
 
-    // Expose a dev-only helper after the function exists
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            (window as any).hbTestDeleteConversation = async (conversationId: string) => {
-                console.log('[hbTestDeleteConversation] Requested delete for', conversationId);
-                const result = await deleteConversationById(conversationId);
-                console.log('[hbTestDeleteConversation] Result:', result);
-                return result;
-            };
-        }
-    }, [deleteConversationById]);
+        // Navigate to chat room
+        router.push({
+            pathname: '/chat-room',
+            params: {
+                conversationId: conversation.id,
+                ownerName: conversation.ownerName,
+                ownerAvatar: conversation.ownerAvatar || '',
+                propertyTitle: conversation.propertyTitle || ''
+            }
+        });
+    };
 
-    const handleDeleteConversation = useCallback((chat: ChatItem) => {
+    const handleDeleteConversation = (conversation: Conversation) => {
         showAlert(
             'Delete Conversation',
-            `Are you sure you want to delete "${chat.name}" conversation? This action cannot be undone.`,
+            `Are you sure you want to delete conversation with ${conversation.ownerName}?`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Delete',
                     style: 'destructive',
                     onPress: async () => {
-                        const conversationId = chat.conversationId || chat.id;
-                        const result = await deleteConversationById(conversationId, chat.id);
-                        if (result.ok) {
+                        try {
+                            // Delete conversation
+                            await db.remove('conversations', conversation.id);
+                            
+                            // Delete all messages in this conversation
+                            const allMessages = await db.list('messages');
+                            const conversationMessages = allMessages.filter((msg: any) => 
+                                msg.conversationId === conversation.id
+                            );
+                            
+                            for (const message of conversationMessages) {
+                                await db.remove('messages', message.id);
+                            }
+
+                            // Update local state
+                            setConversations(prev => prev.filter(c => c.id !== conversation.id));
+                            
                             showAlert('Success', 'Conversation deleted successfully');
-                        } else {
-                            showAlert('Error', 'Failed to delete conversation. Please try again.');
+                        } catch (error) {
+                            console.error('Error deleting conversation:', error);
+                            showAlert('Error', 'Failed to delete conversation');
                         }
                     }
                 }
             ]
         );
-    }, [deleteConversationById]);
-
-    const handleChatPress = async (chat: ChatItem) => {
-        // Mark messages as read when tenant opens conversation
-        if (chat.conversationId && user?.id) {
-            try {
-                const conversation = await db.get<ConversationRecord>('conversations', chat.conversationId);
-                if (conversation) {
-                    // Update conversation to mark as read by tenant
-                    const normalizedConv = normalizeConversation(conversation);
-                    await db.upsert('conversations', chat.conversationId, {
-                        ...normalizedConv,
-                        unreadByTenant: 0,
-                        lastReadByTenant: new Date().toISOString(),
-                        updatedAt: new Date().toISOString()
-                    });
-                    
-                    // Update local state to remove unread count
-                    setConversations(prev => prev.map(c => 
-                        c.id === chat.id ? { ...c, unreadCount: 0, read: true } : c
-                    ));
-                    setFilteredConversations(prev => prev.map(c => 
-                        c.id === chat.id ? { ...c, unreadCount: 0, read: true } : c
-                    ));
-                    
-                    console.log(`✅ Marked conversation ${chat.conversationId} as read by tenant`);
-                }
-            } catch (error) {
-                console.error('❌ Error marking conversation as read:', error);
-            }
-        }
-        
-        router.push({
-            pathname: "/chat-room",
-            params: {
-                name: chat.name,
-                avatar: chat.avatar,
-                conversationId: chat.conversationId,
-                otherUserId: chat.otherUserId,
-            },
-        });
     };
+
+    const formatTime = (timeString?: string) => {
+        if (!timeString) return 'Now';
+        
+        try {
+            const date = new Date(timeString);
+            const now = new Date();
+            const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+            
+            if (diffInHours < 24) {
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else if (diffInHours < 168) { // 7 days
+                return date.toLocaleDateString([], { weekday: 'short' });
+            } else {
+                return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            }
+        } catch {
+            return 'Now';
+        }
+    };
+
+    if (loading) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#10B981" />
+                    <Text style={styles.loadingText}>Loading conversations...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <View style={styles.titleRow}>
+                <View style={styles.headerContent}>
                     <Text style={styles.headerTitle}>Messages</Text>
                     {unreadCount > 0 && (
                         <View style={styles.badge}>
@@ -400,7 +253,7 @@ const ChatPage = () => {
                         </View>
                     )}
                 </View>
-                <Text style={styles.headerSubtitle}>Chat with property owners</Text>
+                <Text style={styles.headerSubtitle}>Connect with property owners</Text>
             </View>
 
             {/* Search Bar */}
@@ -409,7 +262,7 @@ const ChatPage = () => {
                     <Ionicons name="search" size={20} color="#9CA3AF" />
                     <TextInput
                         style={styles.searchInput}
-                        placeholder="Search messages..."
+                        placeholder="Search conversations..."
                         placeholderTextColor="#9CA3AF"
                         value={searchQuery}
                         onChangeText={handleSearch}
@@ -417,226 +270,155 @@ const ChatPage = () => {
                 </View>
             </View>
 
-            <ScrollView style={styles.scrollView}>
+            {/* Conversations List */}
+            <ScrollView 
+                style={styles.scrollView}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor="#10B981"
+                    />
+                }
+            >
                 <View style={styles.content}>
-                    {loading ? (
-                        <View style={styles.loadingContainer}>
-                            <Text style={styles.loadingText}>Loading conversations...</Text>
-                        </View>
-                    ) : filteredConversations.length === 0 ? (
+                    {filteredConversations.length === 0 ? (
                         <View style={styles.emptyState}>
-                            <Ionicons name="chatbubbles-outline" size={48} color="#9CA3AF" />
+                            <View style={styles.emptyIconContainer}>
+                                <Ionicons name="chatbubbles-outline" size={48} color="#10B981" />
+                            </View>
                             <Text style={styles.emptyStateTitle}>No conversations yet</Text>
                             <Text style={styles.emptyStateText}>
-                                You'll receive messages from property owners here
+                                Start a conversation with property owners to see your messages here
                             </Text>
                         </View>
                     ) : (
                         <View style={styles.conversationsList}>
-                            {console.log('📱 Rendering conversations:', filteredConversations.length)}
-                            {filteredConversations.map((chat) => (
-                                <View key={chat.id} style={styles.conversationWrapper}>
-                                    <TouchableOpacity 
-                                        style={styles.conversationCard}
-                                        onPress={() => handleChatPress(chat)}
-                                        activeOpacity={0.9}
-                                    >
-                                        <View style={styles.conversationContent}>
-                                            {/* Profile Picture */}
-                                            <TouchableOpacity 
-                                                onPress={() => handleViewOwnerDetails(chat)}
-                                                style={styles.avatarContainer}
-                                            >
-                                                <View style={styles.avatar}>
-                                                    {chat.avatar && chat.avatar.trim() !== '' ? (
-                                                        <Image 
-                                                            source={{ uri: chat.avatar }} 
-                                                            style={styles.avatarImage}
-                                                        />
-                                                    ) : (
-                                                        <Text style={styles.avatarText}>
-                                                            {chat.name.charAt(0).toUpperCase()}
-                                                        </Text>
-                                                    )}
-                                                    {chat.unreadCount && chat.unreadCount > 0 && (
-                                                        <View style={styles.unreadBadge}>
-                                                            <Text style={styles.unreadText}>{chat.unreadCount}</Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                            </TouchableOpacity>
-                                            
-                                            {/* Message Content */}
-                                            <View style={styles.messageContent}>
-                                                <View style={styles.messageHeader}>
-                                                    <TouchableOpacity onPress={() => handleViewOwnerDetails(chat)}>
-                                                        <Text style={styles.ownerName}>{chat.name}</Text>
-                                                    </TouchableOpacity>
-                                                    <View style={styles.messageHeaderRight}>
-                                                        <Text style={styles.messageTime}>{chat.time}</Text>
-                                                        <TouchableOpacity
-                                                            style={styles.deleteButton}
-                                                            onPress={() => {
-                                                                console.log('🗑️ DELETE BUTTON CLICKED!', chat.name);
-                                                                handleDeleteConversation(chat);
-                                                            }}
-                                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                                        >
-                                                            <Ionicons name="trash-outline" size={20} color="#EF4444" />
-                                                        </TouchableOpacity>
-                                                    </View>
-                                                </View>
-                                                <View style={styles.messageFooter}>
-                                                    <Text style={[
-                                                        styles.messageText,
-                                                        !chat.read && styles.unreadMessage
-                                                    ]}>
-                                                        {chat.message}
-                                                    </Text>
-                                                    <Ionicons 
-                                                        name={chat.read ? "checkmark-done" : "checkmark"} 
-                                                        size={16} 
-                                                        color={chat.read ? "#3B82F6" : "#9CA3AF"} 
+                            {filteredConversations.map((conversation) => (
+                                <TouchableOpacity 
+                                    key={conversation.id} 
+                                    style={styles.conversationCard}
+                                    onPress={() => handleChatPress(conversation)}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.conversationContent}>
+                                        {/* Avatar */}
+                                        <View style={styles.avatarContainer}>
+                                            <View style={styles.avatar}>
+                                                {conversation.ownerAvatar ? (
+                                                    <Image 
+                                                        source={{ uri: conversation.ownerAvatar }} 
+                                                        style={styles.avatarImage}
                                                     />
-                                                </View>
+                                                ) : (
+                                                    <Text style={styles.avatarText}>
+                                                        {conversation.ownerName.charAt(0).toUpperCase()}
+                                                    </Text>
+                                                )}
+                                                {conversation.unreadCount > 0 && (
+                                                    <View style={styles.unreadBadge}>
+                                                        <Text style={styles.unreadText}>
+                                                            {conversation.unreadCount}
+                                                        </Text>
+                                                    </View>
+                                                )}
                                             </View>
                                         </View>
-                                    </TouchableOpacity>
-                                </View>
+                                        
+                                        {/* Message Content */}
+                                        <View style={styles.messageContent}>
+                                            <View style={styles.messageHeader}>
+                                                <Text style={styles.ownerName}>{conversation.ownerName}</Text>
+                                                <View style={styles.messageHeaderRight}>
+                                                    <Text style={styles.messageTime}>
+                                                        {formatTime(conversation.lastMessageAt)}
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        style={styles.deleteButton}
+                                                        onPress={() => handleDeleteConversation(conversation)}
+                                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                                    >
+                                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                            
+                                            {conversation.propertyTitle && (
+                                                <Text style={styles.propertyTitle}>{conversation.propertyTitle}</Text>
+                                            )}
+                                            
+                                            <Text 
+                                                style={[
+                                                    styles.messageText,
+                                                    conversation.unreadCount > 0 && styles.unreadMessage
+                                                ]}
+                                                numberOfLines={2}
+                                            >
+                                                {conversation.lastMessage}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </TouchableOpacity>
                             ))}
                         </View>
                     )}
                 </View>
             </ScrollView>
-
-            {/* Owner Details Modal */}
-            <Modal
-                visible={showOwnerDetails}
-                animationType="slide"
-                presentationStyle="pageSheet"
-                onRequestClose={handleCloseOwnerDetails}
-            >
-                <View style={styles.modalContainer}>
-                    {/* Header */}
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Owner Details</Text>
-                        <TouchableOpacity
-                            onPress={handleCloseOwnerDetails}
-                            style={styles.modalCloseButton}
-                        >
-                            <Ionicons name="close" size={24} color="#6B7280" />
-                        </TouchableOpacity>
-                    </View>
-
-                    {selectedOwner && (
-                        <ScrollView style={styles.modalContent}>
-                            {/* Profile Photo */}
-                            <View style={styles.modalProfileSection}>
-                                <View style={styles.modalAvatar}>
-                                    {selectedOwner.ownerDetails?.profilePhoto && selectedOwner.ownerDetails.profilePhoto.trim() !== '' ? (
-                                        <Image 
-                                            source={{ uri: selectedOwner.ownerDetails.profilePhoto }} 
-                                            style={styles.modalAvatarImage}
-                                        />
-                                    ) : (
-                                        <Text style={styles.modalAvatarText}>
-                                            {selectedOwner.name.charAt(0).toUpperCase()}
-                                        </Text>
-                                    )}
-                                </View>
-                                <Text style={styles.modalOwnerName}>{selectedOwner.name}</Text>
-                                {selectedOwner.ownerDetails?.businessName && (
-                                    <Text style={styles.modalBusinessName}>
-                                        {selectedOwner.ownerDetails.businessName}
-                                    </Text>
-                                )}
-                            </View>
-
-                            {/* Owner Information */}
-                            {selectedOwner.ownerDetails && (
-                                <View style={styles.modalInfoSection}>
-                                    <View style={styles.infoRow}>
-                                        <Ionicons name="mail" size={20} color="#6B7280" />
-                                        <Text style={styles.infoText}>{selectedOwner.ownerDetails.email}</Text>
-                                    </View>
-                                    
-                                    <View style={styles.infoRow}>
-                                        <Ionicons name="call" size={20} color="#6B7280" />
-                                        <Text style={styles.infoText}>{selectedOwner.ownerDetails.phone}</Text>
-                                    </View>
-                                    
-                                    <View style={styles.infoRow}>
-                                        <Ionicons name="location" size={20} color="#6B7280" />
-                                        <Text style={styles.infoText}>
-                                            {selectedOwner.ownerDetails.address || 'No address provided'}
-                                        </Text>
-                                    </View>
-                                    
-                                    <View style={styles.infoRow}>
-                                        <Ionicons name="person" size={20} color="#6B7280" />
-                                        <Text style={styles.infoText}>
-                                            {selectedOwner.ownerDetails.role.charAt(0).toUpperCase() + selectedOwner.ownerDetails.role.slice(1)}
-                                        </Text>
-                                    </View>
-                                    
-                                    {selectedOwner.ownerDetails.businessName && (
-                                        <View style={styles.infoRow}>
-                                            <Ionicons name="business" size={20} color="#6B7280" />
-                                            <Text style={styles.infoText}>{selectedOwner.ownerDetails.businessName}</Text>
-                                        </View>
-                                    )}
-                                    
-                                    <View style={styles.infoRow}>
-                                        <Ionicons name="calendar" size={20} color="#6B7280" />
-                                        <Text style={styles.infoText}>
-                                            Member since {new Date(selectedOwner.ownerDetails.createdAt).toLocaleDateString()}
-                                        </Text>
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Action Buttons */}
-                            <View style={styles.modalActions}>
-                                <TouchableOpacity
-                                    onPress={handleCloseOwnerDetails}
-                                    style={styles.modalCloseButton}
-                                >
-                                    <Text style={styles.modalCloseButtonText}>Close</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </ScrollView>
-                    )}
-                </View>
-            </Modal>
         </SafeAreaView>
     );
-};
+}
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#F8FAFC',
     },
     header: {
+        backgroundColor: '#FFFFFF',
         paddingHorizontal: 20,
         paddingTop: 20,
         paddingBottom: 16,
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    headerContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
     },
     headerTitle: {
         fontSize: 28,
         fontWeight: 'bold',
         color: '#111827',
-        marginBottom: 4,
     },
     headerSubtitle: {
         fontSize: 16,
         color: '#6B7280',
+        marginTop: 4,
+    },
+    badge: {
+        backgroundColor: '#EF4444',
+        borderRadius: 12,
+        minWidth: 24,
+        height: 24,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+    },
+    badgeText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
     },
     searchContainer: {
         paddingHorizontal: 20,
         paddingVertical: 16,
+        backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
     },
@@ -644,7 +426,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#F9FAFB',
-        borderRadius: 12,
+        borderRadius: 16,
         paddingHorizontal: 16,
         paddingVertical: 12,
         borderWidth: 1,
@@ -667,70 +449,77 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 40,
+        paddingVertical: 60,
     },
     loadingText: {
         fontSize: 16,
         color: '#6B7280',
+        marginTop: 16,
     },
     emptyState: {
         alignItems: 'center',
-        paddingVertical: 40,
+        paddingVertical: 60,
+    },
+    emptyIconContainer: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#F0FDF4',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 20,
     },
     emptyStateTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: '600',
         color: '#374151',
-        marginTop: 16,
         marginBottom: 8,
     },
     emptyStateText: {
-        fontSize: 14,
+        fontSize: 16,
         color: '#6B7280',
         textAlign: 'center',
-        lineHeight: 20,
+        lineHeight: 24,
+        paddingHorizontal: 20,
     },
     conversationsList: {
         gap: 12,
     },
-    conversationWrapper: {
-        position: 'relative',
-    },
     conversationCard: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
+        borderRadius: 16,
         padding: 16,
         borderWidth: 1,
         borderColor: '#E5E7EB',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 1,
+        shadowRadius: 3,
+        elevation: 2,
     },
     conversationContent: {
         flexDirection: 'row',
         alignItems: 'center',
     },
     avatarContainer: {
-        marginRight: 12,
+        marginRight: 16,
     },
     avatar: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+        width: 52,
+        height: 52,
+        borderRadius: 26,
         backgroundColor: '#F3F4F6',
         justifyContent: 'center',
         alignItems: 'center',
         position: 'relative',
     },
     avatarImage: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+        width: 52,
+        height: 52,
+        borderRadius: 26,
     },
     avatarText: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: '600',
         color: '#6B7280',
     },
@@ -739,9 +528,9 @@ const styles = StyleSheet.create({
         top: -2,
         right: -2,
         backgroundColor: '#EF4444',
-        borderRadius: 10,
-        minWidth: 20,
-        height: 20,
+        borderRadius: 12,
+        minWidth: 24,
+        height: 24,
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 2,
@@ -767,148 +556,34 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     deleteButton: {
-        padding: 10,
+        padding: 8,
         borderRadius: 8,
         backgroundColor: '#FEF2F2',
         borderWidth: 1,
         borderColor: '#FECACA',
-        width: 36,
-        height: 36,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginLeft: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
     },
     ownerName: {
         fontSize: 16,
         fontWeight: '600',
         color: '#111827',
     },
+    propertyTitle: {
+        fontSize: 12,
+        color: '#10B981',
+        fontWeight: '500',
+        marginBottom: 4,
+    },
     messageTime: {
         fontSize: 12,
         color: '#9CA3AF',
     },
-    messageFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
     messageText: {
         fontSize: 14,
         color: '#6B7280',
-        flex: 1,
-        marginRight: 8,
+        lineHeight: 20,
     },
     unreadMessage: {
         fontWeight: '600',
         color: '#111827',
     },
-    // Modal styles
-    modalContainer: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-    },
-    modalTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#111827',
-    },
-    modalCloseButton: {
-        padding: 4,
-    },
-    modalContent: {
-        flex: 1,
-        padding: 20,
-    },
-    modalProfileSection: {
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-    modalAvatar: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: '#F3F4F6',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    modalAvatarImage: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-    },
-    modalAvatarText: {
-        fontSize: 32,
-        fontWeight: 'bold',
-        color: '#6B7280',
-    },
-    modalOwnerName: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 4,
-    },
-    modalBusinessName: {
-        fontSize: 14,
-        color: '#6B7280',
-    },
-    modalInfoSection: {
-        gap: 16,
-    },
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    infoText: {
-        fontSize: 16,
-        color: '#374151',
-        flex: 1,
-    },
-    modalActions: {
-        marginTop: 24,
-        paddingTop: 20,
-        borderTopWidth: 1,
-        borderTopColor: '#E5E7EB',
-    },
-    modalCloseButtonText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#6B7280',
-        textAlign: 'center',
-    },
-    titleRow: {
-        flexDirection: 'row' as const,
-        alignItems: 'center' as const,
-        gap: 8,
-    },
-    badge: {
-        backgroundColor: '#EF4444',
-        borderRadius: 10,
-        minWidth: 20,
-        height: 20,
-        justifyContent: 'center' as const,
-        alignItems: 'center' as const,
-        paddingHorizontal: 6,
-    },
-    badgeText: {
-        color: '#FFFFFF',
-        fontSize: 12,
-        fontWeight: '600' as const,
-    },
 });
-
-export default ChatPage;

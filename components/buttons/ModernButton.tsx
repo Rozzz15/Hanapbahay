@@ -34,11 +34,11 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
     const baseStyle = [styles.button, styles[size]];
     
     if (fullWidth) {
-      baseStyle.push(styles.fullWidth);
+      baseStyle.push({ width: '100%' });
     }
     
     if (disabled) {
-      baseStyle.push(styles.disabled);
+      baseStyle.push({ opacity: 0.6 });
     }
     
     return [...baseStyle, style];
@@ -58,9 +58,9 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
     if (disabled) return '#9CA3AF';
     switch (variant) {
       case 'primary': return '#fff';
-      case 'secondary': return '#667eea';
-      case 'outline': return '#667eea';
-      case 'ghost': return '#667eea';
+      case 'secondary': return '#3B82F6';
+      case 'outline': return '#3B82F6';
+      case 'ghost': return '#3B82F6';
       default: return '#fff';
     }
   };
@@ -105,7 +105,9 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
         activeOpacity={0.8}
       >
         <LinearGradient
-          colors={disabled ? ['#E5E7EB', '#D1D5DB'] : ['#667eea', '#764ba2']}
+          colors={disabled ? ['#E5E7EB', '#D1D5DB'] : ['#1E3A8A', '#3B82F6', '#60A5FA']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={styles.gradient}
         >
           {renderContent()}
@@ -128,21 +130,21 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 12,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    elevation: 4,
+    shadowColor: '#1E3A8A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
   },
   gradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
+    borderRadius: 16,
     paddingVertical: 12,
     paddingHorizontal: 20,
     minHeight: 48,
@@ -160,9 +162,9 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   lg: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    minHeight: 56,
+    paddingVertical: 18,
+    paddingHorizontal: 28,
+    minHeight: 60,
   },
   
   // Variants
@@ -177,7 +179,7 @@ const styles = StyleSheet.create({
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 2,
-    borderColor: '#667eea',
+    borderColor: '#3B82F6',
   },
   ghost: {
     backgroundColor: 'transparent',
@@ -203,10 +205,10 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   outlineText: {
-    color: '#667eea',
+    color: '#3B82F6',
   },
   ghostText: {
-    color: '#667eea',
+    color: '#3B82F6',
   },
   disabledText: {
     color: '#9CA3AF',
@@ -221,6 +223,8 @@ const styles = StyleSheet.create({
   },
   lgText: {
     fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   
   // Icons

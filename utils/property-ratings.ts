@@ -1,5 +1,5 @@
 import { db, generateId } from './db';
-import { PropertyRatingRecord } from '@/types';
+import { PropertyRatingRecord } from '../types';
 
 /**
  * Get all ratings for a specific property

@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react-native';
-import { db, clearCache, getAll } from '../../utils/db';
+import { db, clearCache, getAll, isPublishedListingRecord } from '../../utils/db';
 import { OwnerProfileRecord, DbUserRecord, PublishedListingRecord } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +14,7 @@ import { trackListingInquiry } from '../../utils/inquiry-tracking';
 import { getPropertyRatingsMap } from '../../utils/property-ratings';
 import { preloadSingleListingImages } from '../../utils/image-preloader';
 import { cleanupTestMessages } from '../../utils/cleanup-test-messages';
+import { createOrFindConversation } from '../../utils/conversation-utils';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -72,6 +73,12 @@ export default function DashboardScreen() {
       let syncedCount = 0;
       for (const listing of publishedListings) {
         try {
+          // Type guard to ensure this is a PublishedListingRecord
+          if (!isPublishedListingRecord(listing)) {
+            console.log(`⚠️ Skipping non-listing record:`, listing);
+            continue;
+          }
+
           // Check if listing has media in published_listings
           const hasMedia = listing.coverPhoto || (listing.photos && listing.photos.length > 0) || (listing.videos && listing.videos.length > 0);
           
@@ -173,8 +180,9 @@ export default function DashboardScreen() {
         'images.unsplash.com/photo-1570129477492-45c003edd2be'
       ];
 
-      const publishedListings = await db.list('published_listings');
-      const toDelete = publishedListings.filter((p: any) => {
+      const rawListings = await db.list('published_listings');
+      const publishedListings = rawListings.filter(isPublishedListingRecord);
+      const toDelete = publishedListings.filter((p: PublishedListingRecord) => {
         const isSeedOwner = seededOwnerIds.has(p?.userId);
         const hasSeedImage = typeof p?.coverPhoto === 'string' && seededImageHints.some(h => p.coverPhoto.includes(h));
         const hasSampleAddress = typeof p?.address === 'string' && /Sample/i.test(p.address);
@@ -256,7 +264,8 @@ export default function DashboardScreen() {
       console.log('🧪 Testing database storage and retrieval...');
       
       // Test 1: Check if published_listings collection exists and is accessible
-      const publishedListings = await db.list('published_listings');
+      const rawListingsForTest = await db.list('published_listings');
+      const publishedListings = rawListingsForTest.filter(isPublishedListingRecord);
       console.log('📊 Database Storage Test Results:', {
         totalListings: publishedListings.length,
         collectionAccessible: true,
@@ -442,16 +451,16 @@ export default function DashboardScreen() {
       console.log('🚨 EMERGENCY DIAGNOSTIC TEST - TENANT DASHBOARD');
       console.log('===========================================\n');
       
-      const rawListings = await db.list('published_listings');
-      console.log(`📊 TOTAL LISTINGS IN DATABASE: ${rawListings.length}\n`);
+      const rawListingsForDebug = await db.list('published_listings');
+      console.log(`📊 TOTAL LISTINGS IN DATABASE: ${rawListingsForDebug.length}\n`);
       
-      if (rawListings.length === 0) {
+      if (rawListingsForDebug.length === 0) {
         console.log('❌ NO LISTINGS FOUND IN DATABASE!');
         console.log('   This means no owner has created any listings yet.');
         console.log('   OR listings were deleted by the old duplicate removal bug.\n');
         console.log('✅ SOLUTION: Login as owner and create listings.\n');
       } else {
-        rawListings.forEach((listing: any, index: number) => {
+        rawListingsForDebug.forEach((listing: any, index: number) => {
           console.log(`--- LISTING ${index + 1} ---`);
           console.log(`ID: ${listing.id || '❌ MISSING'}`);
           console.log(`Property Type: ${listing.propertyType || '❌ MISSING'}`);
@@ -476,15 +485,15 @@ export default function DashboardScreen() {
         });
         
         // Count valid vs invalid
-        const validCount = rawListings.filter((l: any) => 
+        const validCount = rawListingsForDebug.filter((l: any) => 
           l && l.id && l.status && l.status.toLowerCase() === 'published'
         ).length;
-        const invalidCount = rawListings.length - validCount;
+        const invalidCount = rawListingsForDebug.length - validCount;
         
         console.log('===========================================');
         console.log('📊 SUMMARY:');
         console.log('===========================================');
-        console.log(`Total in database: ${rawListings.length}`);
+        console.log(`Total in database: ${rawListingsForDebug.length}`);
         console.log(`Valid (will show): ${validCount} ✅`);
         console.log(`Invalid (hidden): ${invalidCount} ❌\n`);
         
@@ -518,6 +527,15 @@ export default function DashboardScreen() {
       // Sync owner media to database tables
       await syncOwnerMediaToDatabase();
       
+      // REFRESH ALL MEDIA (like owner dashboard and tenant profile pictures)
+      try {
+        const { refreshAllPropertyMedia } = await import('@/utils/media-storage');
+        await refreshAllPropertyMedia();
+        console.log('✅ Tenant dashboard media refreshed successfully (like owner dashboard)');
+      } catch (mediaError) {
+        console.log('⚠️ Tenant dashboard media refresh failed:', mediaError);
+      }
+      
       // Test the media flow to ensure everything is working
       const testResults = await testMediaFlow();
       if (testResults) {
@@ -543,8 +561,12 @@ export default function DashboardScreen() {
       }
 
       // Get all published listings
-      let publishedListings = await db.list('published_listings');
-      console.log('📋 Found published listings:', publishedListings.length);
+      const rawListings = await db.list('published_listings');
+      console.log('📋 Found published listings:', rawListings.length);
+      
+      // Filter and type the listings properly
+      const publishedListings = rawListings.filter(isPublishedListingRecord);
+      console.log('📋 Valid published listings after filtering:', publishedListings.length);
       
       // Log each listing's basic info for debugging
       publishedListings.forEach((listing: PublishedListingRecord, index: number) => {
@@ -679,12 +701,11 @@ export default function DashboardScreen() {
           hasVideos: p.videos?.length || 0
         });
 
-        // Try to get fresh media from database with caching
+        // CRITICAL: Load media from database FIRST (like owner listings and tenant profile pictures)
         let coverPhotoUri = '';
         let allPhotosForListing: string[] = [];
         let allVideosForListing: string[] = [];
 
-        // Try to load media with caching first
         try {
           const { loadPropertyMedia } = await import('@/utils/media-storage');
           const media = await loadPropertyMedia(p.id, user?.id);
@@ -699,30 +720,38 @@ export default function DashboardScreen() {
             videos: media.videos.slice(0, 2).map(video => video.substring(0, 30) + '...')
           });
           
-          // Use media from the storage system
-          coverPhotoUri = media.coverPhoto || '';
-          allPhotosForListing = media.photos;
-          allVideosForListing = media.videos;
-          
-          if (media.coverPhoto) {
-            coverPhotoUri = media.coverPhoto;
-            console.log(`✅ Found cached cover photo for listing ${p.id}`);
-          }
-          
-          if (media.photos.length > 0) {
+          // ALWAYS use database data if available (like owner listings and tenant profile pictures)
+          if (media.coverPhoto || media.photos.length > 0 || media.videos.length > 0) {
+            console.log(`📸 Using database media for listing ${p.id} (like owner listings):`, {
+              hasCoverPhoto: !!media.coverPhoto,
+              photosCount: media.photos.length,
+              videosCount: media.videos.length
+            });
+            
+            // Override with database data
+            coverPhotoUri = media.coverPhoto || '';
             allPhotosForListing = media.photos;
-            if (!coverPhotoUri) {
-              coverPhotoUri = media.photos[0];
-            }
-            console.log(`✅ Found ${media.photos.length} cached photos for listing ${p.id}`);
-          }
-          
-          if (media.videos.length > 0) {
             allVideosForListing = media.videos;
-            console.log(`✅ Found ${media.videos.length} cached videos for listing ${p.id}`);
+            
+            if (media.coverPhoto) {
+              console.log(`✅ Found database cover photo for listing ${p.id}`);
+            }
+            
+            if (media.photos.length > 0) {
+              if (!coverPhotoUri) {
+                coverPhotoUri = media.photos[0];
+              }
+              console.log(`✅ Found ${media.photos.length} database photos for listing ${p.id}`);
+            }
+            
+            if (media.videos.length > 0) {
+              console.log(`✅ Found ${media.videos.length} database videos for listing ${p.id}`);
+            }
+          } else {
+            console.log(`📸 No database media found for listing ${p.id}, will try fallbacks`);
           }
         } catch (mediaError) {
-          console.log(`⚠️ Failed to load cached media for listing ${p.id}:`, mediaError);
+          console.log(`⚠️ Failed to load database media for listing ${p.id}:`, mediaError);
         }
 
         // Fallback to database photos if no cached photos
@@ -759,13 +788,10 @@ export default function DashboardScreen() {
           console.log(`⚠️ Using original videos for listing ${p.id}`);
         }
 
-        // Final fallback - use sample image if still no cover photo
+        // No fallback to sample images - let the Image component show the home icon fallback
         if (!coverPhotoUri) {
-          coverPhotoUri = 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&h=300&fit=crop';
-          console.log(`⚠️ No cover photo found for listing ${p.id}, using fallback image`);
+          console.log(`📸 No cover photo found for listing ${p.id}, will show home icon fallback`);
         }
-
-        // No default placeholder images - only show real media
         
         const ownerUserId = p.ownerUserId || p.userId || '';
         console.log(`🔍 Listing ${p.id} owner data:`, {
@@ -935,7 +961,7 @@ export default function DashboardScreen() {
     } catch (error) {
       console.error('❌ Error clearing published listings:', error);
     }
-  }, [loadPublishedListings]);
+  }, [isAuthenticated, user?.id]);
 
   // Force reload media when user logs in
   const refreshMediaData = useCallback(async () => {
@@ -973,7 +999,7 @@ export default function DashboardScreen() {
     } catch (error) {
       console.error('❌ Error refreshing media data:', error);
     }
-  }, [loadPublishedListings]);
+  }, [isAuthenticated, user?.id]);
 
   // Removed favorites loading
 
@@ -1010,7 +1036,7 @@ export default function DashboardScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [loadPublishedListings, syncOwnerMediaToDatabase, debugAppStatus]);
+  }, [isAuthenticated, user?.id, syncOwnerMediaToDatabase, debugAppStatus]);
 
   // Force refresh function for debugging sync issues
   const forceRefresh = useCallback(async () => {
@@ -1039,7 +1065,7 @@ export default function DashboardScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [loadPublishedListings]);
+  }, [isAuthenticated, user?.id]);
 
   // Handle listing changed (enhanced with better debugging)
   const handleListingChanged = useCallback((event?: any) => {
@@ -1093,37 +1119,39 @@ export default function DashboardScreen() {
         setIsRefreshing(false);
       }
     }, refreshDelay);
-  }, [loadPublishedListings]);
+  }, [loadPublishedListings, clearCache]);
 
   // Listen for listing changes to auto-refresh tenant dashboard
   useEffect(() => {
-    const handlePropertyMediaRefreshed = (event: CustomEvent) => {
-      console.log('🔄 Property media refreshed, reloading listings...', event.detail);
+    const handlePropertyMediaRefreshed = (event: Event) => {
+      console.log('🔄 Property media refreshed, reloading listings...', (event as any).detail);
       loadPublishedListings();
     };
 
-    const handleUserLoggedIn = (event: CustomEvent) => {
-      console.log('🔄 User logged in, reloading listings...', event.detail);
+    const handleUserLoggedIn = (event: Event) => {
+      console.log('🔄 User logged in, reloading listings...', (event as any).detail);
       // Add a small delay to ensure all cache clearing is complete
       setTimeout(() => {
         loadPublishedListings();
       }, 500);
     };
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('listingChanged', handleListingChanged);
       window.addEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
       window.addEventListener('userLoggedIn', handleUserLoggedIn);
       console.log('👂 Tenant dashboard: Added listing change, media refresh, and user login listeners');
       
       return () => {
-        window.removeEventListener('listingChanged', handleListingChanged);
-        window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
-        window.removeEventListener('userLoggedIn', handleUserLoggedIn);
-        console.log('🔇 Tenant dashboard: Removed listing change, media refresh, and user login listeners');
+        if (typeof window !== 'undefined' && window.removeEventListener) {
+          window.removeEventListener('listingChanged', handleListingChanged);
+          window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
+          window.removeEventListener('userLoggedIn', handleUserLoggedIn);
+          console.log('🔇 Tenant dashboard: Removed listing change, media refresh, and user login listeners');
+        }
       };
     }
-  }, [handleListingChanged, loadPublishedListings]);
+  }, [handleListingChanged, loadPublishedListings, isAuthenticated, user?.id]);
 
   // Refresh listings when screen comes into focus
   useFocusEffect(
@@ -1133,7 +1161,7 @@ export default function DashboardScreen() {
       loadPublishedListings().catch(err => {
         console.error('❌ Failed to load listings on focus:', err);
       });
-    }, [])
+    }, [loadPublishedListings])
   );
 
   // Initial load on mount with authentication fallbacks
@@ -1167,7 +1195,7 @@ export default function DashboardScreen() {
     };
     
     initializeDashboard();
-  }, [isAuthenticated, user?.id, loadPublishedListings]);
+  }, [isAuthenticated, user?.id]);
 
 
 
@@ -1198,73 +1226,29 @@ export default function DashboardScreen() {
       // Track inquiry
       await trackListingInquiry(listing.id, user.id, 'message');
       
-      // Check if conversation already exists - improved lookup
-      const existingConversations = await db.list('conversations');
-      console.log('💬 All existing conversations:', existingConversations);
-      
-      // Look for existing conversation with multiple field combinations for better matching
-      const existingConversation = existingConversations.find(conv => {
-        // Check both old and new field naming conventions
-        const tenantMatch = (conv.tenant_id === user.id || conv.tenantId === user.id);
-        const ownerMatch = (conv.owner_id === actualOwnerId || conv.ownerId === actualOwnerId);
-        
-        // Also check participant IDs as fallback
-        const participantMatch = (conv.participant_ids?.includes(user.id) && 
-                                conv.participant_ids?.includes(actualOwnerId)) ||
-                               (conv.participantIds?.includes(user.id) && 
-                                conv.participantIds?.includes(actualOwnerId));
-        
-        return (tenantMatch && ownerMatch) || participantMatch;
-      });
-
       // Get owner display name (business name or owner name)
       const ownerDisplayName = listing.businessName || listing.ownerName || 'Property Owner';
       
-      if (existingConversation) {
-        // Navigate to existing conversation
-        console.log('📱 Navigating to existing conversation:', existingConversation.id);
-        router.push({
-          pathname: '/chat-room',
-          params: {
-            name: ownerDisplayName,
-            otherUserId: actualOwnerId,
-            conversationId: existingConversation.id,
-            propertyId: listing.id,
-            propertyTitle: listing.title
-          }
-        });
-      } else {
-        // Create new conversation
-        const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const conversationData = {
-          id: conversationId,
-          tenantId: user.id,
-          ownerId: actualOwnerId,
-          participantIds: [user.id, actualOwnerId],
-          tenantName: user.name || 'Tenant',
+      // Create or find conversation using utility
+      const conversationId = await createOrFindConversation({
+        ownerId: actualOwnerId,
+        tenantId: user.id,
+        ownerName: ownerDisplayName,
+        tenantName: user.name || 'Tenant',
+        propertyId: listing.id,
+        propertyTitle: listing.title
+      });
+      
+      // Navigate to conversation
+      router.push({
+        pathname: '/chat-room',
+        params: {
+          conversationId: conversationId,
           ownerName: ownerDisplayName,
-          lastMessageText: '',
-          lastMessageAt: new Date().toISOString(),
-          unreadByOwner: 0,
-          unreadByTenant: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        console.log('💬 Creating conversation with data:', conversationData);
-        await db.upsert('conversations', conversationId, conversationData);
-        console.log('💬 Created new conversation:', conversationId);
-        router.push({
-          pathname: '/chat-room',
-          params: {
-            name: ownerDisplayName,
-            otherUserId: actualOwnerId,
-            conversationId: conversationId,
-            propertyId: listing.id,
-            propertyTitle: listing.title
-          }
-        });
-      }
+          ownerAvatar: listing.ownerAvatar || '',
+          propertyTitle: listing.title
+        }
+      });
     } catch (error) {
       console.error('❌ Error starting conversation:', error);
       showAlert('Error', 'Failed to start conversation. Please try again.');
@@ -1308,7 +1292,7 @@ export default function DashboardScreen() {
       // Load data on component mount
   useEffect(() => {
     loadPublishedListings();
-  }, [loadPublishedListings]);
+  }, [isAuthenticated, user?.id]);
 
   // Refresh all property media on app startup for persistence
   useEffect(() => {
@@ -1355,7 +1339,7 @@ export default function DashboardScreen() {
       
       return () => clearTimeout(timer);
     }
-  }, [user?.id, loadPublishedListings, syncOwnerMediaToDatabase]);
+  }, [user?.id, syncOwnerMediaToDatabase]);
 
   // Removed favorites loading effect
 
@@ -1374,7 +1358,8 @@ export default function DashboardScreen() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const publishedListings = await db.list('published_listings');
+        const rawListings = await db.list('published_listings');
+        const publishedListings = rawListings.filter(isPublishedListingRecord);
         console.log('📊 Database state check - Total listings:', publishedListings.length);
         publishedListings.forEach((listing: PublishedListingRecord) => {
           console.log(`📋 Listing ${listing.id}: ${listing.title} (${listing.photos?.length || 0} photos, ${listing.videos?.length || 0} videos)`);
@@ -1670,13 +1655,13 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   headerTitle: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
   headerSubtitle: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#E0E7FF',
     marginTop: 4,
     marginLeft: 40,
@@ -1717,7 +1702,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     color: '#111827',
     marginLeft: 12,
     marginRight: 12,
@@ -1751,23 +1736,23 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E2E8F0',
   },
   sectionTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     color: '#1E293B',
     letterSpacing: 0.3,
   },
   sectionSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#64748B',
     fontWeight: '600',
     backgroundColor: '#E0E7FF',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 10,
   },
   featuredScrollWrapper: {
     width: '100%',
-    height: 380,
+    height: 320,
   },
   featuredScroll: {
     marginHorizontal: -20,
@@ -1776,45 +1761,45 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   featuredCard: {
-    width: 300,
+    width: 260,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    marginRight: 18,
+    borderRadius: 16,
+    marginRight: 16,
     shadowColor: '#1E3A8A',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   featuredImage: {
     width: '100%',
-    height: 180,
+    height: 150,
   },
   featuredContent: {
-    padding: 18,
+    padding: 14,
   },
   featuredTitle: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '700',
     color: '#1E293B',
-    marginBottom: 6,
+    marginBottom: 4,
     letterSpacing: 0.2,
   },
   featuredDescription: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#64748B',
-    marginBottom: 12,
+    marginBottom: 8,
     fontWeight: '400',
-    lineHeight: 20,
+    lineHeight: 16,
   },
   featuredPrice: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: '#059669',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   featuredRating: {
     flexDirection: 'row',
@@ -1833,13 +1818,13 @@ const styles = StyleSheet.create({
   },
   propertyCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    marginBottom: 20,
+    borderRadius: 16,
+    marginBottom: 16,
     shadowColor: '#1E3A8A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1847,7 +1832,7 @@ const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
     width: '100%',
-    height: 220,
+    height: 180,
     overflow: 'hidden',
   },
   featuredImageContainer: {
@@ -1858,7 +1843,7 @@ const styles = StyleSheet.create({
   },
   propertyImage: {
     width: '100%',
-    height: 220,
+    height: 180,
   },
   noImageContainer: {
     position: 'absolute',
@@ -1893,33 +1878,33 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   propertyContent: {
-    padding: 20,
+    padding: 16,
   },
   propertyTitle: {
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: '700',
     color: '#1E293B',
-    marginBottom: 6,
+    marginBottom: 4,
     letterSpacing: 0.2,
   },
   propertyDescription: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748B',
-    marginBottom: 12,
+    marginBottom: 10,
     fontWeight: '400',
-    lineHeight: 20,
+    lineHeight: 18,
   },
   propertyPrice: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: '#059669',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   propertyDetails: {
     flexDirection: 'row',
-    gap: 20,
-    marginBottom: 18,
-    paddingVertical: 12,
+    gap: 16,
+    marginBottom: 14,
+    paddingVertical: 10,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: '#E2E8F0',
@@ -1928,63 +1913,63 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
   detailText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#475569',
-    marginLeft: 6,
+    marginLeft: 4,
     fontWeight: '600',
   },
   propertyActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   messageButton: {
     flex: 1,
     backgroundColor: '#059669',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#059669',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   messageButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    marginLeft: 8,
-    fontSize: 14,
-    letterSpacing: 0.3,
+    marginLeft: 6,
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
   viewButton: {
     flex: 1,
     backgroundColor: '#3B82F6',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   viewButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    marginLeft: 8,
-    fontSize: 14,
-    letterSpacing: 0.3,
+    marginLeft: 6,
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
   emptyState: {
     alignItems: 'center',

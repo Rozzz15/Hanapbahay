@@ -1,3 +1,6 @@
+import { db, generateId } from './db';
+import { PublishedListingRecord, ConversationRecord, MessageRecord, DbUserRecord, OwnerProfileRecord, TenantProfileRecord } from '../types';
+
 // Conditional import for web compatibility
 let supabase: any;
 if (typeof window !== 'undefined') {
@@ -189,30 +192,37 @@ export async function getOwnerListings(ownerId: string): Promise<OwnerListing[]>
         return dateB - dateA; // Newest first
       });
 
-    // Load media data for each listing
+    // Load media data for each listing - PRIORITIZE DATABASE LIKE TENANT PROFILE PICTURES
     const ownerListings = await Promise.all(filteredListings.map(async (listing) => {
       let coverPhoto = listing.coverPhoto;
       let photos = listing.photos || [];
       let videos = listing.videos || [];
 
       try {
-        // Try to load fresh media data from database
+        // CRITICAL: Load fresh media data from database FIRST (like tenant profile pictures)
         const media = await loadPropertyMedia(listing.id);
         
-        if (media.coverPhoto) {
+        // ALWAYS use database data if available (like tenant profile pictures)
+        if (media.coverPhoto || media.photos.length > 0 || media.videos.length > 0) {
+          console.log(`📸 Using database media for listing ${listing.id} (like tenant profile pictures):`, {
+            hasCoverPhoto: !!media.coverPhoto,
+            photosCount: media.photos.length,
+            videosCount: media.videos.length
+          });
+          
+          // Override with database data
           coverPhoto = media.coverPhoto;
-        }
-        if (media.photos.length > 0) {
           photos = media.photos;
-        }
-        if (media.videos.length > 0) {
           videos = media.videos;
+        } else {
+          console.log(`📸 No database media found for listing ${listing.id}, using listing data as fallback`);
         }
         
-        console.log(`✅ Loaded media for listing ${listing.id}:`, {
+        console.log(`✅ Final media for listing ${listing.id}:`, {
           hasCoverPhoto: !!coverPhoto,
           photosCount: photos.length,
-          videosCount: videos.length
+          videosCount: videos.length,
+          source: (media.coverPhoto || media.photos.length > 0 || media.videos.length > 0) ? 'database' : 'listing'
         });
       } catch (mediaError) {
         console.log(`⚠️ Could not load media for listing ${listing.id}:`, mediaError);
@@ -487,8 +497,9 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
     // Improved filtering to catch conversations where ownerId matches or participantIds includes ownerId
     const ownerConversations = normalizedConvs.filter(conv => {
       const isOwner = conv.ownerId === ownerId;
+      const isTenant = conv.tenantId === ownerId;
       const isParticipant = conv.participantIds && conv.participantIds.includes(ownerId);
-      const matches = isOwner || isParticipant;
+      const matches = isOwner || isTenant || isParticipant;
       
       console.log('🔍 Conversation filter check:', {
         convId: conv.id,
@@ -497,6 +508,7 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
         targetOwnerId: ownerId,
         participantIds: conv.participantIds,
         isOwner,
+        isTenant,
         isParticipant,
         matches,
         lastMessageText: conv.lastMessageText,
@@ -547,9 +559,11 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
         console.log('📨 Latest message:', latestMessage);
         
         // Get tenant name from users table
-        const tenant = allUsers.find(u => u.id === conv.tenantId);
+        // The tenant is the other participant (not the current owner)
+        const otherParticipantId = conv.ownerId === ownerId ? conv.tenantId : conv.ownerId;
+        const tenant = allUsers.find(u => u.id === otherParticipantId);
         const tenantName = tenant?.name || 'Tenant';
-        console.log('👤 Tenant name for conversation', conv.id, ':', tenantName);
+        console.log('👤 Tenant name for conversation', conv.id, ':', tenantName, '(other participant:', otherParticipantId, ')');
         
         ownerMessages.push({
           id: latestMessage.id,

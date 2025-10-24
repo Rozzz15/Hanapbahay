@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PropertyMedia } from './media-storage';
+
+export interface PropertyMedia {
+  coverPhoto: string | null;
+  photos: string[];
+  videos: string[];
+}
 
 const PROPERTY_MEDIA_CACHE_KEY = 'hb_property_media_cache';
 const CACHE_EXPIRY_TIME = 24 * 60 * 60 * 1000; // 24 hours

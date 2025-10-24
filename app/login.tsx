@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { loginUser, loginSchema } from '@/api/auth/login';
 // Removed react-hook-form - using React state instead
 import { useAuth } from '@/context/AuthContext';
-import { ModernButton } from '@/components/buttons';
+import { SignInButton } from '@/components/buttons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from "@/components/ui/toast";
@@ -244,15 +244,11 @@ export default function LoginScreen() {
                     </View>
 
                     {/* Sign In Button */}
-                    <ModernButton
+                    <SignInButton
                         title="Sign In"
                         onPress={onSubmit}
-                        variant="primary"
-                        size="lg"
                         isLoading={isSubmitting}
-                        fullWidth={true}
-                        icon="arrow-forward"
-                        iconPosition="right"
+                        disabled={isSubmitting}
                     />
 
                     {/* Sign Up Link */}
@@ -415,7 +411,7 @@ const styles = StyleSheet.create({
     },
     forgotPasswordText: {
         fontSize: 14,
-        color: '#10B981',
+        color: '#3B82F6',
         fontWeight: '600',
     },
     signUpContainer: {
@@ -430,7 +426,7 @@ const styles = StyleSheet.create({
     },
     signUpLink: {
         fontSize: 14,
-        color: '#10B981',
+        color: '#3B82F6',
         fontWeight: '600',
     },
 });

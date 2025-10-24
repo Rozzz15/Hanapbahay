@@ -157,3 +157,67 @@ body {
 text {
   font-family: 'SpaceMono', monospace;
 }
+
+/* Mobile-specific optimizations */
+@media (max-width: 480px) {
+  body {
+    font-size: 12px;
+    line-height: 1.4;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+  }
+  
+  /* Scale down the entire app for mobile */
+  #root {
+    transform: scale(0.85);
+    transform-origin: top left;
+    width: 117.65%; /* 100/0.85 to compensate for scale */
+    height: 117.65%;
+    overflow-x: hidden;
+  }
+  
+  /* Ensure touch targets are appropriate size */
+  button, a, input, select, textarea, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+    font-size: 14px;
+  }
+  
+  /* Prevent zoom on input focus */
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+  body {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  
+  /* Slight scale for tablets */
+  #root {
+    transform: scale(0.9);
+    transform-origin: top left;
+    width: 111.11%; /* 100/0.9 to compensate for scale */
+    height: 111.11%;
+  }
+}
+
+@media (min-width: 769px) {
+  body {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+}
+
+/* Prevent horizontal scrolling on mobile */
+@media (max-width: 768px) {
+  * {
+    max-width: 100%;
+  }
+  
+  body {
+    overflow-x: hidden;
+  }
+}
