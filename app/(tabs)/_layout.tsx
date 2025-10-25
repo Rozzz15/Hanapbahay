@@ -1,6 +1,7 @@
 import { Tabs, Redirect } from 'expo-router';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Home, MessageCircle, User, Calendar } from 'lucide-react-native';
 import { usePermissions } from '@context/PermissionContext';
 import { useAuth } from '@context/AuthContext';
@@ -61,14 +62,14 @@ export default function TabLayout() {
         if (user?.id) {
             loadUnreadCount();
         }
-    }, [user?.id, loadUnreadCount]);
+    }, [user?.id]); // Remove loadUnreadCount dependency
 
     // Load booking updates count when user changes
     useEffect(() => {
         if (user?.id) {
             loadBookingUpdatesCount();
         }
-    }, [user?.id, loadBookingUpdatesCount]);
+    }, [user?.id]); // Remove loadBookingUpdatesCount dependency
 
     // Handle booking notifications when bookings tab is focused
     const handleBookingsTabFocus = useCallback(async () => {
@@ -90,7 +91,7 @@ export default function TabLayout() {
                 loadUnreadCount();
                 loadBookingUpdatesCount();
             }
-        }, [user?.id, loadUnreadCount, loadBookingUpdatesCount])
+        }, [user?.id]) // Remove function dependencies
     );
 
     // Show notification when user changes
@@ -131,28 +132,30 @@ export default function TabLayout() {
     }
 
     return (
-        <Tabs
-            screenOptions={{
-                tabBarActiveTintColor: '#10B981',
-                tabBarInactiveTintColor: '#9ca3af',
-                headerShown: false,
-                tabBarStyle: {
-                    backgroundColor: '#ffffff',
-                    borderTopWidth: 1,
-                    borderTopColor: '#E5E7EB',
-                    elevation: 0,
-                    shadowOpacity: 0,
-                    height: 60,
-                    paddingBottom: 8,
-                    paddingTop: 8,
-                },
-                tabBarShowLabel: false,
-            }}>
+        <SafeAreaProvider>
+            <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+                <Tabs
+                    screenOptions={{
+                        tabBarActiveTintColor: '#10B981',
+                        tabBarInactiveTintColor: '#9ca3af',
+                        headerShown: false,
+                        tabBarStyle: {
+                            backgroundColor: '#ffffff',
+                            borderTopWidth: 1,
+                            borderTopColor: '#E5E7EB',
+                            elevation: 0,
+                            shadowOpacity: 0,
+                            height: 56, // Reduced from 60
+                            paddingBottom: 6, // Reduced from 8
+                            paddingTop: 6, // Reduced from 8
+                        },
+                        tabBarShowLabel: false,
+                    }}>
             <Tabs.Screen
                 name="index"
                 options={{
                     tabBarIcon: ({ color, focused }) => (
-                        <Home size={24} color={focused ? '#10B981' : '#9ca3af'} />
+                        <Home size={22} color={focused ? '#10B981' : '#9ca3af'} />
                     ),
                     tabBarActiveTintColor: '#10B981',
                 }}
@@ -162,24 +165,24 @@ export default function TabLayout() {
                 options={{
                     tabBarIcon: ({ color, focused }) => (
                         <View style={{ position: 'relative' }}>
-                            <MessageCircle size={24} color={focused ? '#10B981' : '#9ca3af'} />
+                            <MessageCircle size={22} color={focused ? '#10B981' : '#9ca3af'} />
                             {unreadCount > 0 && (
                                 <View style={{
                                     position: 'absolute',
                                     top: -2,
                                     right: -2,
                                     backgroundColor: '#ef4444',
-                                    borderRadius: 8,
-                                    minWidth: 16,
-                                    height: 16,
+                                    borderRadius: 7, // Reduced from 8
+                                    minWidth: 14, // Reduced from 16
+                                    height: 14, // Reduced from 16
                                     justifyContent: 'center',
                                     alignItems: 'center',
-                                    borderWidth: 2,
+                                    borderWidth: 1.5, // Reduced from 2
                                     borderColor: '#ffffff'
                                 }}>
                                     <Text style={{
                                         color: 'white',
-                                        fontSize: 10,
+                                        fontSize: 9, // Reduced from 10
                                         fontWeight: 'bold'
                                     }}>
                                         {unreadCount > 99 ? '99+' : unreadCount}
@@ -196,24 +199,24 @@ export default function TabLayout() {
                 options={{
                     tabBarIcon: ({ color, focused }) => (
                         <View style={{ position: 'relative' }}>
-                            <Calendar size={24} color={focused ? '#10B981' : '#9ca3af'} />
+                            <Calendar size={22} color={focused ? '#10B981' : '#9ca3af'} />
                             {bookingUpdatesCount > 0 && (
                                 <View style={{
                                     position: 'absolute',
                                     top: -2,
                                     right: -2,
                                     backgroundColor: '#ef4444',
-                                    borderRadius: 8,
-                                    minWidth: 16,
-                                    height: 16,
+                                    borderRadius: 7, // Reduced from 8
+                                    minWidth: 14, // Reduced from 16
+                                    height: 14, // Reduced from 16
                                     justifyContent: 'center',
                                     alignItems: 'center',
-                                    borderWidth: 2,
+                                    borderWidth: 1.5, // Reduced from 2
                                     borderColor: '#ffffff'
                                 }}>
                                     <Text style={{
                                         color: 'white',
-                                        fontSize: 10,
+                                        fontSize: 9, // Reduced from 10
                                         fontWeight: 'bold'
                                     }}>
                                         {bookingUpdatesCount > 99 ? '99+' : bookingUpdatesCount}
@@ -232,11 +235,13 @@ export default function TabLayout() {
                 name="profile"
                 options={{
                     tabBarIcon: ({ color, focused }) => (
-                        <User size={24} color={focused ? '#10B981' : '#9ca3af'} />
+                        <User size={22} color={focused ? '#10B981' : '#9ca3af'} />
                     ),
                     tabBarActiveTintColor: '#10B981',
                 }}
             />
-        </Tabs>
+                </Tabs>
+            </SafeAreaView>
+        </SafeAreaProvider>
     );
 }

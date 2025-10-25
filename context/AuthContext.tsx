@@ -51,7 +51,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           hasOriginalId: !!authUser.id
         });
         
-        setUser(userWithFallbacks);
+        // Only update user if it's actually different to prevent infinite loops
+        setUser(prevUser => {
+          if (prevUser?.id === userWithFallbacks.id && 
+              JSON.stringify(prevUser.roles) === JSON.stringify(userWithFallbacks.roles)) {
+            return prevUser; // No change needed
+          }
+          return userWithFallbacks;
+        });
         
         // Dispatch global event to notify all components to reload data
         dispatchCustomEvent('userLoggedIn', { 
@@ -173,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         // No authenticated user - user needs to login
         console.log('🔧 No auth user found - user needs to login');
-        setUser(null);
+        setUser(prevUser => prevUser === null ? prevUser : null);
         console.log('✅ User is not authenticated - showing login screen');
       }
     } catch (error) {
@@ -181,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // On error, set user to null so they can login
       console.log('🔧 Error occurred, user needs to login');
-      setUser(null);
+      setUser(prevUser => prevUser === null ? prevUser : null);
       console.log('✅ User is not authenticated due to error - showing login screen');
     } finally {
       setIsLoading(false);
@@ -317,7 +324,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshUser();
-    
   }, [refreshUser]);
 
   const value: AuthContextType = {

@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, View, Text, TouchableOpacity, Image, Alert, useWindowDimensions, Pressable, Modal, StyleSheet, TextInput, SafeAreaView } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, Image, Alert, useWindowDimensions, Pressable, Modal, StyleSheet, TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';

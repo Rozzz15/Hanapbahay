@@ -50,7 +50,7 @@ export default function TenantBookings() {
     if (isAuthenticated && user?.id) {
       loadBookings();
     }
-  }, [isAuthenticated, user?.id, loadBookings]);
+  }, [isAuthenticated, user?.id]); // Remove loadBookings dependency
 
   // Focus effect to reload bookings when screen comes into focus
   useFocusEffect(
@@ -58,7 +58,7 @@ export default function TenantBookings() {
       if (user?.id) {
         loadBookings();
       }
-    }, [user?.id, loadBookings])
+    }, [user?.id]) // Remove loadBookings dependency
   );
 
   // Listen for booking status changes from owners
@@ -78,7 +78,7 @@ export default function TenantBookings() {
         }
       };
     }
-  }, [user?.id, loadBookings]);
+  }, [user?.id]); // Remove loadBookings dependency
 
   const handleCancelBooking = async (bookingId: string) => {
     console.log('🔄 Starting cancel booking process for:', bookingId);

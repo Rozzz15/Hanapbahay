@@ -1,5 +1,6 @@
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { View, ScrollView, SafeAreaView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
+import { View, ScrollView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import { InteractiveButton } from '@/components/buttons';
 import { useToast } from "@/components/ui/toast";

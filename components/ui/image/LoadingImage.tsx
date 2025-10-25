@@ -75,7 +75,7 @@ const LoadingImage: React.FC<LoadingImageProps> = ({
     } else {
       setOptimizedSource(source);
     }
-  }, [source, enableOptimization, optimizationOptions]);
+  }, [source, enableOptimization, optimizationOptions.width, optimizationOptions.height, optimizationOptions.quality]);
 
   useEffect(() => {
     // Skeleton animation

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '@/utils/db';
 import { useAuth } from './AuthContext';
 
@@ -34,13 +34,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Get all conversations for this user
       const conversations = await db.list('conversations');
       const userConversations = conversations.filter(conv => 
-        conv.owner_id === user.id || conv.tenant_id === user.id
+        conv.ownerId === user.id || conv.tenantId === user.id ||
+        conv.owner_id === user.id || conv.tenant_id === user.id // Support legacy field names
       );
 
       let totalUnread = 0;
       for (const conv of userConversations) {
-        const isOwner = user.id === conv.owner_id;
-        const unreadCount = isOwner ? (conv.unread_by_owner || 0) : (conv.unread_by_tenant || 0);
+        const isOwner = user.id === conv.ownerId || user.id === conv.owner_id;
+        const unreadCount = isOwner ? 
+          (conv.unreadByOwner || conv.unread_by_owner || 0) : 
+          (conv.unreadByTenant || conv.unread_by_tenant || 0);
         totalUnread += unreadCount;
       }
 
@@ -51,6 +54,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [user?.id]);
 
+  // Create a stable reference to avoid infinite loops
+  const refreshUnreadCountRef = useRef(refreshUnreadCount);
+  refreshUnreadCountRef.current = refreshUnreadCount;
+
   const markAsRead = useCallback(async (conversationId: string) => {
     if (!user?.id) return;
 
@@ -60,42 +67,42 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const conversation = await db.get('conversations', conversationId);
       if (!conversation) return;
 
-      const isOwner = user.id === conversation.owner_id;
+      const isOwner = user.id === conversation.ownerId || user.id === conversation.owner_id;
       const now = new Date().toISOString();
 
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        unread_by_owner: isOwner ? 0 : conversation.unread_by_owner,
-        unread_by_tenant: !isOwner ? 0 : conversation.unread_by_tenant,
-        last_read_by_owner: isOwner ? now : conversation.last_read_by_owner,
-        last_read_by_tenant: !isOwner ? now : conversation.last_read_by_tenant,
-        updated_at: now
+        unreadByOwner: isOwner ? 0 : (conversation.unreadByOwner || conversation.unread_by_owner || 0),
+        unreadByTenant: !isOwner ? 0 : (conversation.unreadByTenant || conversation.unread_by_tenant || 0),
+        lastReadByOwner: isOwner ? now : (conversation.lastReadByOwner || conversation.last_read_by_owner),
+        lastReadByTenant: !isOwner ? now : (conversation.lastReadByTenant || conversation.last_read_by_tenant),
+        updatedAt: now
       });
 
-      // Refresh unread count
-      await refreshUnreadCount();
+      // Refresh unread count by calling the function directly
+      await refreshUnreadCountRef.current();
     } catch (error) {
       console.error('❌ Error marking conversation as read:', error);
     }
-  }, [user?.id, refreshUnreadCount]);
+  }, [user?.id]);
 
   // Refresh unread count when user changes
   useEffect(() => {
     if (user?.id) {
-      refreshUnreadCount();
+      refreshUnreadCountRef.current();
     }
-  }, [user?.id, refreshUnreadCount]);
+  }, [user?.id]);
 
   // Periodic refresh of unread count
   useEffect(() => {
     if (!user?.id) return;
 
     const interval = setInterval(() => {
-      refreshUnreadCount();
-    }, 5000); // Check every 5 seconds
+      refreshUnreadCountRef.current();
+    }, 15000); // Check every 15 seconds (reduced frequency)
 
     return () => clearInterval(interval);
-  }, [user?.id, refreshUnreadCount]);
+  }, [user?.id]);
 
   return (
     <NotificationContext.Provider value={{

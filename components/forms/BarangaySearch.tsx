@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Platform } from "react-native";
 import { Icon } from "@/components/ui/icon";
 import { MapPin, ChevronUp, ChevronDown } from "lucide-react-native";
 
@@ -38,8 +38,11 @@ const BarangaySearch: React.FC<BarangaySearchProps> = ({
         setShowDropdown(false);
     };
 
-    // Close dropdown when clicking outside
+    // Close dropdown when clicking outside (web only)
     useEffect(() => {
+        // Only add click outside listeners on web platform
+        if (Platform.OS !== 'web') return;
+
         const handleClickOutside = () => {
             if (showDropdown) {
                 setShowDropdown(false);

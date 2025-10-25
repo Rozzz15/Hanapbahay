@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -12,21 +12,14 @@ import {
   Edit, 
   Trash2, 
   Eye,
-  ArrowLeft,
-  Calendar,
   MapPin,
-  // DollarSign, // Replaced with peso symbol ₱
   MessageSquare,
-  Star,
   Home
 } from 'lucide-react-native';
-import { sharedStyles, designTokens, iconBackgrounds, statusColors } from '../../styles/owner-dashboard-styles';
-import { showAlert } from '../../utils/alert';
-import { clearCache } from '../../utils/db';
 import { Image } from '../../components/ui/image';
 
 export default function ListingsPage() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [listings, setListings] = useState<OwnerListing[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +31,7 @@ export default function ListingsPage() {
     }
 
     if (!user.roles?.includes('owner')) {
-      showAlert('Access Denied', 'This page is for property owners only.');
+      Alert.alert('Access Denied', 'This page is for property owners only.');
       router.replace('/(tabs)');
       return;
     }
@@ -46,175 +39,65 @@ export default function ListingsPage() {
     loadListings();
   }, [user]);
 
-  // Listen for listing changes to auto-refresh
-  useEffect(() => {
-    const handleListingChange = () => {
-      console.log('🔄 Listing changed, refreshing listings page...');
-      loadListings();
-    };
-
-    if (typeof window !== 'undefined') {
-      if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('listingChanged', handleListingChange);
-      }
-      return () => {
-        if (typeof window !== 'undefined' && window.removeEventListener) {
-          window.removeEventListener('listingChanged', handleListingChange);
-        }
-      };
-    }
-  }, []); // Remove user dependency to prevent infinite re-renders
-
   // Refresh listings when screen comes into focus
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       if (user?.id) {
         loadListings();
       }
-    }, [user?.id]) // Add user.id dependency to ensure we have user before loading
+    }, [user?.id])
   );
 
-  const loadListings = async () => {
+  const loadListings = useCallback(async () => {
     if (!user?.id) return;
 
     try {
       setLoading(true);
-      
-      // Clear cache to ensure fresh data
-      await clearCache();
-      
-      // Refresh all media to ensure persistence
-      try {
-        const { refreshAllPropertyMedia } = await import('../../utils/media-storage');
-        await refreshAllPropertyMedia();
-        console.log('✅ Media refreshed successfully');
-      } catch (mediaError) {
-        console.log('⚠️ Media refresh failed:', mediaError);
-      }
-      
       const ownerListings = await getOwnerListings(user.id);
       
-      console.log('📸 Media Check - Owner Listings:', ownerListings.map(listing => ({
-        id: listing.id,
-        propertyType: listing.propertyType,
-        hasCoverPhoto: !!listing.coverPhoto,
-        coverPhotoLength: listing.coverPhoto?.length || 0,
-        photosCount: listing.photos?.length || 0,
-        videosCount: listing.videos?.length || 0,
-        coverPhotoPreview: listing.coverPhoto?.substring(0, 50) + '...',
-        coverPhotoValue: listing.coverPhoto
-      })));
+      // Sanitize listing data to prevent text rendering errors
+      const sanitizedListings = ownerListings.map((listing: any) => ({
+        id: String(listing.id || ''),
+        propertyType: String(listing.propertyType || 'Property'),
+        address: String(listing.address || ''),
+        status: String(listing.status || 'draft'),
+        businessName: listing.businessName ? String(listing.businessName) : '',
+        ownerName: listing.ownerName ? String(listing.ownerName) : '',
+        rentalType: String(listing.rentalType || 'Long-term'),
+        availabilityStatus: String(listing.availabilityStatus || 'Available'),
+        description: listing.description ? String(listing.description) : '',
+        contactNumber: listing.contactNumber ? String(listing.contactNumber) : '',
+        email: listing.email ? String(listing.email) : '',
+        amenities: Array.isArray(listing.amenities) ? listing.amenities.map(a => String(a || '')) : [],
+        monthlyRent: Number(listing.monthlyRent) || 0,
+        bedrooms: Number(listing.bedrooms) || 0,
+        bathrooms: Number(listing.bathrooms) || 0,
+        size: Number(listing.size) || 0,
+        baseRent: Number(listing.baseRent) || 0,
+        securityDeposit: Number(listing.securityDeposit) || 0,
+        views: Number(listing.views) || 0,
+        inquiries: Number(listing.inquiries) || 0,
+        createdAt: String(listing.createdAt || new Date().toISOString()),
+        updatedAt: String(listing.updatedAt || new Date().toISOString()),
+        photos: Array.isArray(listing.photos) ? listing.photos : [],
+        videos: Array.isArray(listing.videos) ? listing.videos : [],
+        coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : null
+      }));
       
-      // DEBUG: Check if any listings have cover photos
-      const listingsWithCoverPhotos = ownerListings.filter(listing => listing.coverPhoto);
-      console.log(`📊 Owner Listings Summary: ${listingsWithCoverPhotos.length}/${ownerListings.length} have cover photos`);
-      
-      if (listingsWithCoverPhotos.length === 0) {
-        console.log('❌ NO COVER PHOTOS FOUND! This is why you see home icons.');
-        console.log('🔍 Checking database directly...');
-        
-        // Check database directly
-        const { db } = await import('../../utils/db');
-        const allPhotos = await db.list('property_photos');
-        console.log(`📸 Total photos in database: ${allPhotos.length}`);
-        
-        for (const listing of ownerListings) {
-          const listingPhotos = allPhotos.filter(photo => photo.listingId === listing.id);
-          console.log(`📸 Photos for listing ${listing.id}: ${listingPhotos.length}`);
-          if (listingPhotos.length > 0) {
-            const coverPhoto = listingPhotos.find(photo => photo.isCoverPhoto);
-            if (coverPhoto) {
-              console.log(`✅ Cover photo found in database for ${listing.id}:`, {
-                id: coverPhoto.id,
-                hasPhotoData: !!coverPhoto.photoData,
-                hasPhotoUri: !!coverPhoto.photoUri,
-                photoDataPreview: coverPhoto.photoData?.substring(0, 50) + '...'
-              });
-            }
-          }
-        }
-        
-        // Test loadPropertyMedia function directly
-        console.log('🔍 Testing loadPropertyMedia function...');
-        try {
-          const { loadPropertyMedia } = await import('../../utils/media-storage');
-          for (const listing of ownerListings) {
-            const media = await loadPropertyMedia(listing.id);
-            console.log(`📸 loadPropertyMedia for ${listing.id}:`, {
-              hasCoverPhoto: !!media.coverPhoto,
-              photosCount: media.photos.length,
-              videosCount: media.videos.length,
-              coverPhotoPreview: media.coverPhoto?.substring(0, 50) + '...'
-            });
-          }
-        } catch (mediaError) {
-          console.log('❌ Error testing loadPropertyMedia:', mediaError);
-        }
-      }
-      
-      if (ownerListings && ownerListings.length > 0) {
-        setListings(ownerListings);
-      } else {
-        console.log('📋 No listings found for owner, checking database directly...');
-        
-        // Fallback: Check database directly
-        const { db } = await import('../../utils/db');
-        const allListings = await db.list('published_listings');
-        const userListings = allListings.filter(listing => listing.userId === user.id);
-        
-        if (userListings.length > 0) {
-          console.log(`📋 Found ${userListings.length} listings directly from database`);
-          // Convert to the expected format
-          const convertedListings = userListings.map((listing: any) => ({
-            id: listing.id,
-            userId: listing.userId,
-            propertyType: listing.propertyType,
-            address: listing.address,
-            monthlyRent: listing.monthlyRent,
-            status: listing.status,
-            views: listing.views || 0,
-            inquiries: listing.inquiries || 0,
-            createdAt: listing.createdAt,
-            updatedAt: listing.updatedAt,
-            coverPhoto: listing.coverPhoto,
-            photos: listing.photos || [],
-            videos: listing.videos || [],
-            businessName: listing.businessName,
-            bedrooms: listing.bedrooms,
-            bathrooms: listing.bathrooms,
-            size: listing.size,
-            rentalType: listing.rentalType,
-            availabilityStatus: listing.availabilityStatus,
-            leaseTerm: listing.leaseTerm,
-            baseRent: listing.baseRent,
-            securityDeposit: listing.securityDeposit,
-            ownerName: listing.ownerName,
-            contactNumber: listing.contactNumber,
-            email: listing.email,
-            emergencyContact: listing.emergencyContact,
-            amenities: listing.amenities,
-            description: listing.description
-          }));
-          
-          setListings(convertedListings);
-        } else {
-          console.log('📋 No listings found in database for this user');
-          setListings([]);
-        }
-      }
+      setListings(sanitizedListings);
     } catch (error) {
-      console.error('❌ Error loading listings:', error);
-      showAlert('Error', 'Failed to load listings');
+      console.error('Error loading listings:', error);
+      Alert.alert('Error', 'Failed to load listings');
       setListings([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
 
   const handleDeleteListing = async (listingId: string, listingTitle: string) => {
     if (!user?.id) return;
 
-    showAlert(
+    Alert.alert(
       'Delete Listing',
       `Are you sure you want to delete "${listingTitle}"? This action cannot be undone.`,
       [
@@ -224,19 +107,16 @@ export default function ListingsPage() {
           style: 'destructive',
           onPress: async () => {
             try {
-              console.log('🗑️ Deleting listing:', listingId);
               const success = await deleteOwnerListing(user.id, listingId);
               if (success) {
-                console.log('✅ Listing deleted successfully');
-                showAlert('Success', 'Listing deleted successfully');
+                Alert.alert('Success', 'Listing deleted successfully');
                 loadListings();
               } else {
-                console.error('❌ Delete failed - unauthorized or not found');
-                showAlert('Error', 'Failed to delete listing');
+                Alert.alert('Error', 'Failed to delete listing');
               }
             } catch (error) {
-              console.error('❌ Error deleting listing:', error);
-              showAlert('Error', 'Failed to delete listing');
+              console.error('Error deleting listing:', error);
+              Alert.alert('Error', 'Failed to delete listing');
             }
           }
         }
@@ -245,69 +125,85 @@ export default function ListingsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const getPropertyTitle = (listing: any) => {
+    if (listing.businessName) {
+      return `${listing.businessName}'s ${listing.propertyType}`;
+    }
+    if (listing.ownerName) {
+      return `${listing.ownerName}'s ${listing.propertyType}`;
+    }
+    return listing.propertyType;
+  };
+
+  const getPropertyAddress = (listing: any) => {
+    const title = getPropertyTitle(listing);
+    return `${title} in ${listing.address}`;
   };
 
 
   if (loading) {
     return (
-      <View style={sharedStyles.loadingContainer}>
-        <Text style={sharedStyles.loadingText}>Loading listings...</Text>
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Loading listings...</Text>
       </View>
     );
   }
 
   return (
-    <View style={sharedStyles.container}>
-      <View style={sharedStyles.mainContent}>
-          <ScrollView style={sharedStyles.scrollView}>
-            <View style={sharedStyles.pageContainer}>
-              {/* Header */}
-              <View style={sharedStyles.pageHeader}>
-                <View style={sharedStyles.headerLeft}>
-                  <Text style={sharedStyles.pageTitle}>My Listings</Text>
-                  <Text style={sharedStyles.pageSubtitle}>Manage your property listings</Text>
-                </View>
-                <View style={sharedStyles.headerRight}>
-                  <TouchableOpacity 
-                    style={sharedStyles.primaryButton}
-                    onPress={() => router.push('/(owner)/create-listing')}
-                  >
-                    <Plus size={16} color="white" />
-                    <Text style={sharedStyles.primaryButtonText}>Add Listing</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+    <View style={styles.container}>
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.pageContainer}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <Text style={styles.pageTitle}>My Listings</Text>
+              <Text style={styles.pageSubtitle}>Manage your property listings</Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.addButton}
+              onPress={() => router.push('/(owner)/create-listing')}
+            >
+              <Plus size={16} color="white" />
+              <Text style={styles.addButtonText}>Add Listing</Text>
+            </TouchableOpacity>
+          </View>
 
-          {/* Listings Section */}
-          <View style={sharedStyles.section}>
+          {/* Listings */}
+          <View style={styles.listingsContainer}>
             {listings.length === 0 ? (
-              <View style={sharedStyles.emptyState}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginBottom: designTokens.spacing.lg }]}>
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIcon}>
                   <Plus size={32} color="#3B82F6" />
                 </View>
-                <Text style={sharedStyles.emptyStateTitle}>No listings yet</Text>
-                <Text style={sharedStyles.emptyStateText}>
+                <Text style={styles.emptyTitle}>No listings yet</Text>
+                <Text style={styles.emptyText}>
                   Create your first property listing to start attracting tenants
                 </Text>
                 <TouchableOpacity 
-                  style={[sharedStyles.primaryButton, { marginTop: designTokens.spacing.lg }]}
+                  style={styles.createButton}
                   onPress={() => router.push('/(owner)/create-listing')}
                 >
                   <Plus size={16} color="white" />
-                  <Text style={sharedStyles.primaryButtonText}>Create Your First Listing</Text>
+                  <Text style={styles.createButtonText}>Create Your First Listing</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <View style={{ gap: 16 }}>
-                {listings.map((listing: any) => (
+              <View style={styles.listingsList}>
+                {listings.map((listing) => (
                   <TouchableOpacity 
                     key={listing.id} 
-                    style={styles.modernCard}
+                    style={styles.listingCard}
                     activeOpacity={0.95}
                   >
                     {/* Cover Photo */}
@@ -320,12 +216,6 @@ export default function ListingsPage() {
                           showSkeleton={true}
                           fallbackIcon="home"
                           borderRadius={0}
-                          onError={() => {
-                            console.log('❌ Owner listing image load error for:', listing.id);
-                          }}
-                          onLoad={() => {
-                            console.log('✅ Owner listing image loaded successfully for:', listing.id);
-                          }}
                         />
                       ) : (
                         <View style={styles.placeholderImage}>
@@ -340,7 +230,7 @@ export default function ListingsPage() {
                         listing.status === 'published' && styles.statusBadgePublished
                       ]}>
                         <Text style={styles.statusBadgeText}>
-                          {listing.status === 'published' ? '● Published' : '● Draft'}
+                          {listing.status === 'published' ? 'Published' : 'Draft'}
                         </Text>
                       </View>
 
@@ -348,11 +238,11 @@ export default function ListingsPage() {
                       <View style={styles.statsOverlay}>
                         <View style={styles.statItem}>
                           <Eye size={14} color="#FFFFFF" />
-                          <Text style={styles.statText}>{listing.views || 0}</Text>
+                          <Text style={styles.statText}>{listing.views}</Text>
                         </View>
                         <View style={styles.statItem}>
                           <MessageSquare size={14} color="#FFFFFF" />
-                          <Text style={styles.statText}>{listing.inquiries || 0}</Text>
+                          <Text style={styles.statText}>{listing.inquiries}</Text>
                         </View>
                       </View>
                     </View>
@@ -362,10 +252,10 @@ export default function ListingsPage() {
                       {/* Title & Location */}
                       <View style={styles.titleSection}>
                         <Text style={styles.propertyTitle} numberOfLines={2}>
-                          {listing.businessName ? `${listing.businessName}'s ${listing.propertyType}` : listing.ownerName ? `${listing.ownerName}'s ${listing.propertyType}` : listing.propertyType}
+                          {getPropertyTitle(listing)}
                         </Text>
                         <Text style={styles.propertyAddress} numberOfLines={2}>
-                          {listing.businessName ? `${listing.businessName} ${listing.propertyType}` : listing.ownerName ? `${listing.ownerName} ${listing.propertyType}` : listing.propertyType} in {listing.address}
+                          {getPropertyAddress(listing)}
                         </Text>
                         <View style={styles.locationRow}>
                           <MapPin size={14} color="#6B7280" />
@@ -380,11 +270,11 @@ export default function ListingsPage() {
                         <View style={styles.detailRow}>
                           <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>Bedrooms</Text>
-                            <Text style={styles.detailValue}>{listing.bedrooms || 0}</Text>
+                            <Text style={styles.detailValue}>{listing.bedrooms}</Text>
                           </View>
                           <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>Bathrooms</Text>
-                            <Text style={styles.detailValue}>{listing.bathrooms || 0}</Text>
+                            <Text style={styles.detailValue}>{listing.bathrooms}</Text>
                           </View>
                         </View>
                         
@@ -392,7 +282,7 @@ export default function ListingsPage() {
                         <View style={styles.rentalInfoRow}>
                           <View style={styles.rentalInfoItem}>
                             <Text style={styles.rentalTypeLabel}>Type:</Text>
-                            <Text style={styles.rentalTypeValue}>{listing.rentalType || 'Long-term'}</Text>
+                            <Text style={styles.rentalTypeValue}>{listing.rentalType}</Text>
                           </View>
                           <View style={styles.rentalInfoItem}>
                             <Text style={styles.availabilityLabel}>Status:</Text>
@@ -400,49 +290,10 @@ export default function ListingsPage() {
                               styles.availabilityValue,
                               listing.availabilityStatus === 'Available' ? styles.availableStatus : styles.unavailableStatus
                             ]}>
-                              {listing.availabilityStatus || 'Available'}
+                              {listing.availabilityStatus}
                             </Text>
                           </View>
                         </View>
-                        
-                        {/* Amenities Preview */}
-                        {listing.amenities && listing.amenities.length > 0 && (
-                          <View style={styles.amenitiesSection}>
-                            <Text style={styles.amenitiesLabel}>Amenities:</Text>
-                            <View style={styles.amenitiesList}>
-                              {listing.amenities.map((amenity: string, index: number) => (
-                                <View key={index} style={styles.amenityTag}>
-                                  <Text style={styles.amenityText}>{amenity}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          </View>
-                        )}
-                        
-                        {/* Description */}
-                        {listing.description && (
-                          <View style={styles.descriptionSection}>
-                            <Text style={styles.descriptionLabel}>Description:</Text>
-                            <Text style={styles.descriptionText} numberOfLines={2}>
-                              {listing.description}
-                            </Text>
-                          </View>
-                        )}
-                        
-                        {/* Contact Information */}
-                        {(listing.contactNumber || listing.email) && (
-                          <View style={styles.contactSection}>
-                            <Text style={styles.contactLabel}>Contact:</Text>
-                            <View style={styles.contactInfo}>
-                              {listing.contactNumber && (
-                                <Text style={styles.contactText}>📞 {listing.contactNumber}</Text>
-                              )}
-                              {listing.email && (
-                                <Text style={styles.contactText}>✉️ {listing.email}</Text>
-                              )}
-                            </View>
-                          </View>
-                        )}
                       </View>
 
                       {/* Price & Financial Info */}
@@ -450,11 +301,11 @@ export default function ListingsPage() {
                         <View style={styles.priceInfo}>
                           <View>
                             <Text style={styles.priceAmount}>
-                              ₱{listing.monthlyRent?.toLocaleString() || '0'}
+                              ₱{listing.monthlyRent.toLocaleString()}
                             </Text>
                             <Text style={styles.priceLabel}>per month</Text>
                           </View>
-                          {listing.securityDeposit && (
+                          {listing.securityDeposit > 0 && (
                             <View style={styles.additionalCosts}>
                               <Text style={styles.additionalCostText}>
                                 Deposit: ₱{listing.securityDeposit.toLocaleString()}
@@ -462,7 +313,7 @@ export default function ListingsPage() {
                             </View>
                           )}
                         </View>
-                        <View style={{ alignItems: 'flex-end' }}>
+                        <View style={styles.dateInfo}>
                           <Text style={styles.dateText}>
                             {formatDate(listing.createdAt)}
                           </Text>
@@ -478,11 +329,11 @@ export default function ListingsPage() {
                           activeOpacity={0.7}
                         >
                           <Edit size={16} color="#FFFFFF" />
-                          <Text style={styles.actionButtonText}>Edit Listing</Text>
+                          <Text style={styles.actionButtonText}>Edit</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[styles.actionButton, styles.deleteButton]}
-                          onPress={() => handleDeleteListing(listing.id, listing.propertyType)}
+                          onPress={() => handleDeleteListing(listing.id, getPropertyTitle(listing))}
                           activeOpacity={0.7}
                         >
                           <Trash2 size={16} color="#FFFFFF" />
@@ -494,16 +345,116 @@ export default function ListingsPage() {
               </View>
             )}
           </View>
-          </View>
-        </ScrollView>
-      </View>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
-// Compact Modern Card Styles
 const styles = StyleSheet.create({
-  modernCard: {
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  pageContainer: {
+    padding: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  pageSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  addButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  listingsContainer: {
+    flex: 1,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EBF8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  createButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  listingsList: {
+    gap: 16,
+  },
+  listingCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     overflow: 'hidden',
@@ -514,7 +465,6 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginBottom: 12,
   },
   imageContainer: {
     position: 'relative',
@@ -547,7 +497,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 16,
-    backdropFilter: 'blur(10px)',
   },
   statusBadgePublished: {
     backgroundColor: 'rgba(16, 185, 129, 0.95)',
@@ -556,7 +505,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.3,
   },
   statsOverlay: {
     position: 'absolute',
@@ -573,7 +521,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     gap: 4,
-    backdropFilter: 'blur(10px)',
   },
   statText: {
     color: '#FFFFFF',
@@ -581,17 +528,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cardContent: {
-    padding: 14,
+    padding: 16,
   },
   titleSection: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   propertyTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
     marginBottom: 4,
-    letterSpacing: -0.3,
   },
   propertyAddress: {
     fontSize: 14,
@@ -610,65 +556,8 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     flex: 1,
   },
-  priceSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    marginBottom: 10,
-  },
-  priceAmount: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#10B981',
-    letterSpacing: -0.5,
-  },
-  priceLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  dateText: {
-    fontSize: 11,
-    color: '#374151',
-    fontWeight: '500',
-  },
-  dateLabel: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    marginTop: 1,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
-  },
-  editButton: {
-    flex: 1,
-    backgroundColor: '#10B981',
-  },
-  deleteButton: {
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 12,
-  },
-  actionButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  // Compact details section
   detailsSection: {
-    marginBottom: 10,
+    marginBottom: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
@@ -734,85 +623,72 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     backgroundColor: '#FEF2F2',
   },
-  // Compact amenities
-  amenitiesSection: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  amenitiesLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  amenitiesList: {
+  priceSection: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  amenityTag: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  amenityText: {
-    fontSize: 10,
-    color: '#374151',
-    fontWeight: '500',
-  },
-  // Compact contact - make it collapsible or shorter
-  contactSection: {
-    marginTop: 8,
-    paddingTop: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
+    marginBottom: 12,
   },
-  contactLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  contactInfo: {
-    gap: 3,
-  },
-  contactText: {
-    fontSize: 11,
-    color: '#374151',
-    fontWeight: '500',
-  },
-  // Compact description
-  descriptionSection: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  descriptionLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  descriptionText: {
-    fontSize: 12,
-    color: '#374151',
-    lineHeight: 16,
-  },
-  // Financial info
   priceInfo: {
     flex: 1,
   },
+  priceAmount: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#10B981',
+  },
+  priceLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
   additionalCosts: {
     marginTop: 4,
-    gap: 2,
   },
   additionalCostText: {
     fontSize: 10,
     color: '#6B7280',
     fontWeight: '500',
+  },
+  dateInfo: {
+    alignItems: 'flex-end',
+  },
+  dateText: {
+    fontSize: 11,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  dateLabel: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    marginTop: 1,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  editButton: {
+    flex: 1,
+    backgroundColor: '#10B981',
+  },
+  deleteButton: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 12,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

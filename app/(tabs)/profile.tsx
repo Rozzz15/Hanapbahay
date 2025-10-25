@@ -754,34 +754,34 @@ const styles = StyleSheet.create({
     },
     profileHeader: {
         alignItems: 'center',
-        paddingTop: 40,
-        paddingBottom: 24,
-        paddingHorizontal: 20,
+        paddingTop: 32, // Reduced from 40
+        paddingBottom: 20, // Reduced from 24
+        paddingHorizontal: 16, // Reduced from 20
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
     },
     avatarContainer: {
-        width: 128,
-        height: 128,
-        borderRadius: 64,
+        width: 100, // Reduced from 128
+        height: 100, // Reduced from 128
+        borderRadius: 50, // Reduced from 64
         backgroundColor: '#F3F4F6',
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 16,
+        marginBottom: 14, // Reduced from 16
         overflow: 'hidden',
     },
     avatarImage: {
-        width: 128,
-        height: 128,
-        borderRadius: 64,
+        width: 100, // Reduced from 128
+        height: 100, // Reduced from 128
+        borderRadius: 50, // Reduced from 64
     },
     avatarText: {
-        fontSize: 48,
+        fontSize: 36, // Reduced from 48
         fontWeight: '600',
         color: '#6B7280',
     },
     profileName: {
-        fontSize: 24,
+        fontSize: 20, // Reduced from 24
         fontWeight: '600',
         color: '#111827',
         marginBottom: 4,
@@ -798,8 +798,8 @@ const styles = StyleSheet.create({
     menuButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 16,
-        paddingHorizontal: 20,
+        paddingVertical: 14, // Reduced from 16
+        paddingHorizontal: 16, // Reduced from 20
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
@@ -808,11 +808,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#FEF2F2',
     },
     menuIcon: {
-        width: 32,
-        height: 32,
+        width: 28, // Reduced from 32
+        height: 28, // Reduced from 32
         justifyContent: 'center',
         alignItems: 'center',
-        borderRadius: 16,
+        borderRadius: 14, // Reduced from 16
         backgroundColor: '#F3F4F6',
         marginRight: 12,
     },

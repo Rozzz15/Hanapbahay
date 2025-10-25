@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { View, ScrollView, SafeAreaView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
+import { View, ScrollView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { VStack } from '@/components/ui/vstack';
 import { HStack } from '@/components/ui/hstack';
 import {

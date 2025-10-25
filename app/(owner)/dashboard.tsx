@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -85,9 +85,9 @@ export default function OwnerDashboard() {
         }
       };
     }
-  }, []); // Remove user dependency to prevent infinite re-renders
+  }, [user?.id]); // Only depend on user.id to prevent infinite loops
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -104,9 +104,9 @@ export default function OwnerDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]); // Only depend on user.id to prevent infinite loops
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -115,9 +115,9 @@ export default function OwnerDashboard() {
     } catch (error) {
       console.error('Error loading stats:', error);
     }
-  };
+  }, [user?.id]);
 
-  const loadListings = async () => {
+  const loadListings = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -165,9 +165,9 @@ export default function OwnerDashboard() {
     } catch (error) {
       console.error('Error loading listings:', error);
     }
-  };
+  }, [user?.id]);
 
-  const loadBookings = async () => {
+  const loadBookings = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -184,9 +184,9 @@ export default function OwnerDashboard() {
     } catch (error) {
       console.error('Error loading bookings:', error);
     }
-  };
+  }, [user?.id]);
 
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -195,7 +195,7 @@ export default function OwnerDashboard() {
     } catch (error) {
       console.error('Error loading messages:', error);
     }
-  };
+  }, [user?.id]);
 
   const handleBookingAction = async (bookingId: string, action: 'approve' | 'reject') => {
     if (!user?.id) return;
@@ -325,7 +325,7 @@ export default function OwnerDashboard() {
               </View>
               <Text style={sharedStyles.statLabel}>Monthly Revenue</Text>
               <Text style={[sharedStyles.statValue, { color: designTokens.colors.success }]}>
-                ₱{stats.monthlyRevenue.toLocaleString()}
+                {`₱${stats.monthlyRevenue.toLocaleString()}`}
               </Text>
               <Text style={sharedStyles.statSubtitle}>Potential income</Text>
             </View>
@@ -422,9 +422,9 @@ export default function OwnerDashboard() {
                   {listings[0]?.address || 'Location'}
                 </Text>
                 <View style={{ flexDirection: 'row', gap: designTokens.spacing.md, marginTop: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>■ {listings[0]?.views || 0} views</Text>
-                  <Text style={sharedStyles.statSubtitle}>■ {listings[0]?.inquiries || 0} inquiries</Text>
-                  <Text style={sharedStyles.statSubtitle}>■ Published {new Date(listings[0]?.createdAt || Date.now()).toLocaleDateString()}</Text>
+                  <Text style={sharedStyles.statSubtitle}>{`■ ${listings[0]?.views || 0} views`}</Text>
+                  <Text style={sharedStyles.statSubtitle}>{`■ ${listings[0]?.inquiries || 0} inquiries`}</Text>
+                  <Text style={sharedStyles.statSubtitle}>{`■ Published ${new Date(listings[0]?.createdAt || Date.now()).toLocaleDateString()}`}</Text>
                 </View>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
@@ -438,7 +438,7 @@ export default function OwnerDashboard() {
             </View>
             <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: designTokens.spacing.md }}>
               <Text style={[sharedStyles.statValue, { color: designTokens.colors.success, fontSize: designTokens.typography.lg }]}>
-                ₱{listings[0]?.monthlyRent?.toLocaleString() || '0'}/month
+                {`₱${listings[0]?.monthlyRent?.toLocaleString() || '0'}/month`}
               </Text>
             </View>
           </View>

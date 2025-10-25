@@ -56,7 +56,6 @@ export default function RootLayout() {
                 <Stack.Screen name="property-preview" options={{ headerShown: false }} />
                 <Stack.Screen name="book-now" options={{ headerShown: false }} />
                 <Stack.Screen name="filter" options={{ headerShown: false }} />
-                <Stack.Screen name="edit-listing" options={{ headerShown: false }} />
                 <Stack.Screen name="chat-room" options={{ headerShown: false }} />
               </Stack>
               <StatusBar style="dark" />

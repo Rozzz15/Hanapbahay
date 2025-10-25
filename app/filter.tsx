@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, Text, SafeAreaView, Pressable, StyleSheet, Dimensions } from 'react-native';
+import { View, ScrollView, Text, Pressable, StyleSheet, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { PriceRangeSelector, ButtonCarousel, BarangaySearch } from '@components/forms';
 import { PriceRange } from '@/utils';
 import type { ButtonOption } from '@/types';
@@ -13,10 +14,10 @@ const { height } = Dimensions.get('window');
 
 const propertyTypes: ButtonOption[] = [
   { id: 'any', label: 'Any Type' },
-  { id: 'house', label: 'House' },
-  { id: 'apartment', label: 'Apartment' },
-  { id: 'condo', label: 'Condo' },
-  { id: 'bedspace', label: 'Bedspace' }
+  { id: 'House', label: 'House' },
+  { id: 'Apartment', label: 'Apartment' },
+  { id: 'Condo', label: 'Condo' },
+  { id: 'Bedspace', label: 'Bedspace' }
 ];
 
 export default function FilterScreen() {

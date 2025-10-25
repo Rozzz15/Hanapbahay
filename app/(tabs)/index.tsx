@@ -1,4 +1,5 @@
-import { ScrollView, View, Pressable, Animated, Text, SafeAreaView, TouchableOpacity, Image, StyleSheet, TextInput, Alert } from 'react-native';
+import { ScrollView, View, Pressable, Animated, Text, TouchableOpacity, Image, StyleSheet, TextInput, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -43,8 +44,8 @@ export default function DashboardScreen() {
 
   // Will define clearAllPublishedListings after loadPublishedListings
 
-  // Featured listings derived from latest owner listings
-  const featuredListings = ownerListings.slice(0, 5);
+  // Featured listings derived from filtered listings (first 5)
+  const featuredListings = filteredListings.slice(0, 5);
   
   // Removed favorite listings functionality
 
@@ -865,7 +866,14 @@ export default function DashboardScreen() {
       // Ensure we have valid mapped data
       if (sortedListings.length > 0) {
         setOwnerListings(sortedListings);
-        setFilteredListings(sortedListings);
+        
+        // Apply current filters if any are active
+        if (Object.keys(activeFilters).length > 0) {
+          console.log('🔍 Applying active filters to loaded listings:', activeFilters);
+          applyFilters(sortedListings, activeFilters);
+        } else {
+          setFilteredListings(sortedListings);
+        }
         
         // Preload images for better performance
         try {
@@ -941,7 +949,7 @@ export default function DashboardScreen() {
         setFilteredListings([]);
       }
     }
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id]); // Remove activeFilters and applyFilters dependencies
 
   // Clear all published listings to remove defaults
   const clearAllPublishedListings = useCallback(async () => {
@@ -1036,7 +1044,7 @@ export default function DashboardScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [isAuthenticated, user?.id, syncOwnerMediaToDatabase, debugAppStatus]);
+  }, [isAuthenticated, user?.id]); // Remove function dependencies
 
   // Force refresh function for debugging sync issues
   const forceRefresh = useCallback(async () => {
@@ -1119,7 +1127,7 @@ export default function DashboardScreen() {
         setIsRefreshing(false);
       }
     }, refreshDelay);
-  }, [loadPublishedListings, clearCache]);
+  }, []); // Remove function dependencies
 
   // Listen for listing changes to auto-refresh tenant dashboard
   useEffect(() => {
@@ -1136,32 +1144,59 @@ export default function DashboardScreen() {
       }, 500);
     };
 
+    const handleFiltersApplied = (event: Event) => {
+      const filterDetail = (event as any).detail;
+      console.log('🔍 Filters applied, updating listings...', filterDetail);
+      console.log('📊 Current ownerListings count:', ownerListings.length);
+      console.log('📋 Current ownerListings sample:', ownerListings.slice(0, 2).map(l => ({
+        id: l.id,
+        title: l.title,
+        propertyType: l.propertyType,
+        price: l.price,
+        address: l.address
+      })));
+      
+      // Update active filters state
+      setActiveFilters({
+        propertyType: filterDetail.propertyType,
+        priceRange: filterDetail.priceRange,
+        barangay: filterDetail.barangay
+      });
+      
+      // Apply filters to current listings
+      applyFilters(ownerListings, filterDetail);
+    };
+
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('listingChanged', handleListingChanged);
       window.addEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
       window.addEventListener('userLoggedIn', handleUserLoggedIn);
-      console.log('👂 Tenant dashboard: Added listing change, media refresh, and user login listeners');
+      window.addEventListener('filtersApplied', handleFiltersApplied);
+      console.log('👂 Tenant dashboard: Added listing change, media refresh, user login, and filter listeners');
       
       return () => {
         if (typeof window !== 'undefined' && window.removeEventListener) {
           window.removeEventListener('listingChanged', handleListingChanged);
           window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
           window.removeEventListener('userLoggedIn', handleUserLoggedIn);
-          console.log('🔇 Tenant dashboard: Removed listing change, media refresh, and user login listeners');
+          window.removeEventListener('filtersApplied', handleFiltersApplied);
+          console.log('🔇 Tenant dashboard: Removed listing change, media refresh, user login, and filter listeners');
         }
       };
     }
-  }, [handleListingChanged, loadPublishedListings, isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id]); // Remove function dependencies
 
   // Refresh listings when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       console.log('👁️ Tenant dashboard focused, refreshing listings...');
       // Always reload when screen is focused
-      loadPublishedListings().catch(err => {
-        console.error('❌ Failed to load listings on focus:', err);
-      });
-    }, [loadPublishedListings])
+      if (isAuthenticated && user?.id) {
+        loadPublishedListings().catch(err => {
+          console.error('❌ Failed to load listings on focus:', err);
+        });
+      }
+    }, [isAuthenticated, user?.id]) // Remove loadPublishedListings dependency
   );
 
   // Initial load on mount with authentication fallbacks
@@ -1268,21 +1303,96 @@ export default function DashboardScreen() {
     }
   }, [user?.id, router]);
 
+  // Apply filters to listings
+  const applyFilters = useCallback((listings: any[], filters: any) => {
+    console.log('🔍 Applying filters:', filters);
+    console.log('📊 Original listings count:', listings.length);
+    
+    // Debug: Log sample listing data structure
+    if (listings.length > 0) {
+      console.log('📋 Sample listing data structure:', {
+        id: listings[0].id,
+        propertyType: listings[0].propertyType,
+        price: listings[0].price,
+        monthlyRent: listings[0].monthlyRent,
+        address: listings[0].address,
+        location: listings[0].location
+      });
+    }
+    
+    let filtered = [...listings];
+    
+    // Filter by property type
+    if (filters.propertyType && filters.propertyType !== 'any') {
+      console.log(`🏠 Filtering by property type: "${filters.propertyType}"`);
+      console.log('📋 Available property types in data:', [...new Set(listings.map(l => l.propertyType))]);
+      
+      filtered = filtered.filter(listing => {
+        const listingType = listing.propertyType?.toLowerCase();
+        const filterType = filters.propertyType.toLowerCase();
+        const matches = listingType === filterType;
+        
+        console.log(`   - "${listing.title}" (${listing.propertyType}) -> ${matches ? '✅' : '❌'}`);
+        return matches;
+      });
+      console.log(`🏠 After property type filter: ${filtered.length} results`);
+    }
+    
+    // Filter by price range
+    if (filters.priceRange) {
+      console.log(`💰 Filtering by price range: ₱${filters.priceRange.min} - ₱${filters.priceRange.max}`);
+      
+      filtered = filtered.filter(listing => {
+        const price = listing.price || listing.monthlyRent || 0;
+        const matches = price >= filters.priceRange.min && price <= filters.priceRange.max;
+        
+        console.log(`   - "${listing.title}" (₱${price}) -> ${matches ? '✅' : '❌'}`);
+        return matches;
+      });
+      console.log(`💰 After price range filter: ${filtered.length} results`);
+    }
+    
+    // Filter by barangay
+    if (filters.barangay && filters.barangay.trim()) {
+      console.log(`📍 Filtering by barangay: "${filters.barangay}"`);
+      
+      filtered = filtered.filter(listing => {
+        const address = listing.address || listing.location || '';
+        const matches = address.toLowerCase().includes(filters.barangay.toLowerCase());
+        
+        console.log(`   - "${listing.title}" (${address}) -> ${matches ? '✅' : '❌'}`);
+        return matches;
+      });
+      console.log(`📍 After barangay filter: ${filtered.length} results`);
+    }
+    
+    console.log('✅ Final filtered listings count:', filtered.length);
+    console.log('📋 Filtered results:', filtered.map(l => l.title));
+    setFilteredListings(filtered);
+  }, []);
+
   // Handle search
   const handleSearch = useCallback((text: string) => {
     setSearchText(text);
     if (!text.trim()) {
-      setFilteredListings(ownerListings);
+      // If no search text, apply current filters to all listings
+      if (Object.keys(activeFilters).length > 0) {
+        applyFilters(ownerListings, activeFilters);
+      } else {
+        setFilteredListings(ownerListings);
+      }
       return;
     }
 
-    const filtered = ownerListings.filter(listing =>
+    // Apply search to current filtered results or all listings
+    const baseListings = Object.keys(activeFilters).length > 0 ? filteredListings : ownerListings;
+    const filtered = baseListings.filter(listing =>
       listing.title.toLowerCase().includes(text.toLowerCase()) ||
       listing.location.toLowerCase().includes(text.toLowerCase()) ||
       listing.description?.toLowerCase().includes(text.toLowerCase())
     );
     setFilteredListings(filtered);
-  }, [ownerListings]);
+  }, [ownerListings, activeFilters, filteredListings, applyFilters]);
 
   // Handle filter
   const handleFilter = useCallback(() => {
@@ -1290,9 +1400,7 @@ export default function DashboardScreen() {
   }, [router]);
 
       // Load data on component mount
-  useEffect(() => {
-    loadPublishedListings();
-  }, [isAuthenticated, user?.id]);
+  // Removed - consolidated into the main effect above
 
   // Refresh all property media on app startup for persistence
   useEffect(() => {
@@ -1309,37 +1417,27 @@ export default function DashboardScreen() {
     refreshMedia();
   }, []);
 
-  // Force reload on login
+  // Consolidated reload effect - only run when user changes
   useEffect(() => {
     if (isAuthenticated && user?.id) {
-      console.log('🔄 User logged in, force reloading media...');
+      console.log('🔄 User authenticated, loading data...', user.id);
       // Add a small delay to ensure authentication is fully processed
-      const timer = setTimeout(() => {
-        refreshMediaData();
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [isAuthenticated, user?.id, refreshMediaData]);
-
-  // Force reload when user changes (login/logout)
-  useEffect(() => {
-    if (user?.id) {
-      console.log('🔄 User changed, force reloading listings...', user.id);
-      // Add a delay to ensure all cache clearing is complete
       const timer = setTimeout(async () => {
         try {
           // Force sync owner media first
           await syncOwnerMediaToDatabase();
           // Then reload listings
           await loadPublishedListings();
+          // Refresh media data
+          await refreshMediaData();
         } catch (error) {
-          console.error('❌ Error reloading after user change:', error);
+          console.error('❌ Error loading data after authentication:', error);
         }
-      }, 500);
+      }, 1000);
       
       return () => clearTimeout(timer);
     }
-  }, [user?.id, syncOwnerMediaToDatabase]);
+  }, [isAuthenticated, user?.id]); // Remove function dependencies to prevent loops
 
   // Removed favorites loading effect
 
@@ -1347,11 +1445,10 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       console.log('🔄 Focus effect triggered, reloading data...');
-      loadPublishedListings();
       if (isAuthenticated && user?.id) {
-        // Removed favorites loading
+        loadPublishedListings();
       }
-    }, [isAuthenticated, user?.id, loadPublishedListings])
+    }, [isAuthenticated, user?.id]) // Remove loadPublishedListings dependency
   );
 
   // Periodic database state check
@@ -1448,13 +1545,37 @@ export default function DashboardScreen() {
         </LinearGradient>
       </View>
 
+      {/* Filter Status Indicator */}
+      {Object.keys(activeFilters).length > 0 && (
+        <View style={styles.filterStatusContainer}>
+          <View style={styles.filterStatusContent}>
+            <Ionicons name="filter" size={16} color="#3B82F6" />
+            <Text style={styles.filterStatusText}>
+              Filters Active ({Object.keys(activeFilters).length} applied)
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setActiveFilters({});
+                setFilteredListings(ownerListings);
+                console.log('🧹 Filters cleared');
+              }}
+              style={styles.clearFiltersButton}
+            >
+              <Text style={styles.clearFiltersText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Featured Properties */}
-        {featuredListings.length > 0 && (
+        {/* Featured Properties - Only show if there are filtered results */}
+        {filteredListings.length > 0 && featuredListings.length > 0 && (
         <View style={styles.section}>
             <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Featured Properties</Text>
-              <Text style={styles.sectionSubtitle}>{featuredListings.length} properties</Text>
+              <Text style={styles.sectionSubtitle}>
+                {featuredListings.length} of {filteredListings.length} properties
+              </Text>
             </View>
             
             <View style={styles.featuredScrollWrapper}>
@@ -1499,8 +1620,7 @@ export default function DashboardScreen() {
                     <View style={styles.featuredRating}>
                       <Ionicons name="star" size={14} color={listing.rating > 0 ? "#F59E0B" : "#D1D5DB"} />
                       <Text style={styles.ratingText}>
-                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'} 
-                        {listing.rating > 0 && ` (${listing.reviews})`}
+                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'}{listing.rating > 0 && ` (${listing.reviews})`}
                       </Text>
                       </View>
                     </View>
@@ -1556,8 +1676,7 @@ export default function DashboardScreen() {
                     <View style={styles.detailItem}>
                       <Ionicons name="star" size={16} color={listing.rating > 0 ? "#F59E0B" : "#D1D5DB"} />
                       <Text style={styles.detailText}>
-                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'} 
-                        {listing.rating > 0 && ` (${listing.reviews})`}
+                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'}{listing.rating > 0 && ` (${listing.reviews})`}
                       </Text>
                     </View>
                   </View>
@@ -1585,8 +1704,27 @@ export default function DashboardScreen() {
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="home" size={48} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No Properties Found</Text>
-              <Text style={styles.emptySubtitle}>Try adjusting your search or filters</Text>
+              <Text style={styles.emptyTitle}>
+                {Object.keys(activeFilters).length > 0 ? 'No Properties Match Your Filters' : 'No Properties Found'}
+              </Text>
+              <Text style={styles.emptySubtitle}>
+                {Object.keys(activeFilters).length > 0 
+                  ? 'Try adjusting your filters or clear them to see all properties'
+                  : 'Try adjusting your search or check back later'
+                }
+              </Text>
+              {Object.keys(activeFilters).length > 0 && (
+                <Pressable
+                  style={styles.clearFiltersEmptyButton}
+                  onPress={() => {
+                    setActiveFilters({});
+                    setFilteredListings(ownerListings);
+                    console.log('🧹 Filters cleared from empty state');
+                  }}
+                >
+                  <Text style={styles.clearFiltersEmptyText}>Clear All Filters</Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>
@@ -1722,21 +1860,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
   },
   section: {
-    paddingHorizontal: 20,
-    marginBottom: 28,
-    marginTop: 24,
+    paddingHorizontal: 16, // Reduced from 20
+    marginBottom: 20, // Reduced from 28
+    marginTop: 16, // Reduced from 24
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
-    paddingBottom: 12,
+    marginBottom: 14, // Reduced from 18
+    paddingBottom: 10, // Reduced from 12
     borderBottomWidth: 2,
     borderBottomColor: '#E2E8F0',
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18, // Reduced from 20
     fontWeight: '700',
     color: '#1E293B',
     letterSpacing: 0.3,
@@ -1752,19 +1890,19 @@ const styles = StyleSheet.create({
   },
   featuredScrollWrapper: {
     width: '100%',
-    height: 320,
+    height: 280, // Reduced from 320
   },
   featuredScroll: {
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
+    marginHorizontal: -16, // Reduced from -20
+    paddingHorizontal: 16, // Reduced from 20
     flexGrow: 0,
     flexShrink: 0,
   },
   featuredCard: {
-    width: 260,
+    width: 240, // Reduced from 260
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    marginRight: 16,
+    marginRight: 12, // Reduced from 16
     shadowColor: '#1E3A8A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -1776,10 +1914,10 @@ const styles = StyleSheet.create({
   },
   featuredImage: {
     width: '100%',
-    height: 150,
+    height: 130, // Reduced from 150
   },
   featuredContent: {
-    padding: 14,
+    padding: 12, // Reduced from 14
   },
   featuredTitle: {
     fontSize: 15,
@@ -1819,7 +1957,7 @@ const styles = StyleSheet.create({
   propertyCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    marginBottom: 16,
+    marginBottom: 12, // Reduced from 16
     shadowColor: '#1E3A8A',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
@@ -1832,18 +1970,18 @@ const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
     width: '100%',
-    height: 180,
+    height: 160, // Reduced from 180
     overflow: 'hidden',
   },
   featuredImageContainer: {
     position: 'relative',
     width: '100%',
-    height: 180,
+    height: 130, // Reduced from 180
     overflow: 'hidden',
   },
   propertyImage: {
     width: '100%',
-    height: 180,
+    height: 160, // Reduced from 180
   },
   noImageContainer: {
     position: 'absolute',
@@ -1878,10 +2016,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   propertyContent: {
-    padding: 16,
+    padding: 14, // Reduced from 16
   },
   propertyTitle: {
-    fontSize: 17,
+    fontSize: 16, // Reduced from 17
     fontWeight: '700',
     color: '#1E293B',
     marginBottom: 4,
@@ -1895,16 +2033,16 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   propertyPrice: {
-    fontSize: 20,
+    fontSize: 18, // Reduced from 20
     fontWeight: '800',
     color: '#059669',
-    marginBottom: 12,
+    marginBottom: 10, // Reduced from 12
   },
   propertyDetails: {
     flexDirection: 'row',
-    gap: 16,
-    marginBottom: 14,
-    paddingVertical: 10,
+    gap: 12, // Reduced from 16
+    marginBottom: 12, // Reduced from 14
+    paddingVertical: 8, // Reduced from 10
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: '#E2E8F0',
@@ -1925,13 +2063,13 @@ const styles = StyleSheet.create({
   },
   propertyActions: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8, // Reduced from 10
   },
   messageButton: {
     flex: 1,
     backgroundColor: '#059669',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 10, // Reduced from 12
+    paddingHorizontal: 14, // Reduced from 16
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1952,8 +2090,8 @@ const styles = StyleSheet.create({
   viewButton: {
     flex: 1,
     backgroundColor: '#3B82F6',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 10, // Reduced from 12
+    paddingHorizontal: 14, // Reduced from 16
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1989,5 +2127,47 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     textAlign: 'center',
     lineHeight: 22,
+  },
+  filterStatusContainer: {
+    backgroundColor: '#F0F9FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E7FF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  filterStatusContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  filterStatusText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E40AF',
+    marginLeft: 8,
+  },
+  clearFiltersButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  clearFiltersText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  clearFiltersEmptyButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  clearFiltersEmptyText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

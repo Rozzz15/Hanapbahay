@@ -26,7 +26,7 @@ interface Message {
     isOwner: boolean;
 }
 
-export default function ChatRoomNew() {
+export default function OwnerChatRoom() {
     const router = useRouter();
     const { user } = useAuth();
     const { conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle } = useLocalSearchParams();
@@ -36,8 +36,8 @@ export default function ChatRoomNew() {
     const [sending, setSending] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
 
-    const displayName = ownerName || tenantName || 'Unknown';
-    const displayAvatar = ownerAvatar || tenantAvatar || '';
+    const displayName = tenantName || ownerName || 'Unknown';
+    const displayAvatar = tenantAvatar || ownerAvatar || '';
 
     const loadMessages = useCallback(async () => {
         if (!conversationId || !user?.id) return;

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, Image, Alert, Modal, Dimensions, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { Video, ResizeMode } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { ArrowLeft, MapPin, Bed, Bath, Star, Calendar, CheckCircle, X, ChevronLeft, ChevronRight, Play, Pause, MessageCircle } from 'lucide-react-native';
 // Removed video components import - functionality removed
 import { useAuth } from '@/context/AuthContext';
@@ -33,7 +33,26 @@ export default function PropertyPreviewScreen() {
   const [videoViewerVisible, setVideoViewerVisible] = useState(false);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-  const videoRef = useRef<Video>(null);
+  const videoRef = useRef<any>(null);
+  
+  // Initialize video player with safety checks - only after propertyData is loaded
+  const videoPlayer = useVideoPlayer(
+    (propertyData && propertyData.videos && propertyData.videos.length > 0 && propertyData.videos[currentVideoIndex]) 
+      ? propertyData.videos[currentVideoIndex] 
+      : '', 
+    (player) => {
+      player.loop = false;
+      player.muted = false;
+    }
+  );
+
+  // Update video player when video index changes
+  useEffect(() => {
+    if (videoPlayer && propertyData && propertyData.videos && propertyData.videos.length > 0 && propertyData.videos[currentVideoIndex]) {
+      videoPlayer.replace(propertyData.videos[currentVideoIndex]);
+      setIsVideoPlaying(false);
+    }
+  }, [currentVideoIndex, propertyData.videos, videoPlayer]);
   
   // Loading state for media (now handled in loadPropertyData)
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
@@ -468,7 +487,7 @@ const closeVideoViewer = () => {
 };
 
 const goToPreviousVideo = () => {
-  if (propertyData.videos && propertyData.videos.length > 0) {
+  if (propertyData && propertyData.videos && propertyData.videos.length > 0) {
     setCurrentVideoIndex((prev) => 
       prev === 0 ? propertyData.videos.length - 1 : prev - 1
     );
@@ -476,7 +495,7 @@ const goToPreviousVideo = () => {
 };
 
 const goToNextVideo = () => {
-  if (propertyData.videos && propertyData.videos.length > 0) {
+  if (propertyData && propertyData.videos && propertyData.videos.length > 0) {
     setCurrentVideoIndex((prev) =>
       prev === propertyData.videos.length - 1 ? 0 : prev + 1
     );
@@ -484,12 +503,12 @@ const goToNextVideo = () => {
 };
 
 const toggleVideoPlayback = async () => {
-  if (videoRef.current) {
+  if (videoPlayer) {
     if (isVideoPlaying) {
-      await videoRef.current.pauseAsync();
+      videoPlayer.pause();
       setIsVideoPlaying(false);
     } else {
-      await videoRef.current.playAsync();
+      videoPlayer.play();
       setIsVideoPlaying(true);
     }
   }
@@ -537,8 +556,11 @@ const toggleVideoPlayback = async () => {
 
 
 
-  // Keyboard navigation
+  // Keyboard navigation (web only)
   useEffect(() => {
+    // Only add keyboard listeners on web platform
+    if (Platform.OS !== 'web') return;
+
     const handleKeyPress = (e: KeyboardEvent) => {
       if (!photoViewerVisible) return;
       
@@ -628,7 +650,7 @@ const toggleVideoPlayback = async () => {
               <View style={styles.ratingBadge}>
                 <Star size={14} color="#F59E0B" fill="#F59E0B" />
                 <Text style={styles.ratingText}>
-                  {calculatedRating > 0 ? calculatedRating.toFixed(1) : 'No ratings'} {calculatedRating > 0 && <Text style={styles.ratingCount}>({totalReviews})</Text>}
+                  {calculatedRating > 0 ? calculatedRating.toFixed(1) : 'No ratings'}{calculatedRating > 0 && ` (${totalReviews})`}
                 </Text>
               </View>
               
@@ -900,7 +922,7 @@ const toggleVideoPlayback = async () => {
           )}
 
           {/* Enhanced Video Gallery with Thumbnails - Same Style as Photos */}
-          {propertyData.videos && propertyData.videos.length > 0 ? (
+          {propertyData && propertyData.videos && propertyData.videos.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>
                 🎥 Property Videos ({propertyData.videos.length})
@@ -925,14 +947,10 @@ const toggleVideoPlayback = async () => {
                     onPress={() => openVideoViewer(index)}
                     activeOpacity={0.7}
                   >
-                    <Video
-                      source={{ uri: video }}
+                    <Image
+                      source={{ uri: video || '' }}
                       style={styles.videoThumbnailImage}
-                      resizeMode={ResizeMode.COVER}
-                      shouldPlay={false}
-                      isMuted={true}
-                      useNativeControls={false}
-                      positionMillis={1000}
+                      resizeMode="cover"
                     />
                     <View style={styles.videoThumbnailOverlay}>
                       <View style={styles.videoPlayIconCircle}>
@@ -1026,7 +1044,7 @@ const toggleVideoPlayback = async () => {
       {/* Professional Photo Viewer Modal */}
       <Modal
         visible={photoViewerVisible}
-        transparent={true}
+        transparent={false}
         animationType="fade"
         presentationStyle="fullScreen"
         onRequestClose={closePhotoViewer}
@@ -1101,10 +1119,10 @@ const toggleVideoPlayback = async () => {
       </Modal>
 
       {/* Video Player Modal */}
-      {videoViewerVisible && propertyData.videos && propertyData.videos.length > 0 && (
+      {videoViewerVisible && propertyData && propertyData.videos && propertyData.videos.length > 0 && propertyData.videos[currentVideoIndex] && (
         <Modal
           visible={videoViewerVisible}
-          transparent={true}
+          transparent={false}
           animationType="fade"
           presentationStyle="fullScreen"
           onRequestClose={closeVideoViewer}
@@ -1128,18 +1146,13 @@ const toggleVideoPlayback = async () => {
             </View>
 
             <View style={styles.videoModalContent}>
-              <Video
-                ref={videoRef}
-                source={{ uri: propertyData.videos[currentVideoIndex] }}
+              <VideoView
+                player={videoPlayer}
                 style={styles.videoPlayer}
-                useNativeControls={false}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={isVideoPlaying}
-                onPlaybackStatusUpdate={(status: any) => {
-                  if (status.isLoaded) {
-                    setIsVideoPlaying(status.isPlaying);
-                  }
-                }}
+                nativeControls={false}
+                contentFit="contain"
+                fullscreenOptions={{}}
+                allowsPictureInPicture={false}
               />
             </View>
               

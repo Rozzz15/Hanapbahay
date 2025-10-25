@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { View, Text, Image, StyleSheet, TouchableOpacity, Dimensions, SafeAreaView } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 

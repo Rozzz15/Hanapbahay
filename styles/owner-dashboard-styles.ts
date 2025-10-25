@@ -101,7 +101,8 @@ export const sharedStyles = StyleSheet.create({
   } as ViewStyle,
   
   pageContainer: {
-    padding: designTokens.spacing['2xl'],
+    padding: designTokens.spacing.lg, // Reduced from 2xl (24) to lg (16)
+    paddingBottom: designTokens.spacing.xl, // Add extra bottom padding for navigation
   } as ViewStyle,
   
   scrollView: {
@@ -113,7 +114,7 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: designTokens.spacing['3xl'],
+    marginBottom: designTokens.spacing.xl, // Reduced from 3xl (32) to xl (20)
   } as ViewStyle,
   
   headerLeft: {
@@ -121,7 +122,7 @@ export const sharedStyles = StyleSheet.create({
   } as ViewStyle,
   
   pageTitle: {
-    fontSize: designTokens.typography['3xl'],
+    fontSize: designTokens.typography['2xl'], // Reduced from 3xl (32) to 2xl (24)
     fontWeight: designTokens.typography.bold,
     color: designTokens.colors.textPrimary,
     marginBottom: designTokens.spacing.xs,
@@ -184,49 +185,49 @@ export const sharedStyles = StyleSheet.create({
   
   // Section Styles
   section: {
-    marginBottom: designTokens.spacing['3xl'],
+    marginBottom: designTokens.spacing.xl, // Reduced from 3xl (32) to xl (20)
   } as ViewStyle,
   
   sectionTitle: {
-    fontSize: designTokens.typography.xl,
+    fontSize: designTokens.typography.lg, // Reduced from xl (20) to lg (18)
     fontWeight: designTokens.typography.bold,
     color: designTokens.colors.textPrimary,
-    marginBottom: designTokens.spacing.lg,
+    marginBottom: designTokens.spacing.md, // Reduced from lg (16) to md (12)
   } as TextStyle,
   
   // Grid Styles - 2x2 grid layout
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: designTokens.spacing.md,
+    gap: designTokens.spacing.sm, // Reduced from md (12) to sm (8)
     justifyContent: 'space-between',
   } as ViewStyle,
   
   gridItem: {
-    width: (width - 80) / 2, // 2 columns with proper spacing
-    marginBottom: designTokens.spacing.md,
+    width: (width - 48) / 2, // Reduced from 80 to 48 for better mobile fit
+    marginBottom: designTokens.spacing.sm, // Reduced from md (12) to sm (8)
   } as ViewStyle,
   
   // Stat Card Styles - 2x2 grid cards
   statCard: {
     backgroundColor: designTokens.colors.white,
-    padding: designTokens.spacing.xl,
+    padding: designTokens.spacing.lg, // Reduced from xl (20) to lg (16)
     borderRadius: designTokens.borderRadius.lg,
     ...designTokens.shadows.md,
     borderWidth: 1,
     borderColor: designTokens.colors.border,
-    minHeight: 120,
+    minHeight: 100, // Reduced from 120
     width: '100%',
   } as ViewStyle,
   
   statIconContainer: {
-    marginBottom: designTokens.spacing.md,
+    marginBottom: designTokens.spacing.sm, // Reduced from md (12) to sm (8)
   } as ViewStyle,
   
   statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32, // Reduced from 40
+    height: 32, // Reduced from 40
+    borderRadius: 16, // Reduced from 20
     justifyContent: 'center',
     alignItems: 'center',
   } as ViewStyle,
@@ -239,7 +240,7 @@ export const sharedStyles = StyleSheet.create({
   } as TextStyle,
   
   statValue: {
-    fontSize: designTokens.typography['2xl'],
+    fontSize: designTokens.typography.xl, // Reduced from 2xl (24) to xl (20)
     fontWeight: designTokens.typography.bold,
     color: designTokens.colors.textPrimary,
     marginBottom: designTokens.spacing.xs,
@@ -252,14 +253,14 @@ export const sharedStyles = StyleSheet.create({
   
   // List Styles
   list: {
-    gap: designTokens.spacing.lg,
+    gap: designTokens.spacing.md, // Reduced from lg (16) to md (12)
   } as ViewStyle,
   
   listItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: designTokens.colors.white,
-    padding: designTokens.spacing.lg,
+    padding: designTokens.spacing.md, // Reduced from lg (16) to md (12)
     borderRadius: designTokens.borderRadius.lg,
     ...designTokens.shadows.md,
     borderWidth: 1,
