@@ -72,6 +72,8 @@ export interface DbUserRecord {
   address: string;
   role: 'tenant' | 'owner';
   roles?: string[]; // Array format for AuthContext compatibility
+  gender?: 'male' | 'female';
+  familyType?: 'individual' | 'family';
   createdAt: string;
 }
 
@@ -82,6 +84,8 @@ export interface TenantProfileRecord {
   contactNumber: string;
   email: string;
   address: string;
+  gender?: 'male' | 'female';
+  familyType?: 'individual' | 'family';
   preferences?: {
     budget?: {
       min: number;

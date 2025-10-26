@@ -9,11 +9,14 @@ import {
     Image, 
     Alert,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    Animated,
+    Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
@@ -24,6 +27,10 @@ interface Message {
     senderId: string;
     createdAt: string;
     isOwner: boolean;
+    type?: 'message' | 'image' | 'inquiry' | 'booking_request';
+    imageUri?: string;
+    imageWidth?: number;
+    imageHeight?: number;
 }
 
 export default function OwnerChatRoom() {
@@ -34,13 +41,53 @@ export default function OwnerChatRoom() {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    const [participantInfo, setParticipantInfo] = useState<{
+        otherParticipantName: string;
+        otherParticipantAvatar: string;
+    }>({
+        otherParticipantName: Array.isArray(tenantName) ? tenantName[0] : (tenantName || Array.isArray(ownerName) ? ownerName[0] : (ownerName || 'Unknown')),
+        otherParticipantAvatar: Array.isArray(tenantAvatar) ? tenantAvatar[0] : (tenantAvatar || Array.isArray(ownerAvatar) ? ownerAvatar[0] : (ownerAvatar || ''))
+    });
     const scrollViewRef = useRef<ScrollView>(null);
 
-    const displayName = tenantName || ownerName || 'Unknown';
-    const displayAvatar = tenantAvatar || ownerAvatar || '';
+    const loadParticipantInfo = useCallback(async () => {
+        if (!conversationId || !user?.id) return;
+
+        try {
+            // Get conversation to find the other participant
+            const conversation = await db.get('conversations', conversationId as string);
+            if (!conversation) return;
+
+            // Find the other participant (not the current user)
+            const otherParticipantId = conversation.participantIds?.find((id: string) => id !== user.id) || 
+                                     (conversation.ownerId === user.id ? conversation.tenantId : conversation.ownerId);
+
+            if (otherParticipantId) {
+                // Get the other participant's details from users table
+                const otherParticipant = await db.get('users', otherParticipantId);
+                if (otherParticipant) {
+                    const participantName = (otherParticipant as any).name || 
+                                         (otherParticipant as any).businessName || 
+                                         'Unknown User';
+                    const participantAvatar = (otherParticipant as any).profilePhoto || '';
+
+                    setParticipantInfo({
+                        otherParticipantName: participantName,
+                        otherParticipantAvatar: participantAvatar
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Error loading participant info:', error);
+        }
+    }, [conversationId, user?.id]);
 
     const loadMessages = useCallback(async () => {
-        if (!conversationId || !user?.id) return;
+        if (!conversationId || !user?.id) {
+            setLoading(false);
+            return;
+        }
 
         try {
             setLoading(true);
@@ -67,7 +114,11 @@ export default function OwnerChatRoom() {
                 text: msg.text || '',
                 senderId: msg.senderId || msg.sender_id || '',
                 createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
-                isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId
+                isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId,
+                type: msg.type || 'message',
+                imageUri: msg.imageUri || msg.image_uri,
+                imageWidth: msg.imageWidth || msg.image_width,
+                imageHeight: msg.imageHeight || msg.image_height
             }));
 
             setMessages(uiMessages);
@@ -80,14 +131,199 @@ export default function OwnerChatRoom() {
         } catch (error) {
             console.error('❌ Error loading messages:', error);
             showAlert('Error', 'Failed to load messages');
+            setMessages([]); // Clear messages on error
         } finally {
             setLoading(false);
         }
     }, [conversationId, user?.id]);
 
     useEffect(() => {
-        loadMessages();
-    }, [loadMessages]);
+        // Only load messages if we have the required parameters
+        if (conversationId && user?.id) {
+            loadParticipantInfo();
+            loadMessages();
+        } else {
+            setLoading(false);
+        }
+    }, [loadMessages, loadParticipantInfo, conversationId, user?.id]);
+
+    // Refresh messages when user returns to this screen
+    useFocusEffect(
+        useCallback(() => {
+            if (conversationId && user?.id) {
+                loadMessages();
+            }
+        }, [loadMessages, conversationId, user?.id])
+    );
+
+    const pickImage = async () => {
+        try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                showAlert('Permission Required', 'Please grant permission to access your photos');
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+            });
+
+            if (!result.canceled && result.assets[0]) {
+                await sendImageMessage(result.assets[0]);
+            }
+        } catch (error) {
+            console.error('❌ Error picking image:', error);
+            showAlert('Error', 'Failed to pick image');
+        }
+    };
+
+    const sendImageMessage = async (imageAsset: ImagePicker.ImagePickerAsset) => {
+        if (!conversationId || !user?.id || sending) {
+            return;
+        }
+
+        try {
+            setSending(true);
+            const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const now = new Date().toISOString();
+
+            // Create image message record
+            const messageRecord = {
+                id: messageId,
+                conversationId: conversationId,
+                senderId: user.id,
+                text: '', // Empty text for image messages
+                createdAt: now,
+                type: 'image',
+                imageUri: imageAsset.uri,
+                imageWidth: imageAsset.width,
+                imageHeight: imageAsset.height
+            };
+
+            // Save message to database
+            await db.upsert('messages', messageId, messageRecord);
+
+            // Update conversation with last message
+            let conversation = null;
+            let isCurrentUserOwner = false;
+            try {
+                conversation = await db.get('conversations', conversationId as string);
+                if (conversation) {
+                    const conversationOwnerId = conversation.ownerId || conversation.owner_id;
+                    isCurrentUserOwner = user.id === conversationOwnerId;
+                    
+                    await db.upsert('conversations', conversationId as string, {
+                        ...conversation,
+                        lastMessageText: '📷 Image',
+                        lastMessageAt: now,
+                        unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
+                        unreadByTenant: !isCurrentUserOwner ? (conversation.unreadByTenant || conversation.unread_by_tenant || 0) : ((conversation.unreadByTenant || conversation.unread_by_tenant || 0) + 1),
+                        updatedAt: now
+                    });
+                }
+            } catch (convError) {
+                console.error('Error updating conversation:', convError);
+            }
+
+            // Add message to local state
+            const newMsg: Message = {
+                id: messageId,
+                text: '',
+                senderId: user.id,
+                createdAt: now,
+                isOwner: isCurrentUserOwner,
+                type: 'image',
+                imageUri: imageAsset.uri,
+                imageWidth: imageAsset.width,
+                imageHeight: imageAsset.height
+            };
+
+            setMessages(prev => [...prev, newMsg]);
+
+            // Scroll to bottom
+            setTimeout(() => {
+                scrollViewRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+
+            console.log('✅ Image message sent successfully');
+        } catch (error) {
+            console.error('❌ Error sending image message:', error);
+            showAlert('Error', 'Failed to send image');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const deleteMessage = async (message: Message) => {
+        if (!message || !user?.id || message.senderId !== user.id) {
+            console.log('⚠️ Cannot delete message:', { 
+                hasMessage: !!message, 
+                userId: user?.id, 
+                messageSenderId: message?.senderId,
+                canDelete: message?.senderId === user?.id 
+            });
+            return;
+        }
+
+        try {
+            console.log('🔄 Deleting message:', message.id);
+            
+            // Remove message from database
+            await db.remove('messages', message.id);
+            
+            // Remove message from local state
+            setMessages(prev => prev.filter(msg => msg.id !== message.id));
+            
+            // Update conversation's last message if this was the last message
+            const remainingMessages = messages.filter(msg => msg.id !== message.id);
+            if (remainingMessages.length > 0) {
+                const lastMessage = remainingMessages[remainingMessages.length - 1];
+                const lastMessageText = lastMessage.type === 'image' ? '📷 Image' : lastMessage.text;
+                
+                try {
+                    const conversation = await db.get('conversations', conversationId as string);
+                    if (conversation) {
+                        await db.upsert('conversations', conversationId as string, {
+                            ...conversation,
+                            lastMessageText: lastMessageText,
+                            lastMessageAt: lastMessage.createdAt,
+                            updatedAt: new Date().toISOString()
+                        });
+                    }
+                } catch (convError) {
+                    console.error('Error updating conversation after deletion:', convError);
+                }
+            }
+            
+            setSelectedMessage(null);
+            console.log('✅ Message deleted successfully');
+        } catch (error) {
+            console.error('❌ Error deleting message:', error);
+            showAlert('Error', 'Failed to delete message');
+        }
+    };
+
+    const showDeleteConfirmation = (message: Message) => {
+        Alert.alert(
+            'Delete Message',
+            'Are you sure you want to delete this message? This action cannot be undone.',
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                    onPress: () => setSelectedMessage(null)
+                },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => deleteMessage(message)
+                }
+            ]
+        );
+    };
 
     const sendMessage = async () => {
         if (!newMessage.trim() || !conversationId || !user?.id || sending) return;
@@ -138,7 +374,8 @@ export default function OwnerChatRoom() {
                 text: newMessage.trim(),
                 senderId: user.id,
                 createdAt: now,
-                isOwner: isCurrentUserOwner
+                isOwner: isCurrentUserOwner,
+                type: 'message'
             };
 
             setMessages(prev => [...prev, newMsg]);
@@ -169,37 +406,44 @@ export default function OwnerChatRoom() {
 
     const renderMessage = (message: Message, index: number) => {
         const isOwner = message.isOwner;
-        const showAvatar = index === 0 || messages[index - 1].isOwner !== isOwner;
+        const isImageMessage = message.type === 'image' && message.imageUri;
+        const canDelete = user?.id === message.senderId;
 
         return (
-            <View key={message.id} style={styles.messageContainer}>
-                {showAvatar && (
-                    <View style={[styles.avatarContainer, isOwner ? styles.avatarRight : styles.avatarLeft]}>
-                        <View style={styles.avatar}>
-                            {displayAvatar ? (
-                                <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
-                            ) : (
-                                <Text style={styles.avatarText}>
-                                    {displayName.charAt(0).toUpperCase()}
-                                </Text>
-                            )}
+            <Animated.View key={message.id} style={[styles.messageContainer, isOwner ? styles.ownerMessageContainer : styles.tenantMessageContainer]}>
+                <TouchableOpacity
+                    style={[styles.messageBubble, isOwner ? styles.ownerMessage : styles.tenantMessage, isImageMessage && styles.imageMessageBubble]}
+                    onLongPress={() => {
+                        if (canDelete) {
+                            setSelectedMessage(message);
+                            showDeleteConfirmation(message);
+                        }
+                    }}
+                    delayLongPress={500}
+                    activeOpacity={canDelete ? 0.7 : 1}
+                >
+                    {isImageMessage ? (
+                        <View style={styles.imageContainer}>
+                            <Image 
+                                source={{ uri: message.imageUri }} 
+                                style={styles.messageImage}
+                                resizeMode="cover"
+                            />
                         </View>
-                    </View>
-                )}
-                
-                <View style={[styles.messageBubble, isOwner ? styles.ownerMessage : styles.tenantMessage]}>
-                    <Text style={[styles.messageText, isOwner ? styles.ownerMessageText : styles.tenantMessageText]}>
-                        {message.text}
-                    </Text>
+                    ) : (
+                        <Text style={[styles.messageText, isOwner ? styles.ownerMessageText : styles.tenantMessageText]}>
+                            {message.text}
+                        </Text>
+                    )}
                     <Text style={[styles.messageTime, isOwner ? styles.ownerMessageTime : styles.tenantMessageTime]}>
                         {formatTime(message.createdAt)}
                     </Text>
-                </View>
-            </View>
+                </TouchableOpacity>
+            </Animated.View>
         );
     };
 
-    if (loading) {
+    if (loading && messages.length === 0) {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
@@ -222,18 +466,18 @@ export default function OwnerChatRoom() {
                 
                 <View style={styles.headerInfo}>
                     <View style={styles.avatarContainer}>
-                        {displayAvatar ? (
-                            <Image source={{ uri: displayAvatar }} style={styles.headerAvatar} />
+                        {participantInfo.otherParticipantAvatar ? (
+                            <Image source={{ uri: participantInfo.otherParticipantAvatar }} style={styles.headerAvatar} />
                         ) : (
                             <View style={styles.headerAvatarFallback}>
                                 <Text style={styles.headerAvatarText}>
-                                    {displayName.charAt(0).toUpperCase()}
+                                    {participantInfo.otherParticipantName.charAt(0).toUpperCase()}
                                 </Text>
                             </View>
                         )}
                     </View>
                     <View style={styles.headerText}>
-                        <Text style={styles.headerName}>{displayName}</Text>
+                        <Text style={styles.headerName}>{participantInfo.otherParticipantName}</Text>
                         {propertyTitle && (
                             <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
                         )}
@@ -265,6 +509,17 @@ export default function OwnerChatRoom() {
                 {/* Message Input */}
                 <View style={styles.inputContainer}>
                     <View style={styles.inputWrapper}>
+                        <TouchableOpacity
+                            style={styles.imageButton}
+                            onPress={pickImage}
+                            disabled={sending}
+                        >
+                            <Ionicons 
+                                name="camera" 
+                                size={20} 
+                                color="#6B7280" 
+                            />
+                        </TouchableOpacity>
                         <TextInput
                             style={styles.textInput}
                             placeholder="Type a message..."
@@ -384,9 +639,14 @@ const styles = StyleSheet.create({
         marginTop: 12,
     },
     messageContainer: {
-        flexDirection: 'row',
         marginBottom: 8,
+        paddingHorizontal: 16,
+    },
+    ownerMessageContainer: {
         alignItems: 'flex-end',
+    },
+    tenantMessageContainer: {
+        alignItems: 'flex-start',
     },
     avatarLeft: {
         marginRight: 8,
@@ -421,12 +681,10 @@ const styles = StyleSheet.create({
     },
     ownerMessage: {
         backgroundColor: '#3B82F6',
-        alignSelf: 'flex-end',
         borderBottomRightRadius: 4,
     },
     tenantMessage: {
         backgroundColor: '#FFFFFF',
-        alignSelf: 'flex-start',
         borderBottomLeftRadius: 4,
         borderWidth: 1,
         borderColor: '#E5E7EB',
@@ -486,5 +744,41 @@ const styles = StyleSheet.create({
     },
     sendButtonDisabled: {
         backgroundColor: '#F3F4F6',
+    },
+    imageButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'transparent',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 8,
+    },
+    imageMessageBubble: {
+        paddingHorizontal: 8,
+        paddingVertical: 8,
+    },
+    imageContainer: {
+        borderRadius: 12,
+        overflow: 'hidden',
+    },
+    messageImage: {
+        width: 200,
+        height: 150,
+        borderRadius: 12,
+    },
+    deleteHint: {
+        position: 'absolute',
+        top: -20,
+        right: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    deleteHintText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '500',
     },
 });

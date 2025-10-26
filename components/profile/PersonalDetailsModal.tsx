@@ -218,6 +218,92 @@ const PersonalDetailsModal: React.FC<PersonalDetailsModalProps> = ({
                                     numberOfLines={3}
                                 />
                             </View>
+
+                            {/* Gender Selection */}
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Gender</Text>
+                                <View style={styles.radioGroup}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            tempDetails.gender === 'male' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setTempDetails({...tempDetails, gender: 'male'})}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            tempDetails.gender === 'male' && styles.radioCircleSelected
+                                        ]}>
+                                            {tempDetails.gender === 'male' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            tempDetails.gender === 'male' && styles.radioTextSelected
+                                        ]}>Male</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            tempDetails.gender === 'female' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setTempDetails({...tempDetails, gender: 'female'})}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            tempDetails.gender === 'female' && styles.radioCircleSelected
+                                        ]}>
+                                            {tempDetails.gender === 'female' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            tempDetails.gender === 'female' && styles.radioTextSelected
+                                        ]}>Female</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+
+                            {/* Family Type Selection */}
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Family Type</Text>
+                                <View style={styles.radioGroup}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            tempDetails.familyType === 'individual' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setTempDetails({...tempDetails, familyType: 'individual'})}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            tempDetails.familyType === 'individual' && styles.radioCircleSelected
+                                        ]}>
+                                            {tempDetails.familyType === 'individual' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            tempDetails.familyType === 'individual' && styles.radioTextSelected
+                                        ]}>Individual</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            tempDetails.familyType === 'family' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setTempDetails({...tempDetails, familyType: 'family'})}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            tempDetails.familyType === 'family' && styles.radioCircleSelected
+                                        ]}>
+                                            {tempDetails.familyType === 'family' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            tempDetails.familyType === 'family' && styles.radioTextSelected
+                                        ]}>Family</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
                         </View>
                     </View>
                 </ScrollView>
@@ -399,6 +485,52 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#111827',
         backgroundColor: '#FFFFFF',
+    },
+    radioGroup: {
+        flexDirection: 'row',
+        gap: 16,
+    },
+    radioOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        flex: 1,
+    },
+    radioOptionSelected: {
+        borderColor: '#10B981',
+        backgroundColor: '#F0FDF4',
+    },
+    radioCircle: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: '#D1D5DB',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    radioCircleSelected: {
+        borderColor: '#10B981',
+    },
+    radioInner: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#10B981',
+    },
+    radioText: {
+        fontSize: 16,
+        color: '#374151',
+        fontWeight: '500',
+    },
+    radioTextSelected: {
+        color: '#10B981',
     },
     modalFooter: {
         padding: 20,

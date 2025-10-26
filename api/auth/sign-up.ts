@@ -15,6 +15,8 @@ export const signUpSchema = z.object({
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(6, "Confirm password must be at least 6 characters"),
     role: z.enum(['tenant', 'owner']).default('tenant'),
+    gender: z.enum(['male', 'female']).optional(),
+    familyType: z.enum(['individual', 'family']).optional(),
 }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords must match",
     path: ["confirmPassword"],
@@ -51,6 +53,8 @@ export async function signUpUser(data: SignUpData) {
             email: data.email,
             phone: data.contactNumber,
             address: data.address,
+            gender: data.gender,
+            familyType: data.familyType,
             profilePhoto: null
         };
 
@@ -64,6 +68,8 @@ export async function signUpUser(data: SignUpData) {
             address: data.address || '',
             role: data.role,
             roles: [data.role], // Add roles array for AuthContext compatibility
+            gender: data.gender,
+            familyType: data.familyType,
             createdAt: now,
         };
         console.log('💾 Saving user record to database:', userRecord);
@@ -140,6 +146,8 @@ export async function signUpUser(data: SignUpData) {
                 contactNumber: data.contactNumber,
                 email: data.email,
                 address: data.address || '',
+                gender: data.gender,
+                familyType: data.familyType,
                 preferences: {
                     budget: { min: 0, max: 100000 },
                     location: [],

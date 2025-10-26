@@ -36,7 +36,9 @@ export default function SignUpScreen() {
         contactNumber: '',
         address: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        gender: '' as 'male' | 'female' | '',
+        familyType: '' as 'individual' | 'family' | ''
     });
     const [errors, setErrors] = useState({
         name: '',
@@ -44,7 +46,9 @@ export default function SignUpScreen() {
         contactNumber: '',
         address: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        gender: '',
+        familyType: ''
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -71,7 +75,9 @@ export default function SignUpScreen() {
             contactNumber: '',
             address: '',
             password: '',
-            confirmPassword: ''
+            confirmPassword: '',
+            gender: '',
+            familyType: ''
         };
         let isValid = true;
 
@@ -97,6 +103,18 @@ export default function SignUpScreen() {
         if (selectedRole === 'tenant' && !formData.address.trim()) {
             newErrors.address = 'Address is required';
             isValid = false;
+        }
+
+        // Gender and Family Type are required for tenants
+        if (selectedRole === 'tenant') {
+            if (!formData.gender) {
+                newErrors.gender = 'Gender is required';
+                isValid = false;
+            }
+            if (!formData.familyType) {
+                newErrors.familyType = 'Family type is required';
+                isValid = false;
+            }
         }
 
         if (!formData.password) {
@@ -387,6 +405,102 @@ export default function SignUpScreen() {
                                 </View>
                                 {errors.address && (
                                     <Text style={styles.errorText}>{errors.address}</Text>
+                                )}
+                            </View>
+                        )}
+
+                        {/* Gender Selection (for tenants only) */}
+                        {selectedRole === 'tenant' && (
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Gender</Text>
+                                <View style={styles.radioGroup}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            formData.gender === 'male' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setFormData(prev => ({ ...prev, gender: 'male' }))}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            formData.gender === 'male' && styles.radioCircleSelected
+                                        ]}>
+                                            {formData.gender === 'male' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            formData.gender === 'male' && styles.radioTextSelected
+                                        ]}>Male</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            formData.gender === 'female' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setFormData(prev => ({ ...prev, gender: 'female' }))}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            formData.gender === 'female' && styles.radioCircleSelected
+                                        ]}>
+                                            {formData.gender === 'female' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            formData.gender === 'female' && styles.radioTextSelected
+                                        ]}>Female</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                {errors.gender && (
+                                    <Text style={styles.errorText}>{errors.gender}</Text>
+                                )}
+                            </View>
+                        )}
+
+                        {/* Family Type Selection (for tenants only) */}
+                        {selectedRole === 'tenant' && (
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Family Type</Text>
+                                <View style={styles.radioGroup}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            formData.familyType === 'individual' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setFormData(prev => ({ ...prev, familyType: 'individual' }))}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            formData.familyType === 'individual' && styles.radioCircleSelected
+                                        ]}>
+                                            {formData.familyType === 'individual' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            formData.familyType === 'individual' && styles.radioTextSelected
+                                        ]}>Individual</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.radioOption,
+                                            formData.familyType === 'family' && styles.radioOptionSelected
+                                        ]}
+                                        onPress={() => setFormData(prev => ({ ...prev, familyType: 'family' }))}
+                                    >
+                                        <View style={[
+                                            styles.radioCircle,
+                                            formData.familyType === 'family' && styles.radioCircleSelected
+                                        ]}>
+                                            {formData.familyType === 'family' && <View style={styles.radioInner} />}
+                                        </View>
+                                        <Text style={[
+                                            styles.radioText,
+                                            formData.familyType === 'family' && styles.radioTextSelected
+                                        ]}>Family</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                {errors.familyType && (
+                                    <Text style={styles.errorText}>{errors.familyType}</Text>
                                 )}
                             </View>
                         )}
@@ -1130,6 +1244,52 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#10B981',
         fontWeight: '500',
+    },
+    radioGroup: {
+        flexDirection: 'row',
+        gap: 16,
+    },
+    radioOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        flex: 1,
+    },
+    radioOptionSelected: {
+        borderColor: '#10B981',
+        backgroundColor: '#F0FDF4',
+    },
+    radioCircle: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: '#D1D5DB',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    radioCircleSelected: {
+        borderColor: '#10B981',
+    },
+    radioInner: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#10B981',
+    },
+    radioText: {
+        fontSize: 16,
+        color: '#374151',
+        fontWeight: '500',
+    },
+    radioTextSelected: {
+        color: '#10B981',
     },
     securitySection: {
         marginBottom: 24,

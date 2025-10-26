@@ -9,14 +9,18 @@ import {
     Image, 
     Alert,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    Animated,
+    Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
+import { ConversationRecord, MessageRecord } from '@/types';
 
 interface Message {
     id: string;
@@ -24,51 +28,269 @@ interface Message {
     senderId: string;
     createdAt: string;
     isOwner: boolean;
+    type?: 'message' | 'image' | 'inquiry' | 'booking_request';
+    imageUri?: string;
+    imageWidth?: number;
+    imageHeight?: number;
 }
 
 export default function ChatRoomNew() {
     const router = useRouter();
     const { user } = useAuth();
-    const { conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle } = useLocalSearchParams();
+    
+    // Add try-catch around parameter destructuring
+    let conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle;
+    try {
+        const params = useLocalSearchParams();
+        conversationId = params.conversationId;
+        ownerName = params.ownerName;
+        tenantName = params.tenantName;
+        ownerAvatar = params.ownerAvatar;
+        tenantAvatar = params.tenantAvatar;
+        propertyTitle = params.propertyTitle;
+        console.log('✅ Parameters destructured successfully:', { conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle });
+    } catch (error) {
+        console.error('❌ Error destructuring parameters:', error);
+        conversationId = ownerName = tenantName = ownerAvatar = tenantAvatar = propertyTitle = undefined;
+    }
+    
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    
+    // Add try-catch around participantInfo initialization
+    let initialParticipantInfo;
+    try {
+        // Get the initial name with proper capitalization
+        const initialName = Array.isArray(ownerName) ? (ownerName[0] || 'Unknown') : (ownerName || Array.isArray(tenantName) ? (tenantName?.[0] || 'Unknown') : (tenantName || 'Unknown'));
+        
+        // Capitalize the initial name
+        const capitalizedInitialName = initialName
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+        
+        initialParticipantInfo = {
+            otherParticipantName: capitalizedInitialName,
+            otherParticipantAvatar: Array.isArray(ownerAvatar) ? (ownerAvatar[0] || '') : (ownerAvatar || Array.isArray(tenantAvatar) ? (tenantAvatar?.[0] || '') : (tenantAvatar || ''))
+        };
+        console.log('✅ Participant info initialized successfully:', initialParticipantInfo);
+    } catch (error) {
+        console.error('❌ Error initializing participant info:', error);
+        initialParticipantInfo = {
+            otherParticipantName: 'Unknown',
+            otherParticipantAvatar: ''
+        };
+    }
+    
+    const [participantInfo, setParticipantInfo] = useState<{
+        otherParticipantName: string;
+        otherParticipantAvatar: string;
+    }>(initialParticipantInfo);
+
+    // Add validation for required parameters
+    useEffect(() => {
+        try {
+            console.log('🔄 Validation useEffect triggered:', { conversationId, userId: user?.id });
+            
+            if (!conversationId) {
+                console.error('❌ No conversationId provided to ChatRoomNew');
+                showAlert('Error', 'Invalid conversation. Please try again.');
+                router.back();
+                return;
+            }
+            
+            if (!user?.id) {
+                console.error('❌ No user ID available in ChatRoomNew');
+                showAlert('Error', 'Please log in to access messages.');
+                router.push('/login');
+                return;
+            }
+            
+            console.log('✅ ChatRoomNew initialized with:', {
+                conversationId,
+                ownerName,
+                tenantName,
+                ownerAvatar,
+                tenantAvatar,
+                propertyTitle,
+                userId: user.id
+            });
+        } catch (error) {
+            console.error('❌ Error in validation useEffect:', error);
+        }
+    }, [conversationId, user?.id, router]);
     const scrollViewRef = useRef<ScrollView>(null);
 
-    const displayName = ownerName || tenantName || 'Unknown';
-    const displayAvatar = ownerAvatar || tenantAvatar || '';
+    const loadParticipantInfo = useCallback(async () => {
+        if (!conversationId || !user?.id) {
+            console.log('⚠️ Missing required parameters for loadParticipantInfo:', { conversationId, userId: user?.id });
+            return;
+        }
+
+        try {
+            // Get conversation to find the other participant
+            const conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
+            if (!conversation) {
+                console.error('❌ Conversation not found in loadParticipantInfo:', conversationId);
+                return;
+            }
+
+            // Find the other participant (not the current user)
+            const otherParticipantId = conversation.participantIds?.find(id => id !== user.id) || 
+                                     (conversation.ownerId === user.id ? conversation.tenantId : conversation.ownerId);
+
+            if (otherParticipantId) {
+                // Get the other participant's details from users table
+                const otherParticipant = await db.get('users', otherParticipantId);
+                if (otherParticipant) {
+                    // Prioritize business name over owner name, with proper capitalization
+                    const businessName = (otherParticipant as any).businessName;
+                    const ownerName = (otherParticipant as any).name;
+                    
+                    let participantName = 'Unknown User';
+                    if (businessName && businessName.trim()) {
+                        // Use business name if available
+                        participantName = businessName.trim();
+                    } else if (ownerName && ownerName.trim()) {
+                        // Fall back to owner name if no business name
+                        participantName = ownerName.trim();
+                    }
+                    
+                    // Capitalize the name properly
+                    participantName = participantName
+                        .split(' ')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ');
+                    
+                    const participantAvatar = (otherParticipant as any).profilePhoto || '';
+
+                    console.log('✅ Participant name determined:', {
+                        businessName,
+                        ownerName,
+                        finalName: participantName
+                    });
+
+                    setParticipantInfo({
+                        otherParticipantName: participantName,
+                        otherParticipantAvatar: participantAvatar
+                    });
+                } else {
+                    console.warn('⚠️ Other participant not found in users table:', otherParticipantId);
+                    // Use fallback name from URL parameters with proper capitalization
+                    const fallbackName = Array.isArray(ownerName) ? (ownerName[0] || 'Unknown') : (ownerName || Array.isArray(tenantName) ? (tenantName?.[0] || 'Unknown') : (tenantName || 'Unknown'));
+                    
+                    // Capitalize the fallback name
+                    const capitalizedFallbackName = fallbackName
+                        .split(' ')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ');
+                    
+                    setParticipantInfo({
+                        otherParticipantName: capitalizedFallbackName,
+                        otherParticipantAvatar: ''
+                    });
+                }
+            } else {
+                console.warn('⚠️ Could not determine other participant ID');
+                // Use fallback name from URL parameters with proper capitalization
+                const fallbackName = Array.isArray(ownerName) ? (ownerName[0] || 'Unknown') : (ownerName || Array.isArray(tenantName) ? (tenantName?.[0] || 'Unknown') : (tenantName || 'Unknown'));
+                
+                // Capitalize the fallback name
+                const capitalizedFallbackName = fallbackName
+                    .split(' ')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                    .join(' ');
+                
+                setParticipantInfo({
+                    otherParticipantName: capitalizedFallbackName,
+                    otherParticipantAvatar: ''
+                });
+            }
+        } catch (error) {
+            console.error('Error loading participant info:', error);
+            // Use fallback name from URL parameters with proper capitalization
+            const fallbackName = Array.isArray(ownerName) ? (ownerName[0] || 'Unknown') : (ownerName || Array.isArray(tenantName) ? (tenantName?.[0] || 'Unknown') : (tenantName || 'Unknown'));
+            
+            // Capitalize the fallback name
+            const capitalizedFallbackName = fallbackName
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+            
+            setParticipantInfo({
+                otherParticipantName: capitalizedFallbackName,
+                otherParticipantAvatar: ''
+            });
+        }
+    }, [conversationId, user?.id, ownerName, tenantName]);
 
     const loadMessages = useCallback(async () => {
-        if (!conversationId || !user?.id) return;
+        if (!conversationId || !user?.id) {
+            console.log('⚠️ Missing required parameters for loadMessages:', { conversationId, userId: user?.id });
+            setLoading(false);
+            return;
+        }
 
         try {
             setLoading(true);
             console.log('🔄 Loading messages for conversation:', conversationId);
 
             // Get all messages for this conversation
-            const allMessages = await db.list('messages');
-            const conversationMessages = allMessages.filter((msg: any) => 
-                msg.conversationId === conversationId
+            const allMessages = await db.list('messages') as MessageRecord[];
+            if (!Array.isArray(allMessages)) {
+                console.error('❌ Invalid messages data:', allMessages);
+                setMessages([]);
+                setLoading(false);
+                return;
+            }
+
+            const conversationMessages = allMessages.filter((msg: MessageRecord) => 
+                msg && msg.conversationId === conversationId
             );
 
             // Sort by creation time
-            conversationMessages.sort((a: any, b: any) => 
-                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
+            conversationMessages.sort((a: MessageRecord, b: MessageRecord) => {
+                const dateA = new Date(a.createdAt || a.created_at || new Date().toISOString()).getTime();
+                const dateB = new Date(b.createdAt || b.created_at || new Date().toISOString()).getTime();
+                return dateA - dateB;
+            });
 
             // Get conversation to determine owner
-            const conversation = await db.get('conversations', conversationId as string);
-            const conversationOwnerId = conversation?.ownerId || conversation?.owner_id;
+            const conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
+            if (!conversation) {
+                console.error('❌ Conversation not found:', conversationId);
+                showAlert('Error', 'Conversation not found');
+                setMessages([]);
+                setLoading(false);
+                return;
+            }
+
+            const conversationOwnerId = conversation.ownerId || conversation.owner_id;
             
-            // Convert to UI format
-            const uiMessages: Message[] = conversationMessages.map((msg: any) => ({
-                id: msg.id,
-                text: msg.text || '',
-                senderId: msg.senderId || msg.sender_id || '',
-                createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
-                isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId
-            }));
+            // Convert to UI format with proper null checks
+            const uiMessages: Message[] = conversationMessages
+                .map((msg: MessageRecord) => {
+                    if (!msg) {
+                        console.warn('⚠️ Invalid message record:', msg);
+                        return null;
+                    }
+                    
+                    return {
+                        id: msg.id || '',
+                        text: msg.text || '',
+                        senderId: msg.senderId || msg.sender_id || '',
+                        createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
+                        isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId,
+                        type: (msg.type || 'message') as 'message' | 'image' | 'inquiry' | 'booking_request',
+                        imageUri: msg.imageUri || msg.image_uri,
+                        imageWidth: msg.imageWidth || msg.image_width,
+                        imageHeight: msg.imageHeight || msg.image_height
+                    };
+                })
+                .filter((msg): msg is NonNullable<typeof msg> => msg !== null) as Message[];
 
             setMessages(uiMessages);
             console.log(`✅ Loaded ${uiMessages.length} messages`);
@@ -80,30 +302,241 @@ export default function ChatRoomNew() {
         } catch (error) {
             console.error('❌ Error loading messages:', error);
             showAlert('Error', 'Failed to load messages');
+            setMessages([]); // Clear messages on error
         } finally {
             setLoading(false);
         }
     }, [conversationId, user?.id]);
 
     useEffect(() => {
-        loadMessages();
-    }, [loadMessages]);
+        try {
+            console.log('🔄 useEffect triggered:', { conversationId, userId: user?.id });
+            // Only load messages if we have the required parameters
+            if (conversationId && user?.id) {
+                loadParticipantInfo();
+                loadMessages();
+            } else {
+                console.log('⚠️ Missing required parameters, setting loading to false');
+                setLoading(false);
+            }
+        } catch (error) {
+            console.error('❌ Error in useEffect:', error);
+            setLoading(false);
+        }
+    }, [loadMessages, loadParticipantInfo, conversationId, user?.id]);
 
-    const sendMessage = async () => {
-        if (!newMessage.trim() || !conversationId || !user?.id || sending) return;
+    // Refresh messages when user returns to this screen
+    useFocusEffect(
+        useCallback(() => {
+            if (conversationId && user?.id) {
+                loadMessages();
+            }
+        }, [loadMessages, conversationId, user?.id])
+    );
+
+    const pickImage = async () => {
+        try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                showAlert('Permission Required', 'Please grant permission to access your photos');
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+            });
+
+            if (!result.canceled && result.assets[0]) {
+                await sendImageMessage(result.assets[0]);
+            }
+        } catch (error) {
+            console.error('❌ Error picking image:', error);
+            showAlert('Error', 'Failed to pick image');
+        }
+    };
+
+    const sendImageMessage = async (imageAsset: ImagePicker.ImagePickerAsset) => {
+        if (!conversationId || !user?.id || sending) {
+            return;
+        }
 
         try {
             setSending(true);
             const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const now = new Date().toISOString();
 
-            // Create message record
-            const messageRecord = {
+            // Create image message record
+            const messageRecord: MessageRecord = {
                 id: messageId,
-                conversationId: conversationId,
+                conversationId: conversationId as string,
+                senderId: user.id,
+                text: '', // Empty text for image messages
+                createdAt: now,
+                readBy: [user.id],
+                type: 'image',
+                imageUri: imageAsset.uri,
+                imageWidth: imageAsset.width,
+                imageHeight: imageAsset.height
+            };
+
+            // Save message to database
+            await db.upsert('messages', messageId, messageRecord);
+
+            // Update conversation with last message
+            let conversation: ConversationRecord | null = null;
+            let isCurrentUserOwner = false;
+            try {
+                conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
+                if (conversation) {
+                    const conversationOwnerId = conversation.ownerId || conversation.owner_id;
+                    isCurrentUserOwner = user.id === conversationOwnerId;
+                    
+                    await db.upsert('conversations', conversationId as string, {
+                        ...conversation,
+                        lastMessageText: '📷 Image',
+                        lastMessageAt: now,
+                        unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
+                        unreadByTenant: !isCurrentUserOwner ? (conversation.unreadByTenant || conversation.unread_by_tenant || 0) : ((conversation.unreadByTenant || conversation.unread_by_tenant || 0) + 1),
+                        updatedAt: now
+                    });
+                }
+            } catch (convError) {
+                console.error('Error updating conversation:', convError);
+            }
+
+            // Add message to local state
+            const newMsg: Message = {
+                id: messageId,
+                text: '',
+                senderId: user.id,
+                createdAt: now,
+                isOwner: isCurrentUserOwner,
+                type: 'image',
+                imageUri: imageAsset.uri,
+                imageWidth: imageAsset.width,
+                imageHeight: imageAsset.height
+            };
+
+            setMessages(prev => [...prev, newMsg]);
+
+            // Scroll to bottom
+            setTimeout(() => {
+                scrollViewRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+
+            console.log('✅ Image message sent successfully');
+        } catch (error) {
+            console.error('❌ Error sending image message:', error);
+            showAlert('Error', 'Failed to send image');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const deleteMessage = async (message: Message) => {
+        if (!message || !user?.id || message.senderId !== user.id) {
+            console.log('⚠️ Cannot delete message:', { 
+                hasMessage: !!message, 
+                userId: user?.id, 
+                messageSenderId: message?.senderId,
+                canDelete: message?.senderId === user?.id 
+            });
+            return;
+        }
+
+        try {
+            console.log('🔄 Deleting message:', message.id);
+            
+            // Remove message from database
+            await db.remove('messages', message.id);
+            
+            // Remove message from local state
+            setMessages(prev => prev.filter(msg => msg.id !== message.id));
+            
+            // Update conversation's last message if this was the last message
+            const remainingMessages = messages.filter(msg => msg.id !== message.id);
+            if (remainingMessages.length > 0) {
+                const lastMessage = remainingMessages[remainingMessages.length - 1];
+                const lastMessageText = lastMessage.type === 'image' ? '📷 Image' : lastMessage.text;
+                
+                try {
+                    const conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
+                    if (conversation) {
+                        await db.upsert('conversations', conversationId as string, {
+                            ...conversation,
+                            lastMessageText: lastMessageText,
+                            lastMessageAt: lastMessage.createdAt,
+                            updatedAt: new Date().toISOString()
+                        });
+                    }
+                } catch (convError) {
+                    console.error('Error updating conversation after deletion:', convError);
+                }
+            }
+            
+            setSelectedMessage(null);
+            console.log('✅ Message deleted successfully');
+        } catch (error) {
+            console.error('❌ Error deleting message:', error);
+            showAlert('Error', 'Failed to delete message');
+        }
+    };
+
+    const showDeleteConfirmation = (message: Message) => {
+        Alert.alert(
+            'Delete Message',
+            'Are you sure you want to delete this message? This action cannot be undone.',
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                    onPress: () => setSelectedMessage(null)
+                },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => deleteMessage(message)
+                }
+            ]
+        );
+    };
+
+    const sendMessage = async () => {
+        try {
+            console.log('🔄 sendMessage called:', { 
+                hasNewMessage: !!newMessage, 
+                newMessageLength: newMessage?.length || 0,
+                conversationId, 
+                userId: user?.id, 
+                sending 
+            });
+            
+            if (!newMessage || !newMessage.trim() || !conversationId || !user?.id || sending) {
+                console.log('⚠️ sendMessage early return:', { 
+                    noMessage: !newMessage, 
+                    noTrim: !newMessage?.trim(), 
+                    noConvId: !conversationId, 
+                    noUserId: !user?.id, 
+                    sending 
+                });
+                return;
+            }
+
+            setSending(true);
+            const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const now = new Date().toISOString();
+
+            // Create message record
+            const messageRecord: MessageRecord = {
+                id: messageId,
+                conversationId: conversationId as string,
                 senderId: user.id,
                 text: newMessage.trim(),
                 createdAt: now,
+                readBy: [user.id], // Initialize with sender as having read the message
                 type: 'message'
             };
 
@@ -111,10 +544,10 @@ export default function ChatRoomNew() {
             await db.upsert('messages', messageId, messageRecord);
 
             // Update conversation with last message
-            let conversation = null;
+            let conversation: ConversationRecord | null = null;
             let isCurrentUserOwner = false;
             try {
-                conversation = await db.get('conversations', conversationId as string);
+                conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
                 if (conversation) {
                     const conversationOwnerId = conversation.ownerId || conversation.owner_id;
                     isCurrentUserOwner = user.id === conversationOwnerId;
@@ -138,7 +571,8 @@ export default function ChatRoomNew() {
                 text: newMessage.trim(),
                 senderId: user.id,
                 createdAt: now,
-                isOwner: isCurrentUserOwner
+                isOwner: isCurrentUserOwner,
+                type: 'message'
             };
 
             setMessages(prev => [...prev, newMsg]);
@@ -168,48 +602,63 @@ export default function ChatRoomNew() {
     };
 
     const renderMessage = (message: Message, index: number) => {
+        // Add defensive checks for message and array access
+        if (!message || !message.id) {
+            console.warn('⚠️ Invalid message in renderMessage:', message);
+            return null;
+        }
+
         const isOwner = message.isOwner;
-        const showAvatar = index === 0 || messages[index - 1].isOwner !== isOwner;
+        const isImageMessage = message.type === 'image' && message.imageUri;
+        const canDelete = user?.id === message.senderId;
 
         return (
-            <View key={message.id} style={styles.messageContainer}>
-                {showAvatar && (
-                    <View style={[styles.avatarContainer, isOwner ? styles.avatarRight : styles.avatarLeft]}>
-                        <View style={styles.avatar}>
-                            {displayAvatar ? (
-                                <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
-                            ) : (
-                                <Text style={styles.avatarText}>
-                                    {displayName.charAt(0).toUpperCase()}
-                                </Text>
-                            )}
+            <Animated.View key={message.id} style={[styles.messageContainer, isOwner ? styles.ownerMessageContainer : styles.tenantMessageContainer]}>
+                <TouchableOpacity
+                    style={[styles.messageBubble, isOwner ? styles.ownerMessage : styles.tenantMessage, isImageMessage && styles.imageMessageBubble]}
+                    onLongPress={() => {
+                        if (canDelete) {
+                            setSelectedMessage(message);
+                            showDeleteConfirmation(message);
+                        }
+                    }}
+                    delayLongPress={500}
+                    activeOpacity={canDelete ? 0.7 : 1}
+                >
+                    {isImageMessage ? (
+                        <View style={styles.imageContainer}>
+                            <Image 
+                                source={{ uri: message.imageUri }} 
+                                style={styles.messageImage}
+                                resizeMode="cover"
+                            />
                         </View>
-                    </View>
-                )}
-                
-                <View style={[styles.messageBubble, isOwner ? styles.ownerMessage : styles.tenantMessage]}>
-                    <Text style={[styles.messageText, isOwner ? styles.ownerMessageText : styles.tenantMessageText]}>
-                        {message.text}
-                    </Text>
+                    ) : (
+                        <Text style={[styles.messageText, isOwner ? styles.ownerMessageText : styles.tenantMessageText]}>
+                            {message.text || ''}
+                        </Text>
+                    )}
                     <Text style={[styles.messageTime, isOwner ? styles.ownerMessageTime : styles.tenantMessageTime]}>
-                        {formatTime(message.createdAt)}
+                        {formatTime(message.createdAt || new Date().toISOString())}
                     </Text>
-                </View>
-            </View>
+                </TouchableOpacity>
+            </Animated.View>
         );
     };
 
-    if (loading) {
-        return (
-            <SafeAreaView style={styles.container}>
-                <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Loading messages...</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
+    // Add error boundary for render
+    try {
+        if (loading && messages.length === 0) {
+            return (
+                <SafeAreaView style={styles.container}>
+                    <View style={styles.loadingContainer}>
+                        <Text style={styles.loadingText}>Loading messages...</Text>
+                    </View>
+                </SafeAreaView>
+            );
+        }
 
-    return (
+        return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
@@ -222,18 +671,18 @@ export default function ChatRoomNew() {
                 
                 <View style={styles.headerInfo}>
                     <View style={styles.avatarContainer}>
-                        {displayAvatar ? (
-                            <Image source={{ uri: displayAvatar }} style={styles.headerAvatar} />
+                        {participantInfo.otherParticipantAvatar ? (
+                            <Image source={{ uri: participantInfo.otherParticipantAvatar }} style={styles.headerAvatar} />
                         ) : (
                             <View style={styles.headerAvatarFallback}>
                                 <Text style={styles.headerAvatarText}>
-                                    {displayName.charAt(0).toUpperCase()}
+                                    {(participantInfo.otherParticipantName || 'Unknown').charAt(0).toUpperCase()}
                                 </Text>
                             </View>
                         )}
                     </View>
                     <View style={styles.headerText}>
-                        <Text style={styles.headerName}>{displayName}</Text>
+                        <Text style={styles.headerName}>{participantInfo.otherParticipantName || 'Unknown'}</Text>
                         {propertyTitle && (
                             <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
                         )}
@@ -258,19 +707,45 @@ export default function ChatRoomNew() {
                             <Text style={styles.emptyStateText}>Start a conversation</Text>
                         </View>
                     ) : (
-                        messages.map((message, index) => renderMessage(message, index))
+                        messages
+                            .filter((message, index) => {
+                                // Filter out invalid messages
+                                if (!message || !message.id) {
+                                    console.warn('⚠️ Filtering out invalid message at index', index, ':', message);
+                                    return false;
+                                }
+                                return true;
+                            })
+                            .map((message, index) => renderMessage(message, index))
                     )}
                 </ScrollView>
 
                 {/* Message Input */}
                 <View style={styles.inputContainer}>
                     <View style={styles.inputWrapper}>
+                        <TouchableOpacity
+                            style={styles.imageButton}
+                            onPress={pickImage}
+                            disabled={sending}
+                        >
+                            <Ionicons 
+                                name="camera" 
+                                size={20} 
+                                color="#6B7280" 
+                            />
+                        </TouchableOpacity>
                         <TextInput
                             style={styles.textInput}
                             placeholder="Type a message..."
                             placeholderTextColor="#9CA3AF"
-                            value={newMessage}
-                            onChangeText={setNewMessage}
+                            value={newMessage || ''}
+                            onChangeText={(text) => {
+                                try {
+                                    setNewMessage(text || '');
+                                } catch (error) {
+                                    console.error('❌ Error in onChangeText:', error);
+                                }
+                            }}
                             multiline
                             maxLength={1000}
                         />
@@ -282,14 +757,40 @@ export default function ChatRoomNew() {
                             <Ionicons 
                                 name="send" 
                                 size={20} 
-                                color={newMessage.trim() ? "#FFFFFF" : "#9CA3AF"} 
+                                color={(newMessage && newMessage.trim()) ? "#FFFFFF" : "#9CA3AF"} 
                             />
                         </TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
-    );
+        );
+    } catch (renderError) {
+        console.error('❌ Error during render:', renderError);
+        console.error('❌ Render error details:', {
+            conversationId,
+            messagesLength: messages.length,
+            participantInfo,
+            user: user?.id,
+            loading,
+            sending
+        });
+        
+        // Return error fallback UI
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.loadingContainer}>
+                    <Text style={styles.loadingText}>Error loading chat. Please try again.</Text>
+                    <TouchableOpacity 
+                        style={styles.backButton}
+                        onPress={() => router.back()}
+                    >
+                        <Text style={styles.loadingText}>Go Back</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 }
 
 const styles = StyleSheet.create({
@@ -384,16 +885,20 @@ const styles = StyleSheet.create({
         marginTop: 12,
     },
     messageContainer: {
-        flexDirection: 'row',
         marginBottom: 8,
+        paddingHorizontal: 16,
+    },
+    ownerMessageContainer: {
         alignItems: 'flex-end',
+    },
+    tenantMessageContainer: {
+        alignItems: 'flex-start',
     },
     avatarLeft: {
         marginRight: 8,
     },
     avatarRight: {
         marginLeft: 8,
-        order: 1,
     },
     avatar: {
         width: 32,
@@ -421,12 +926,10 @@ const styles = StyleSheet.create({
     },
     ownerMessage: {
         backgroundColor: '#3B82F6',
-        alignSelf: 'flex-end',
         borderBottomRightRadius: 4,
     },
     tenantMessage: {
         backgroundColor: '#FFFFFF',
-        alignSelf: 'flex-start',
         borderBottomLeftRadius: 4,
         borderWidth: 1,
         borderColor: '#E5E7EB',
@@ -486,5 +989,41 @@ const styles = StyleSheet.create({
     },
     sendButtonDisabled: {
         backgroundColor: '#F3F4F6',
+    },
+    imageButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'transparent',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 8,
+    },
+    imageMessageBubble: {
+        paddingHorizontal: 8,
+        paddingVertical: 8,
+    },
+    imageContainer: {
+        borderRadius: 12,
+        overflow: 'hidden',
+    },
+    messageImage: {
+        width: 200,
+        height: 150,
+        borderRadius: 12,
+    },
+    deleteHint: {
+        position: 'absolute',
+        top: -20,
+        right: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    deleteHintText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '500',
     },
 });

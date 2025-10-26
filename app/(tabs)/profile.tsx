@@ -76,6 +76,8 @@ const ProfileScreen = memo(function ProfileScreen() {
         email: '',
         phone: '+63',
         address: '',
+        gender: undefined as 'male' | 'female' | undefined,
+        familyType: undefined as 'individual' | 'family' | undefined,
         profilePhoto: null as string | null
     });
     
@@ -86,6 +88,8 @@ const ProfileScreen = memo(function ProfileScreen() {
         email: '',
         phone: '+63',
         address: '',
+        gender: undefined as 'male' | 'female' | undefined,
+        familyType: undefined as 'individual' | 'family' | undefined,
         profilePhoto: null as string | null
     });
     
@@ -197,6 +201,8 @@ const ProfileScreen = memo(function ProfileScreen() {
                 email: user.email || '',
                 phone: '+63',
                 address: '',
+                gender: undefined as 'male' | 'female' | undefined,
+                familyType: undefined as 'individual' | 'family' | undefined,
                 profilePhoto: null as string | null
             };
             
@@ -228,6 +234,8 @@ const ProfileScreen = memo(function ProfileScreen() {
                 email: user?.email || '',
                 phone: '+63',
                 address: '',
+                gender: undefined,
+                familyType: undefined,
                 profilePhoto: null
             };
             setPersonalDetails(fallbackDetails);

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, Image, Alert, Modal, Dimensions, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { VideoView, useVideoPlayer } from 'expo-video';
-import { ArrowLeft, MapPin, Bed, Bath, Star, Calendar, CheckCircle, X, ChevronLeft, ChevronRight, Play, Pause, MessageCircle } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Bed, Bath, Star, Calendar, CheckCircle, X, ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react-native';
+import { PropertyVideoPlayer, VideoGallery } from '@/components/video';
 // Removed video components import - functionality removed
 import { useAuth } from '@/context/AuthContext';
 import { db, clearCache } from '@/utils/db';
@@ -24,35 +24,18 @@ export default function PropertyPreviewScreen() {
   const [photoViewerVisible, setPhotoViewerVisible] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
+  // Video player state
+  const [videoPlayerVisible, setVideoPlayerVisible] = useState(false);
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
+  
   
   // Photo scroll state
   const [currentPhotoScrollIndex, setCurrentPhotoScrollIndex] = useState(0);
   const photoScrollRef = useRef<any>(null);
   
-  // Video player state
-  const [videoViewerVisible, setVideoViewerVisible] = useState(false);
-  const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-  const videoRef = useRef<any>(null);
   
-  // Initialize video player with safety checks - only after propertyData is loaded
-  const videoPlayer = useVideoPlayer(
-    (propertyData && propertyData.videos && propertyData.videos.length > 0 && propertyData.videos[currentVideoIndex]) 
-      ? propertyData.videos[currentVideoIndex] 
-      : '', 
-    (player) => {
-      player.loop = false;
-      player.muted = false;
-    }
-  );
 
-  // Update video player when video index changes
-  useEffect(() => {
-    if (videoPlayer && propertyData && propertyData.videos && propertyData.videos.length > 0 && propertyData.videos[currentVideoIndex]) {
-      videoPlayer.replace(propertyData.videos[currentVideoIndex]);
-      setIsVideoPlaying(false);
-    }
-  }, [currentVideoIndex, propertyData.videos, videoPlayer]);
+
   
   // Loading state for media (now handled in loadPropertyData)
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
@@ -181,8 +164,10 @@ export default function PropertyPreviewScreen() {
       console.log('📸 Loaded media:', {
         coverPhoto: !!media.coverPhoto,
         photosCount: media.photos.length,
-        videosCount: media.videos.length
+        videosCount: media.videos.length,
+        videos: media.videos
       });
+      
       
       // Fallback to listing data if no media found in separate tables
       const fallbackPhotos = Array.isArray(listing.photos) ? listing.photos : [];
@@ -191,8 +176,7 @@ export default function PropertyPreviewScreen() {
       
       console.log('📸 Fallback media from listing:', {
         coverPhoto: !!fallbackCoverPhoto,
-        photosCount: fallbackPhotos.length,
-        videosCount: fallbackVideos.length
+        photosCount: fallbackPhotos.length
       });
       
       // Update property data with actual listing data
@@ -471,48 +455,6 @@ const goToNextPhoto = () => {
   }
 };
 
-// Video player functions
-const openVideoViewer = (index: number) => {
-  setCurrentVideoIndex(index);
-  setVideoViewerVisible(true);
-  setIsVideoPlaying(true);
-};
-
-const closeVideoViewer = () => {
-  setVideoViewerVisible(false);
-  setIsVideoPlaying(false);
-  if (videoRef.current) {
-    videoRef.current.pauseAsync();
-  }
-};
-
-const goToPreviousVideo = () => {
-  if (propertyData && propertyData.videos && propertyData.videos.length > 0) {
-    setCurrentVideoIndex((prev) => 
-      prev === 0 ? propertyData.videos.length - 1 : prev - 1
-    );
-  }
-};
-
-const goToNextVideo = () => {
-  if (propertyData && propertyData.videos && propertyData.videos.length > 0) {
-    setCurrentVideoIndex((prev) =>
-      prev === propertyData.videos.length - 1 ? 0 : prev + 1
-    );
-  }
-};
-
-const toggleVideoPlayback = async () => {
-  if (videoPlayer) {
-    if (isVideoPlaying) {
-      videoPlayer.pause();
-      setIsVideoPlaying(false);
-    } else {
-      videoPlayer.play();
-      setIsVideoPlaying(true);
-    }
-  }
-};
 
 
   // Enhanced touch handlers for mobile swipe (photos)
@@ -632,7 +574,8 @@ const toggleVideoPlayback = async () => {
                   if (!imageUri && propertyData.photos && propertyData.photos.length > 0) {
                     imageUri = propertyData.photos[0];
                   }
-                  return imageUri;
+                  // Ensure we return a string, not an array
+                  return Array.isArray(imageUri) ? imageUri[0] : imageUri || '';
                 })()
               }}
               style={styles.heroImage}
@@ -921,55 +864,15 @@ const toggleVideoPlayback = async () => {
             </View>
           )}
 
-          {/* Enhanced Video Gallery with Thumbnails - Same Style as Photos */}
-          {propertyData && propertyData.videos && propertyData.videos.length > 0 ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                🎥 Property Videos ({propertyData.videos.length})
-              </Text>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                style={styles.videoScrollView}
-                contentContainerStyle={styles.videoScrollContent}
-                decelerationRate="fast"
-                snapToInterval={screenWidth * 0.6 + 16}
-                snapToAlignment="start"
-                pagingEnabled={false}
-                bounces={true}
-                alwaysBounceHorizontal={true}
-                scrollEventThrottle={16}
-              >
-                {propertyData.videos.map((video: string, index: number) => (
-                  <TouchableOpacity 
-                    key={index} 
-                    style={styles.videoThumbnailItem}
-                    onPress={() => openVideoViewer(index)}
-                    activeOpacity={0.7}
-                  >
-                    <Image
-                      source={{ uri: video || '' }}
-                      style={styles.videoThumbnailImage}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.videoThumbnailOverlay}>
-                      <View style={styles.videoPlayIconCircle}>
-                        <Play size={24} color="#FFFFFF" fill="#FFFFFF" />
-                      </View>
-                    </View>
-                    <View style={styles.videoThumbnailIndicator}>
-                      <Text style={styles.videoThumbnailIndicatorText}>{index + 1}/{propertyData.videos.length}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          ) : (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>🎥 Property Videos</Text>
-              <Text style={styles.descriptionText}>No videos available for this property.</Text>
-            </View>
-          )}
+          {/* Video Gallery */}
+          <VideoGallery 
+            videos={propertyData.videos}
+            onVideoPress={(index) => {
+              console.log('Opening video at index:', index, 'Video URL:', propertyData.videos[index]);
+              setCurrentVideoIndex(index);
+              setVideoPlayerVisible(true);
+            }}
+          />
 
           {/* Contact Info */}
           <View style={styles.contactCard}>
@@ -1001,13 +904,49 @@ const toggleVideoPlayback = async () => {
                   }
                   
                   try {
+                    console.log('💬 Starting conversation with owner from property preview:', propertyData.ownerUserId);
+                    
+                    // Check if ownerUserId is valid
+                    if (!propertyData.ownerUserId) {
+                      console.error('❌ No ownerUserId found in property data');
+                      Alert.alert('Error', 'Unable to identify property owner. Please try again.');
+                      return;
+                    }
+                    
+                    // Track inquiry
                     await trackListingInquiry(propertyData.id, user.id, 'message');
-                    const displayName = propertyData.businessName || propertyData.ownerName;
-                    router.push(`/chat-room?name=${displayName}&otherUserId=${propertyData.ownerUserId}&propertyId=${propertyData.id}&propertyTitle=${propertyData.title}`);
+                    
+                    // Get owner display name (business name or owner name)
+                    const ownerDisplayName = propertyData.businessName || propertyData.ownerName || 'Property Owner';
+                    
+                    // Import conversation utility
+                    const { createOrFindConversation } = await import('@/utils/conversation-utils');
+                    
+                    // Create or find conversation using utility
+                    const conversationId = await createOrFindConversation({
+                      ownerId: propertyData.ownerUserId,
+                      tenantId: user.id,
+                      ownerName: ownerDisplayName,
+                      tenantName: user.name || 'Tenant',
+                      propertyId: propertyData.id,
+                      propertyTitle: propertyData.title
+                    });
+                    
+                    console.log('✅ Created/found conversation:', conversationId);
+                    
+                    // Navigate to conversation with correct parameters
+                    router.push({
+                      pathname: '/chat-room',
+                      params: {
+                        conversationId: conversationId,
+                        ownerName: ownerDisplayName,
+                        ownerAvatar: '', // We don't have owner avatar in property data
+                        propertyTitle: propertyData.title
+                      }
+                    });
                   } catch (error) {
-                    console.error('Error tracking inquiry:', error);
-                    const displayName = propertyData.businessName || propertyData.ownerName;
-                    router.push(`/chat-room?name=${displayName}&otherUserId=${propertyData.ownerUserId}&propertyId=${propertyData.id}&propertyTitle=${propertyData.title}`);
+                    console.error('❌ Error starting conversation:', error);
+                    Alert.alert('Error', 'Failed to start conversation. Please try again.');
                   }
                 }}
               >
@@ -1118,91 +1057,13 @@ const toggleVideoPlayback = async () => {
         </View>
       </Modal>
 
-      {/* Video Player Modal */}
-      {videoViewerVisible && propertyData && propertyData.videos && propertyData.videos.length > 0 && propertyData.videos[currentVideoIndex] && (
-        <Modal
-          visible={videoViewerVisible}
-          transparent={false}
-          animationType="fade"
-          presentationStyle="fullScreen"
-          onRequestClose={closeVideoViewer}
-        >
-          <SafeAreaView style={styles.videoModalContainer}>
-            <View style={styles.videoModalHeader}>
-              <TouchableOpacity 
-                style={styles.videoModalCloseButton}
-                onPress={closeVideoViewer}
-              >
-                <X size={24} color="white" />
-              </TouchableOpacity>
-              
-              <View style={styles.videoModalCounter}>
-                <Text style={styles.videoModalCounterText}>
-                  {currentVideoIndex + 1} / {propertyData.videos.length}
-                </Text>
-              </View>
-              
-              <View style={styles.videoModalSpacer} />
-            </View>
-
-            <View style={styles.videoModalContent}>
-              <VideoView
-                player={videoPlayer}
-                style={styles.videoPlayer}
-                nativeControls={false}
-                contentFit="contain"
-                fullscreenOptions={{}}
-                allowsPictureInPicture={false}
-              />
-            </View>
-              
-              {/* Custom Video Controls */}
-              <View style={styles.videoControls}>
-                <TouchableOpacity 
-                  style={styles.videoControlButton}
-                  onPress={goToPreviousVideo}
-                  disabled={propertyData.videos.length <= 1}
-                >
-                  <ChevronLeft size={24} color="white" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.videoPlayButton}
-                  onPress={toggleVideoPlayback}
-                >
-                  {isVideoPlaying ? (
-                    <Pause size={32} color="white" />
-                  ) : (
-                    <Play size={32} color="white" />
-                  )}
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.videoControlButton}
-                  onPress={goToNextVideo}
-                  disabled={propertyData.videos.length <= 1}
-                >
-                  <ChevronRight size={24} color="white" />
-                </TouchableOpacity>
-              </View>
-
-            {/* Video Dots Indicator */}
-            {propertyData.videos.length > 1 && (
-              <View style={styles.videoDotsContainer}>
-                {propertyData.videos.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.videoDot,
-                      index === currentVideoIndex && styles.videoDotActive
-                    ]}
-                  />
-                ))}
-              </View>
-            )}
-          </SafeAreaView>
-        </Modal>
-      )}
+      {/* Video Player */}
+      <PropertyVideoPlayer
+        videos={propertyData.videos}
+        visible={videoPlayerVisible}
+        onClose={() => setVideoPlayerVisible(false)}
+        initialIndex={currentVideoIndex}
+      />
 
         </SafeAreaView>
       </>
@@ -1712,183 +1573,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   modalDotActive: {
-    width: 36,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  videoScrollView: {
-    flexDirection: 'row',
-  },
-  videoScrollContent: {
-    paddingRight: 16,
-    paddingLeft: 4,
-  },
-  videoThumbnailItem: {
-    marginRight: 16,
-    position: 'relative',
-    width: 240,
-    height: 200,
-  },
-  videoThumbnailImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 16,
-    backgroundColor: '#000000',
-  },
-  videoThumbnailOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 16,
-  },
-  videoPlayIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(59, 130, 246, 0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 6,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  videoThumbnailIndicator: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  videoThumbnailIndicatorText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  videoModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-  },
-  videoModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    zIndex: 10,
-  },
-  videoModalCloseButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  videoModalCounter: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  videoModalCounterText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  videoModalSpacer: {
-    width: 40,
-  },
-  videoModalContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  videoPlayer: {
-    width: '100%',
-    height: '100%',
-    alignSelf: 'center',
-  },
-  videoControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    gap: 32,
-  },
-  videoControlButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  videoPlayButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  videoDotsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingBottom: 8,
-    gap: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  videoDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  videoDotActive: {
     width: 36,
     height: 10,
     borderRadius: 5,

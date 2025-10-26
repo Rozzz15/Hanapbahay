@@ -504,7 +504,6 @@ export default function BookNowScreen() {
       console.log('🔄 Creating booking with data:', bookingData);
 
       const booking = await createBooking(bookingData);
-
       console.log('✅ Booking created successfully:', booking.id);
       console.log('📊 Booking details:', {
         id: booking.id,

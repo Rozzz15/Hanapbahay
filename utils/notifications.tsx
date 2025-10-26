@@ -43,29 +43,30 @@ export const createNotification = (config: NotificationConfig) => {
     duration,
     render: ({ id }: { id: string }) => (
       <Toast 
-        nativeID={id} 
-        action={getActionType()}
-        className="shadow-xl border-0"
         style={{
-          position: 'fixed',
-          top: placement === 'top' ? 20 : 'auto',
-          bottom: placement === 'bottom' ? 20 : 'auto',
+          position: 'absolute',
+          top: placement === 'top' ? 20 : undefined,
+          bottom: placement === 'bottom' ? 20 : undefined,
           left: '50%',
-          transform: 'translateX(-50%)',
+          transform: [{ translateX: -150 }],
           zIndex: 9999,
-          maxWidth: '90vw',
-          width: 'auto',
-          minWidth: '300px',
-          borderRadius: '12px',
-          padding: '16px 20px',
+          maxWidth: 300,
+          width: '90%',
+          minWidth: 300,
+          borderRadius: 12,
+          padding: 16,
           backgroundColor: 'white',
-          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 8,
         }}
       >
-        <ToastTitle className="text-lg font-semibold text-gray-800 mb-1">
+        <ToastTitle style={{ fontSize: 18, fontWeight: '600', color: '#1F2937', marginBottom: 4 }}>
           {getIcon()} {title}
         </ToastTitle>
-        <ToastDescription className="text-sm text-gray-600 leading-relaxed">
+        <ToastDescription style={{ fontSize: 14, color: '#6B7280', lineHeight: 20 }}>
           {description}
         </ToastDescription>
       </Toast>

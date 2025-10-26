@@ -8,6 +8,8 @@ export interface PersonalDetails {
     email: string;
     phone: string;
     address: string;
+    gender?: 'male' | 'female';
+    familyType?: 'individual' | 'family';
     profilePhoto: string | null;
 }
 
@@ -19,6 +21,8 @@ export const useProfileData = () => {
         email: '',
         phone: '+63',
         address: '',
+        gender: undefined,
+        familyType: undefined,
         profilePhoto: null
     });
     const [tempPersonalDetails, setTempPersonalDetails] = useState<PersonalDetails>({
@@ -27,6 +31,8 @@ export const useProfileData = () => {
         email: '',
         phone: '+63',
         address: '',
+        gender: undefined,
+        familyType: undefined,
         profilePhoto: null
     });
     const [isLoading, setIsLoading] = useState(false);
@@ -93,6 +99,8 @@ export const useProfileData = () => {
                 const finalDetails = {
                     ...parsedData,
                     email: parsedData.email || '',
+                    gender: parsedData.gender,
+                    familyType: parsedData.familyType,
                     profilePhoto: finalPhotoUri
                 };
                 
@@ -162,6 +170,8 @@ export const useProfileData = () => {
                     email: userData?.email || '',
                     phone: userData?.phone || '+63',
                     address: userData?.address || '',
+                    gender: userData?.gender,
+                    familyType: userData?.familyType,
                     profilePhoto: profilePhoto
                 };
                 
@@ -181,6 +191,8 @@ export const useProfileData = () => {
                 email: '',
                 phone: '+63',
                 address: '',
+                gender: undefined,
+                familyType: undefined,
                 profilePhoto: null
             };
             setPersonalDetails(fallbackDetails);
