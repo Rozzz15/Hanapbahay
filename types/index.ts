@@ -133,6 +133,9 @@ export interface ConversationRecord {
   unreadByTenant?: number;
   lastReadByOwner?: string;
   lastReadByTenant?: string;
+  // Property information
+  propertyId?: string;
+  propertyTitle?: string;
   // Legacy field support for backward compatibility
   owner_id?: string;
   tenant_id?: string;
@@ -145,6 +148,7 @@ export interface ConversationRecord {
   unread_by_tenant?: number;
   last_read_by_owner?: string;
   last_read_by_tenant?: string;
+  property_id?: string;
 }
 
 export interface MessageRecord {

@@ -20,12 +20,13 @@ import {
   CreditCard, 
   LogOut,
   Plus,
-  Eye
-  // DollarSign, // Replaced with peso symbol ₱
+  Eye,
+  User
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import { Image } from '../../components/ui/image';
+import TenantInfoModal from '../../components/TenantInfoModal';
 
 // Types are now imported from owner-dashboard.ts
 
@@ -44,6 +45,13 @@ export default function OwnerDashboard() {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [messages, setMessages] = useState<OwnerMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState<{
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+  } | null>(null);
 
   // Check authentication
   useEffect(() => {
@@ -201,13 +209,37 @@ export default function OwnerDashboard() {
     if (!user?.id) return;
 
     try {
-      const success = await updateBookingStatus(bookingId, action);
+      const status = action === 'approve' ? 'approved' : 'rejected';
+      const success = await updateBookingStatus(bookingId, status, user.id);
 
       if (success) {
         showAlert(
           'Success', 
           `Booking ${action === 'approve' ? 'approved' : 'rejected'} successfully`
         );
+
+        // Get booking details to send notification
+        const booking = bookings.find(b => b.id === bookingId);
+        if (booking) {
+          // Send notification message to tenant with payment details
+          const { sendBookingApprovalNotification, sendBookingRejectionNotification } = await import('../../utils/booking-notifications');
+          
+          if (action === 'approve') {
+            await sendBookingApprovalNotification(
+              bookingId,
+              user.id,
+              booking.tenantId,
+              booking.propertyTitle
+            );
+          } else {
+            await sendBookingRejectionNotification(
+              bookingId,
+              user.id,
+              booking.tenantId,
+              booking.propertyTitle
+            );
+          }
+        }
 
         // Reload bookings and stats
         loadBookings();
@@ -254,6 +286,21 @@ export default function OwnerDashboard() {
         }
       ]
     );
+  };
+
+  const handleViewTenantInfo = (booking: BookingRecord) => {
+    setSelectedTenant({
+      id: booking.tenantId,
+      name: booking.tenantName,
+      email: booking.tenantEmail,
+      phone: booking.tenantPhone
+    });
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+    setSelectedTenant(null);
   };
 
   const renderOverview = () => (
@@ -602,7 +649,16 @@ export default function OwnerDashboard() {
                   <Text style={[sharedStyles.statLabel, { marginBottom: 4, fontSize: designTokens.typography.lg }]}>
                     {booking.propertyTitle}
                   </Text>
-                  <Text style={sharedStyles.statSubtitle}>Tenant: {booking.tenantName}</Text>
+                  <TouchableOpacity 
+                    onPress={() => handleViewTenantInfo(booking)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}
+                  >
+                    <Text style={sharedStyles.statSubtitle}>Tenant: {booking.tenantName} </Text>
+                    <View style={{ backgroundColor: designTokens.colors.infoLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                      <User size={12} color={designTokens.colors.info} />
+                    </View>
+                  </TouchableOpacity>
                   <Text style={sharedStyles.statSubtitle}>{booking.tenantEmail}</Text>
                   <Text style={sharedStyles.statSubtitle}>{booking.tenantPhone}</Text>
                 </View>
@@ -785,6 +841,18 @@ export default function OwnerDashboard() {
       <ScrollView style={sharedStyles.scrollView}>
         {renderContent()}
       </ScrollView>
+
+      {/* Tenant Info Modal */}
+      {selectedTenant && (
+        <TenantInfoModal
+          visible={modalVisible}
+          tenantId={selectedTenant.id}
+          tenantName={selectedTenant.name}
+          tenantEmail={selectedTenant.email}
+          tenantPhone={selectedTenant.phone}
+          onClose={closeModal}
+        />
+      )}
     </View>
   );
 }

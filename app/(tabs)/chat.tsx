@@ -68,7 +68,21 @@ export default function TenantMessages() {
                         const ownerRecord = await db.get('users', ownerId);
                         if (ownerRecord) {
                             ownerName = (ownerRecord as any).name || ownerName;
-                            ownerAvatar = (ownerRecord as any).profilePhoto || '';
+                            
+                            // Load profile photo from user_profile_photos table
+                            try {
+                                const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                                const photoUri = await loadUserProfilePhoto(ownerId);
+                                if (photoUri) {
+                                    ownerAvatar = photoUri;
+                                    console.log('✅ Loaded owner profile photo for:', ownerId);
+                                    console.log('📸 Photo URI type:', typeof photoUri, 'starts with:', photoUri.substring(0, 50));
+                                } else {
+                                    console.log('⚠️ No profile photo found for owner:', ownerId);
+                                }
+                            } catch (photoError) {
+                                console.log('⚠️ Could not load owner profile photo:', photoError);
+                            }
                         }
 
                         // Get property title if available

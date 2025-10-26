@@ -33,7 +33,17 @@ export async function createOrFindConversation(data: CreateConversationData): Pr
                              (conv.participantIds?.includes(ownerId) && 
                               conv.participantIds?.includes(tenantId));
       
-      return (tenantMatch && ownerMatch) || participantMatch;
+      const isMatchingConversation = (tenantMatch && ownerMatch) || participantMatch;
+      
+      // If propertyId is provided, optionally match by property as well
+      if (isMatchingConversation && propertyId) {
+        const convPropertyId = conv.propertyId || conv.property_id;
+        // If both have propertyId, they should match
+        // If one doesn't have propertyId, still match (for backward compatibility)
+        return convPropertyId === undefined || convPropertyId === propertyId || convPropertyId === '';
+      }
+      
+      return isMatchingConversation;
     });
 
     if (existingConversation) {
@@ -55,7 +65,9 @@ export async function createOrFindConversation(data: CreateConversationData): Pr
       unreadByOwner: 0,
       unreadByTenant: 0,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      ...(propertyId && { propertyId }),
+      ...(propertyTitle && { propertyTitle })
     };
 
     console.log('💬 Creating new conversation:', conversationData);

@@ -8,11 +8,13 @@ import {
     TouchableOpacity, 
     Image, 
     Alert,
-    StyleSheet 
+    StyleSheet,
+    KeyboardAvoidingView,
+    Keyboard,
+    Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Platform } from 'react-native';
 import { PersonalDetails } from '../../hooks/useProfileData';
 
 interface PersonalDetailsModalProps {
@@ -94,15 +96,29 @@ const PersonalDetailsModal: React.FC<PersonalDetailsModalProps> = ({
             animationType="slide" 
             presentationStyle="pageSheet"
         >
-            <View style={styles.modalContainer}>
+            <KeyboardAvoidingView 
+                style={styles.modalContainer}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            >
                 <View style={styles.modalHeader}>
                     <Text style={styles.modalTitle}>Personal Details</Text>
-                    <TouchableOpacity onPress={onClose}>
+                    <TouchableOpacity onPress={() => {
+                        Keyboard.dismiss();
+                        onClose();
+                    }}>
                         <Ionicons name="close" size={24} color="#6B7280" />
                     </TouchableOpacity>
                 </View>
-                <ScrollView style={styles.modalContent}>
-                    <View style={styles.modalForm}>
+                <ScrollView 
+                    style={styles.modalContent}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    <TouchableOpacity 
+                        activeOpacity={1} 
+                        onPress={Keyboard.dismiss}
+                    >
+                        <View style={styles.modalForm}>
                         {/* Profile Photo Section */}
                         <View style={styles.photoSection}>
                             <View style={styles.photoSectionHeader}>
@@ -305,7 +321,8 @@ const PersonalDetailsModal: React.FC<PersonalDetailsModalProps> = ({
                                 </View>
                             </View>
                         </View>
-                    </View>
+                        </View>
+                    </TouchableOpacity>
                 </ScrollView>
                 
                 <View style={styles.modalFooter}>
@@ -316,7 +333,7 @@ const PersonalDetailsModal: React.FC<PersonalDetailsModalProps> = ({
                         <Text style={styles.saveButtonText}>Save Changes</Text>
                     </TouchableOpacity>
                 </View>
-            </View>
+            </KeyboardAvoidingView>
         </Modal>
     );
 };

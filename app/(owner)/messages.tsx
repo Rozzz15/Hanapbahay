@@ -13,10 +13,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
+import TenantInfoModal from '@/components/TenantInfoModal';
 
 interface Conversation {
     id: string;
@@ -38,6 +40,8 @@ export default function OwnerMessages() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedTenant, setSelectedTenant] = useState<Conversation | null>(null);
+    const [isModalVisible, setIsModalVisible] = useState(false);
 
     const loadConversations = useCallback(async () => {
         if (!user?.id) return;
@@ -59,16 +63,72 @@ export default function OwnerMessages() {
                 ownerConversations.map(async (conv: any) => {
                     const tenantId = conv.tenantId || conv.participantIds?.find((id: string) => id !== user.id);
                     
+                    console.log('🔍 Processing conversation tenant:', {
+                        conversationId: conv.id,
+                        tenantId: tenantId,
+                        hasTenantId: !!tenantId
+                    });
+                    
                     // Get tenant details
                     let tenantName = 'Unknown Tenant';
                     let tenantAvatar = '';
                     let propertyTitle = '';
 
                     try {
-                        const tenantRecord = await db.get('users', tenantId);
-                        if (tenantRecord) {
-                            tenantName = (tenantRecord as any).name || tenantName;
-                            tenantAvatar = (tenantRecord as any).profilePhoto || '';
+                        if (!tenantId) {
+                            console.warn('⚠️ No tenantId found for conversation:', conv.id);
+                        } else {
+                            const tenantRecord = await db.get('users', tenantId);
+                            if (tenantRecord) {
+                                tenantName = (tenantRecord as any).name || tenantName;
+                                console.log('✅ Found tenant record:', tenantName);
+                                
+                                // Load profile photo from user_profile_photos table
+                                try {
+                                    const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                                    const photoUri = await loadUserProfilePhoto(tenantId);
+                                    if (photoUri && photoUri.trim() !== '') {
+                                        tenantAvatar = photoUri;
+                                        console.log('✅ Loaded tenant profile photo for:', tenantId, tenantName);
+                                        console.log('📸 Photo URI starts with:', photoUri.substring(0, 50));
+                                    } else {
+                                        console.log('⚠️ No profile photo found for tenant:', tenantId, tenantName, '- will show initial letter');
+                                    }
+                                } catch (photoError) {
+                                    console.error('❌ Error loading tenant profile photo:', photoError);
+                                }
+                            } else {
+                                console.warn('⚠️ Tenant record not found for ID:', tenantId);
+                            }
+                        }
+                        
+                        // If still no avatar loaded, try to get from user_profile_photos again with better error handling
+                        if (!tenantAvatar && tenantId) {
+                            try {
+                                // Query database directly to get user profile photos
+                                const allUserPhotos = await db.list('user_profile_photos');
+                                console.log('🔍 All user photos count:', allUserPhotos.length);
+                                
+                                const tenantPhoto = allUserPhotos.find((photo: any) => {
+                                    const photoUserId = photo.userId || photo.userid || '';
+                                    return photoUserId === tenantId && photo.photoData && photo.photoData.trim() !== '';
+                                });
+                                
+                                if (tenantPhoto) {
+                                    const photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
+                                    if (photoData) {
+                                        // Ensure proper data URI format
+                                        if (photoData.startsWith('data:')) {
+                                            tenantAvatar = photoData;
+                                        } else if (photoData.trim() !== '') {
+                                            tenantAvatar = `data:${tenantPhoto.mimeType || 'image/jpeg'};base64,${photoData}`;
+                                        }
+                                        console.log('✅ Found and formatted tenant photo from database');
+                                    }
+                                }
+                            } catch (error) {
+                                console.log('⚠️ Could not query photos directly:', error);
+                            }
                         }
 
                         // Get property title if available
@@ -145,12 +205,16 @@ export default function OwnerMessages() {
     const handleChatPress = async (conversation: Conversation) => {
         // Mark as read
         try {
-            await db.upsert('conversations', conversation.id, {
-                ...conversation,
-                unreadByOwner: 0,
-                lastReadByOwner: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            });
+            // Get the existing conversation from the database
+            const existingConv = await db.get('conversations', conversation.id);
+            if (existingConv) {
+                await db.upsert('conversations', conversation.id, {
+                    ...existingConv,
+                    unreadByOwner: 0,
+                    lastReadByOwner: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
+            }
 
             // Update local state
             setConversations(prev => prev.map(c => 
@@ -193,7 +257,9 @@ export default function OwnerMessages() {
                             );
                             
                             for (const message of conversationMessages) {
-                                await db.remove('messages', message.id);
+                                if ((message as any).id) {
+                                    await db.remove('messages', (message as any).id);
+                                }
                             }
 
                             // Update local state
@@ -208,6 +274,16 @@ export default function OwnerMessages() {
                 }
             ]
         );
+    };
+
+    const handleAvatarPress = (conversation: Conversation) => {
+        setSelectedTenant(conversation);
+        setIsModalVisible(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalVisible(false);
+        setSelectedTenant(null);
     };
 
     const formatTime = (timeString?: string) => {
@@ -303,12 +379,24 @@ export default function OwnerMessages() {
                                 >
                                     <View style={styles.conversationContent}>
                                         {/* Avatar */}
-                                        <View style={styles.avatarContainer}>
+                                        <TouchableOpacity 
+                                            style={styles.avatarContainer}
+                                            onPress={() => handleAvatarPress(conversation)}
+                                            activeOpacity={0.7}
+                                        >
                                             <View style={styles.avatar}>
-                                                {conversation.tenantAvatar ? (
+                                                {conversation.tenantAvatar && conversation.tenantAvatar.trim() !== '' ? (
                                                     <Image 
                                                         source={{ uri: conversation.tenantAvatar }} 
                                                         style={styles.avatarImage}
+                                                        onLoad={() => {
+                                                            console.log('✅ Successfully loaded avatar image for:', conversation.tenantName);
+                                                        }}
+                                                        onError={(error) => {
+                                                            console.log('❌ Error loading image for tenant:', conversation.tenantName);
+                                                            console.log('❌ Error details:', error);
+                                                            console.log('❌ Avatar URI:', conversation.tenantAvatar?.substring(0, 100));
+                                                        }}
                                                     />
                                                 ) : (
                                                     <Text style={styles.avatarText}>
@@ -323,7 +411,7 @@ export default function OwnerMessages() {
                                                     </View>
                                                 )}
                                             </View>
-                                        </View>
+                                        </TouchableOpacity>
                                         
                                         {/* Message Content */}
                                         <View style={styles.messageContent}>
@@ -364,6 +452,18 @@ export default function OwnerMessages() {
                     )}
                 </View>
             </ScrollView>
+
+            {/* Tenant Info Modal */}
+            {selectedTenant && (
+                <TenantInfoModal
+                    visible={isModalVisible}
+                    tenantId={selectedTenant.tenantId}
+                    tenantName={selectedTenant.tenantName}
+                    tenantEmail=""
+                    tenantPhone=""
+                    onClose={handleCloseModal}
+                />
+            )}
         </SafeAreaView>
     );
 }

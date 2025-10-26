@@ -9,9 +9,9 @@ export const signUpSchema = z.object({
     name: z.string().min(2, "Name must be at least 2 characters"),
     email: z.string().email("Invalid email address"),
     contactNumber: z.string()
-        .length(13, "Contact number must be exactly 10 digits")
+        .length(13, "Contact number must be exactly 13 characters with +63 prefix")
         .regex(/^\+63[0-9]{10}$/, "Contact number must be exactly 10 digits after +63"),
-    address: z.string().optional().or(z.literal('')),
+    address: z.string().optional(),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(6, "Confirm password must be at least 6 characters"),
     role: z.enum(['tenant', 'owner']).default('tenant'),

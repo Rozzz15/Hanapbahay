@@ -216,7 +216,17 @@ export const loadUserProfilePhoto = async (userId: string): Promise<string | nul
       });
       
       // Return photoData if available (for persistence), otherwise photoUri
-      return userPhoto.photoData || userPhoto.photoUri;
+      // If photoData is provided and doesn't already have a data URI prefix, add it
+      if (userPhoto.photoData) {
+        if (userPhoto.photoData.startsWith('data:')) {
+          return userPhoto.photoData;
+        } else {
+          // Add data URI prefix for base64 images
+          return `data:${userPhoto.mimeType || 'image/jpeg'};base64,${userPhoto.photoData}`;
+        }
+      }
+      
+      return userPhoto.photoUri;
     } else {
       console.log('📸 No profile photo found for user:', userId);
       return null;

@@ -115,7 +115,8 @@ Provides image optimization utilities for better performance.
 
 #### Usage:
 ```tsx
-import { optimizeImageUri, preloadImages, ImageLoadingMetrics } from '@/utils/image-optimization';
+import { optimizeImageUri, ImageLoadingMetrics } from '@/utils/image-optimization';
+import { ImagePreloader } from '@/utils/image-preloader';
 
 // Optimize image URI
 const optimized = optimizeImageUri(originalUri, {
@@ -124,8 +125,9 @@ const optimized = optimizeImageUri(originalUri, {
   quality: 0.8
 });
 
-// Preload images
-await preloadImages([uri1, uri2, uri3]);
+// Preload images using the ImagePreloader class
+const preloader = ImagePreloader.getInstance();
+await preloader.preloadImages([uri1, uri2, uri3]);
 
 // Get performance metrics
 const metrics = ImageLoadingMetrics.getInstance();

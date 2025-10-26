@@ -1,4 +1,5 @@
-import { ImageLoadingMetrics, preloadImages, batchOptimizeImages } from './image-optimization';
+import { ImageLoadingMetrics } from './image-optimization';
+import { Image } from 'react-native';
 
 export interface ImagePreloadConfig {
   maxConcurrent: number;
@@ -209,7 +210,7 @@ export class ImagePreloader {
         reject(new Error(`Image loading timeout: ${uri}`));
       }, this.config.timeout);
 
-      preloadImages([uri])
+      Image.prefetch(uri)
         .then(() => {
           clearTimeout(timeout);
           resolve();

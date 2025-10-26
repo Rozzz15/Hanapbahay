@@ -21,6 +21,7 @@ import { useAuth } from '@/context/AuthContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
 import { ConversationRecord, MessageRecord } from '@/types';
+import PaymentMethodsDisplay from '@/components/chat/PaymentMethodsDisplay';
 
 interface Message {
     id: string;
@@ -89,6 +90,8 @@ export default function ChatRoomNew() {
         otherParticipantName: string;
         otherParticipantAvatar: string;
     }>(initialParticipantInfo);
+    const [ownerId, setOwnerId] = useState<string | null>(null);
+    const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
 
     // Add validation for required parameters
     useEffect(() => {
@@ -138,6 +141,11 @@ export default function ChatRoomNew() {
                 return;
             }
 
+            // Store owner ID and determine if current user is owner
+            const conversationOwnerId = conversation.ownerId || conversation.owner_id;
+            setOwnerId(conversationOwnerId);
+            setIsCurrentUserOwner(user.id === conversationOwnerId);
+
             // Find the other participant (not the current user)
             const otherParticipantId = conversation.participantIds?.find(id => id !== user.id) || 
                                      (conversation.ownerId === user.id ? conversation.tenantId : conversation.ownerId);
@@ -165,7 +173,21 @@ export default function ChatRoomNew() {
                         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                         .join(' ');
                     
-                    const participantAvatar = (otherParticipant as any).profilePhoto || '';
+                    // Load profile photo from user_profile_photos table
+                    let participantAvatar = '';
+                    try {
+                        const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                        const photoUri = await loadUserProfilePhoto(otherParticipantId);
+                        if (photoUri) {
+                            participantAvatar = photoUri;
+                            console.log('✅ Loaded participant profile photo for:', otherParticipantId);
+                            console.log('📸 Photo URI type:', typeof photoUri, 'starts with:', photoUri.substring(0, 50));
+                        } else {
+                            console.log('⚠️ No profile photo found for participant:', otherParticipantId);
+                        }
+                    } catch (photoError) {
+                        console.log('⚠️ Could not load participant profile photo:', photoError);
+                    }
 
                     console.log('✅ Participant name determined:', {
                         businessName,
@@ -701,6 +723,9 @@ export default function ChatRoomNew() {
                     contentContainerStyle={styles.messagesContent}
                     showsVerticalScrollIndicator={false}
                 >
+                    {/* Payment Methods Display */}
+                    {ownerId && <PaymentMethodsDisplay ownerId={ownerId} isCurrentUserOwner={isCurrentUserOwner} />}
+                    
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>
                             <Ionicons name="chatbubbles-outline" size={48} color="#9CA3AF" />

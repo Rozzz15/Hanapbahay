@@ -58,8 +58,9 @@ export default function ListingsPage() {
       // Sanitize listing data to prevent text rendering errors
       const sanitizedListings = ownerListings.map((listing: any) => ({
         id: String(listing.id || ''),
+        userId: user.id,
         propertyType: String(listing.propertyType || 'Property'),
-        address: String(listing.address || ''),
+        address: String(listing.address || 'No address'),
         status: String(listing.status || 'draft'),
         businessName: listing.businessName ? String(listing.businessName) : '',
         ownerName: listing.ownerName ? String(listing.ownerName) : '',
@@ -68,7 +69,7 @@ export default function ListingsPage() {
         description: listing.description ? String(listing.description) : '',
         contactNumber: listing.contactNumber ? String(listing.contactNumber) : '',
         email: listing.email ? String(listing.email) : '',
-        amenities: Array.isArray(listing.amenities) ? listing.amenities.map(a => String(a || '')) : [],
+        amenities: Array.isArray(listing.amenities) ? listing.amenities.map((a: any) => String(a || '')) : [],
         monthlyRent: Number(listing.monthlyRent) || 0,
         bedrooms: Number(listing.bedrooms) || 0,
         bathrooms: Number(listing.bathrooms) || 0,
@@ -81,7 +82,7 @@ export default function ListingsPage() {
         updatedAt: String(listing.updatedAt || new Date().toISOString()),
         photos: Array.isArray(listing.photos) ? listing.photos : [],
         videos: Array.isArray(listing.videos) ? listing.videos : [],
-        coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : null
+        coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : ''
       }));
       
       setListings(sanitizedListings);
@@ -138,17 +139,18 @@ export default function ListingsPage() {
 
   const getPropertyTitle = (listing: any) => {
     if (listing.businessName) {
-      return `${listing.businessName}'s ${listing.propertyType}`;
+      return `${listing.businessName}'s ${listing.propertyType || 'Property'}`;
     }
     if (listing.ownerName) {
-      return `${listing.ownerName}'s ${listing.propertyType}`;
+      return `${listing.ownerName}'s ${listing.propertyType || 'Property'}`;
     }
-    return listing.propertyType;
+    return listing.propertyType || 'Property';
   };
 
   const getPropertyAddress = (listing: any) => {
     const title = getPropertyTitle(listing);
-    return `${title} in ${listing.address}`;
+    const address = listing.address || 'No address';
+    return `${title} in ${address}`;
   };
 
 
@@ -208,7 +210,7 @@ export default function ListingsPage() {
                   >
                     {/* Cover Photo */}
                     <View style={styles.imageContainer}>
-                      {listing.coverPhoto ? (
+                      {listing.coverPhoto && listing.coverPhoto !== '' ? (
                         <Image 
                           source={{ uri: listing.coverPhoto }} 
                           style={styles.coverImage}
@@ -238,11 +240,11 @@ export default function ListingsPage() {
                       <View style={styles.statsOverlay}>
                         <View style={styles.statItem}>
                           <Eye size={14} color="#FFFFFF" />
-                          <Text style={styles.statText}>{listing.views}</Text>
+                          <Text style={styles.statText}>{String(listing.views || 0)}</Text>
                         </View>
                         <View style={styles.statItem}>
                           <MessageSquare size={14} color="#FFFFFF" />
-                          <Text style={styles.statText}>{listing.inquiries}</Text>
+                          <Text style={styles.statText}>{String(listing.inquiries || 0)}</Text>
                         </View>
                       </View>
                     </View>
@@ -260,7 +262,7 @@ export default function ListingsPage() {
                         <View style={styles.locationRow}>
                           <MapPin size={14} color="#6B7280" />
                           <Text style={styles.locationText} numberOfLines={1}>
-                            {listing.address}
+                            {listing.address || 'No address'}
                           </Text>
                         </View>
                       </View>
@@ -270,11 +272,11 @@ export default function ListingsPage() {
                         <View style={styles.detailRow}>
                           <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>Bedrooms</Text>
-                            <Text style={styles.detailValue}>{listing.bedrooms}</Text>
+                            <Text style={styles.detailValue}>{String(listing.bedrooms || 0)}</Text>
                           </View>
                           <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>Bathrooms</Text>
-                            <Text style={styles.detailValue}>{listing.bathrooms}</Text>
+                            <Text style={styles.detailValue}>{String(listing.bathrooms || 0)}</Text>
                           </View>
                         </View>
                         
@@ -282,7 +284,7 @@ export default function ListingsPage() {
                         <View style={styles.rentalInfoRow}>
                           <View style={styles.rentalInfoItem}>
                             <Text style={styles.rentalTypeLabel}>Type:</Text>
-                            <Text style={styles.rentalTypeValue}>{listing.rentalType}</Text>
+                            <Text style={styles.rentalTypeValue}>{listing.rentalType || 'N/A'}</Text>
                           </View>
                           <View style={styles.rentalInfoItem}>
                             <Text style={styles.availabilityLabel}>Status:</Text>
@@ -290,7 +292,7 @@ export default function ListingsPage() {
                               styles.availabilityValue,
                               listing.availabilityStatus === 'Available' ? styles.availableStatus : styles.unavailableStatus
                             ]}>
-                              {listing.availabilityStatus}
+                              {listing.availabilityStatus || 'Available'}
                             </Text>
                           </View>
                         </View>
@@ -301,14 +303,14 @@ export default function ListingsPage() {
                         <View style={styles.priceInfo}>
                           <View>
                             <Text style={styles.priceAmount}>
-                              ₱{listing.monthlyRent.toLocaleString()}
+                              ₱{String((listing.monthlyRent || 0).toLocaleString())}
                             </Text>
                             <Text style={styles.priceLabel}>per month</Text>
                           </View>
-                          {listing.securityDeposit > 0 && (
+                          {listing.securityDeposit && listing.securityDeposit > 0 && (
                             <View style={styles.additionalCosts}>
                               <Text style={styles.additionalCostText}>
-                                Deposit: ₱{listing.securityDeposit.toLocaleString()}
+                                Deposit: ₱{(listing.securityDeposit || 0).toLocaleString()}
                               </Text>
                             </View>
                           )}

@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/toast';
 import { notifications } from '@/utils';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
+import { createOrFindConversation } from '@/utils/conversation-utils';
 
 export default function TenantBookings() {
   const router = useRouter();
@@ -400,15 +401,41 @@ export default function TenantBookings() {
                           Your booking has been approved! Please contact the property owner to discuss move-in details.
                         </Text>
                         <TouchableOpacity
-                          onPress={() => router.push({
-                            pathname: '/chat-room',
-                            params: {
-                              name: booking.ownerName,
-                              otherUserId: booking.ownerId,
-                              propertyId: booking.propertyId,
-                              propertyTitle: booking.propertyTitle
+                          onPress={async () => {
+                            if (!user?.id) {
+                              showAlert('Error', 'Please log in to message the owner.');
+                              return;
                             }
-                          })}
+
+                            try {
+                              console.log('💬 Starting conversation with owner from approved booking:', booking.ownerId);
+                              
+                              // Create or find conversation
+                              const conversationId = await createOrFindConversation({
+                                ownerId: booking.ownerId,
+                                tenantId: user.id,
+                                ownerName: booking.ownerName,
+                                tenantName: user.name || 'Tenant',
+                                propertyId: booking.propertyId,
+                                propertyTitle: booking.propertyTitle
+                              });
+
+                              console.log('✅ Created/found conversation:', conversationId);
+
+                              // Navigate to chat room with conversation ID
+                              router.push({
+                                pathname: '/chat-room',
+                                params: {
+                                  conversationId: conversationId,
+                                  ownerName: booking.ownerName,
+                                  propertyTitle: booking.propertyTitle
+                                }
+                              });
+                            } catch (error) {
+                              console.error('❌ Error starting conversation:', error);
+                              showAlert('Error', 'Failed to start conversation. Please try again.');
+                            }
+                          }}
                           style={styles.contactOwnerButton}
                         >
                           <Text style={styles.contactOwnerButtonText}>
@@ -461,15 +488,41 @@ export default function TenantBookings() {
                     {/* Message Owner Button - Only show for pending bookings */}
                     {booking.status === 'pending' && (
                       <TouchableOpacity
-                        onPress={() => router.push({
-                          pathname: '/chat-room',
-                          params: {
-                            name: booking.ownerName,
-                            otherUserId: booking.ownerId,
-                            propertyId: booking.propertyId,
-                            propertyTitle: booking.propertyTitle
+                        onPress={async () => {
+                          if (!user?.id) {
+                            showAlert('Error', 'Please log in to message the owner.');
+                            return;
                           }
-                        })}
+
+                          try {
+                            console.log('💬 Starting conversation with owner from booking:', booking.ownerId);
+                            
+                            // Create or find conversation
+                            const conversationId = await createOrFindConversation({
+                              ownerId: booking.ownerId,
+                              tenantId: user.id,
+                              ownerName: booking.ownerName,
+                              tenantName: user.name || 'Tenant',
+                              propertyId: booking.propertyId,
+                              propertyTitle: booking.propertyTitle
+                            });
+
+                            console.log('✅ Created/found conversation:', conversationId);
+
+                            // Navigate to chat room with conversation ID
+                            router.push({
+                              pathname: '/chat-room',
+                              params: {
+                                conversationId: conversationId,
+                                ownerName: booking.ownerName,
+                                propertyTitle: booking.propertyTitle
+                              }
+                            });
+                          } catch (error) {
+                            console.error('❌ Error starting conversation:', error);
+                            showAlert('Error', 'Failed to start conversation. Please try again.');
+                          }
+                        }}
                         style={styles.messageButton}
                       >
                         <Ionicons name="chatbubble" size={16} color="#3B82F6" />

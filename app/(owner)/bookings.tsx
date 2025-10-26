@@ -7,6 +7,9 @@ import { useAuth } from '../../context/AuthContext';
 import { getBookingsByOwner, updateBookingStatus, getStatusColor, getStatusIcon } from '@/utils/booking';
 import { BookingRecord } from '@/types';
 import { showAlert } from '../../utils/alert';
+import TenantInfoModal from '../../components/TenantInfoModal';
+import { createOrFindConversation } from '@/utils/conversation-utils';
+import { db } from '@/utils/db';
 
 export default function BookingsPage() {
   const { user, signOut } = useAuth();
@@ -14,6 +17,13 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState<{
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+  } | null>(null);
 
   const loadBookings = async () => {
     if (!user?.id) return;
@@ -89,6 +99,29 @@ export default function BookingsPage() {
           `Booking ${action === 'approve' ? 'approved' : 'rejected'} successfully`
         );
         
+        // Get booking details to send notification
+        const booking = bookings.find(b => b.id === bookingId);
+        if (booking) {
+          // Send notification message to tenant with payment details
+          const { sendBookingApprovalNotification, sendBookingRejectionNotification } = await import('../../utils/booking-notifications');
+          
+          if (action === 'approve') {
+            await sendBookingApprovalNotification(
+              bookingId,
+              user.id,
+              booking.tenantId,
+              booking.propertyTitle
+            );
+          } else {
+            await sendBookingRejectionNotification(
+              bookingId,
+              user.id,
+              booking.tenantId,
+              booking.propertyTitle
+            );
+          }
+        }
+        
         // Dispatch event to notify tenant dashboard
         const { dispatchCustomEvent } = await import('../../utils/custom-events');
         dispatchCustomEvent('bookingStatusChanged', {
@@ -106,6 +139,21 @@ export default function BookingsPage() {
       console.error(`Error ${action}ing booking:`, error);
       showAlert('Error', `Failed to ${action} booking`);
     }
+  };
+
+  const handleViewTenantInfo = (booking: BookingRecord) => {
+    setSelectedTenant({
+      id: booking.tenantId,
+      name: booking.tenantName,
+      email: booking.tenantEmail,
+      phone: booking.tenantPhone
+    });
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+    setSelectedTenant(null);
   };
 
   const getBookingStats = () => {
@@ -242,8 +290,18 @@ export default function BookingsPage() {
                   </View>
 
                   {/* Booking Details */}
-                  <View style={styles.bookingDetails}>
-                    <Text style={styles.detailsTitle}>Tenant Information</Text>
+                  <TouchableOpacity 
+                    style={styles.bookingDetails}
+                    onPress={() => handleViewTenantInfo(booking)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.tenantInfoHeader}>
+                      <Text style={styles.detailsTitle}>Tenant Information</Text>
+                      <View style={styles.viewProfileButton}>
+                        <Ionicons name="person-circle-outline" size={16} color="#3B82F6" />
+                        <Text style={styles.viewProfileText}>View Profile</Text>
+                      </View>
+                    </View>
                     <View style={styles.detailRow}>
                       <Ionicons name="mail" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>{booking.tenantEmail}</Text>
@@ -252,7 +310,7 @@ export default function BookingsPage() {
                       <Ionicons name="call" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>{booking.tenantPhone}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
 
                   {/* Payment Details */}
                   <View style={styles.bookingDetails}>
@@ -310,15 +368,49 @@ export default function BookingsPage() {
                   {(booking.status === 'approved' || booking.status === 'rejected') && (
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
-                        onPress={() => router.push({
-                          pathname: '/chat-room',
-                          params: {
-                            name: booking.tenantName,
-                            otherUserId: booking.tenantId,
-                            propertyId: booking.propertyId,
-                            propertyTitle: booking.propertyTitle
+                        onPress={async () => {
+                          if (!user?.id) {
+                            showAlert('Error', 'Please log in to message the tenant.');
+                            return;
                           }
-                        })}
+
+                          try {
+                            console.log('💬 Starting conversation with tenant:', booking.tenantId);
+                            
+                            // Get owner's display name
+                            let ownerDisplayName = 'Property Owner';
+                            try {
+                              const ownerProfile = await db.get('owner_profiles', user.id);
+                              ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+                            } catch (error) {
+                              console.log('⚠️ Could not load owner profile, using user name');
+                              ownerDisplayName = user.name || 'Property Owner';
+                            }
+
+                            // Create or find conversation
+                            const conversationId = await createOrFindConversation({
+                              ownerId: user.id,
+                              tenantId: booking.tenantId,
+                              ownerName: ownerDisplayName,
+                              tenantName: booking.tenantName,
+                              propertyId: booking.propertyId,
+                              propertyTitle: booking.propertyTitle
+                            });
+
+                            console.log('✅ Created/found conversation:', conversationId);
+
+                            // Navigate to chat room with conversation ID
+                            router.push({
+                              pathname: '/chat-room',
+                              params: {
+                                conversationId: conversationId
+                              }
+                            });
+                          } catch (error) {
+                            console.error('❌ Error starting conversation:', error);
+                            showAlert('Error', 'Failed to start conversation. Please try again.');
+                          }
+                        }}
                         style={styles.messageButton}
                       >
                         <Ionicons name="chatbubble" size={16} color="#3B82F6" />
@@ -332,6 +424,18 @@ export default function BookingsPage() {
           )}
         </View>
       </ScrollView>
+
+      {/* Tenant Info Modal */}
+      {selectedTenant && (
+        <TenantInfoModal
+          visible={modalVisible}
+          tenantId={selectedTenant.id}
+          tenantName={selectedTenant.name}
+          tenantEmail={selectedTenant.email}
+          tenantPhone={selectedTenant.phone}
+          onClose={closeModal}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -535,11 +639,30 @@ const styles = StyleSheet.create({
   bookingDetails: {
     marginBottom: 16,
   },
+  tenantInfoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  viewProfileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  viewProfileText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#3B82F6',
+  },
   detailsTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 8,
   },
   detailRow: {
     flexDirection: 'row',

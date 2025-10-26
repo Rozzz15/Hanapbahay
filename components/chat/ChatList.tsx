@@ -35,10 +35,9 @@ const ChatList = ({ chats }: ChatListProps) => {
         router.push({
             pathname: "/chat-room",
             params: {
-                name: chat.name,
-                avatar: chat.avatar,
                 conversationId: chat.conversationId,
-                otherUserId: chat.otherUserId,
+                ownerName: chat.name, // This will be handled by chat-room regardless of who is owner/tenant
+                ownerAvatar: chat.avatar || '',
             },
         });
     };

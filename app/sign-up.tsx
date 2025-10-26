@@ -97,6 +97,9 @@ export default function SignUpScreen() {
         if (!formData.contactNumber.trim()) {
             newErrors.contactNumber = 'Contact number is required';
             isValid = false;
+        } else if (!formData.contactNumber.match(/^\+63[0-9]{10}$/)) {
+            newErrors.contactNumber = 'Contact number must be exactly 10 digits (excluding +63)';
+            isValid = false;
         }
 
         // Address is only required for tenants
@@ -170,8 +173,19 @@ export default function SignUpScreen() {
             }
             }
 
-            console.log('🚀 Calling signUpUser with data:', { ...formData, role: selectedRole });
-            const result = await signUpUser({ ...formData, role: selectedRole });
+            // Prepare data for submission - convert empty strings to undefined for optional fields
+            const submissionData = {
+                ...formData,
+                role: selectedRole,
+                // Convert empty strings to undefined for optional enum fields
+                gender: formData.gender === '' ? undefined : formData.gender,
+                familyType: formData.familyType === '' ? undefined : formData.familyType,
+                // Ensure address is handled properly
+                address: formData.address === '' ? undefined : formData.address,
+            };
+            
+            console.log('🚀 Calling signUpUser with data:', submissionData);
+            const result = await signUpUser(submissionData);
             console.log('📊 Sign-up result:', result);
             
             if (result.success) {
@@ -347,7 +361,8 @@ export default function SignUpScreen() {
                                                         const digitsOnly = text.replace(/\D/g, '');
                                                         if (digitsOnly.length <= 10) {
                                                             setPhoneInput(digitsOnly);
-                                                            setFormData(prev => ({ ...prev, contactNumber: `+63${digitsOnly}` }));
+                                                            // Only set contactNumber if there are digits
+                                                            setFormData(prev => ({ ...prev, contactNumber: digitsOnly.length > 0 ? `+63${digitsOnly}` : '' }));
                                                         }
                                                     }}
                                                     maxLength={10}
