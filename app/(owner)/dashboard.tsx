@@ -40,11 +40,12 @@ export default function OwnerDashboard() {
     totalListings: 0,
     totalViews: 0,
     monthlyRevenue: 0,
-    totalInquiries: 0
+    totalBookings: 0
   });
   const [listings, setListings] = useState<OwnerListing[]>([]);
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [messages, setMessages] = useState<OwnerMessage[]>([]);
+  const [pendingBookingsCount, setPendingBookingsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<{
@@ -79,7 +80,9 @@ export default function OwnerDashboard() {
 
     const handleBookingCreated = (event: CustomEvent) => {
       console.log('🔄 New booking created, refreshing dashboard...', event.detail);
+      // Refresh dashboard and bookings to update notification count
       loadDashboardData();
+      loadBookings();
     };
 
     if (typeof window !== 'undefined') {
@@ -182,7 +185,13 @@ export default function OwnerDashboard() {
     try {
       const ownerBookings = await getBookingsByOwner(user.id);
       setBookings(ownerBookings);
+      
+      // Calculate pending bookings count for notification
+      const pendingCount = ownerBookings.filter(b => b.status === 'pending').length;
+      setPendingBookingsCount(pendingCount);
+      
       console.log(`✅ Loaded ${ownerBookings.length} bookings for owner ${user.id}`);
+      console.log(`📊 Pending bookings: ${pendingCount}`);
       console.log('📊 Bookings data:', ownerBookings.map(b => ({
         id: b.id,
         tenantName: b.tenantName,
@@ -383,12 +392,12 @@ export default function OwnerDashboard() {
             <View style={sharedStyles.statCard}>
               <View style={sharedStyles.statIconContainer}>
                 <View style={[sharedStyles.statIcon, iconBackgrounds.red]}>
-                  <MessageSquare size={20} color="#EF4444" />
+                  <Calendar size={20} color="#EF4444" />
                 </View>
               </View>
-              <Text style={sharedStyles.statLabel}>Inquiries</Text>
-              <Text style={sharedStyles.statValue}>{stats.totalInquiries}</Text>
-              <Text style={sharedStyles.statSubtitle}>Need attention</Text>
+              <Text style={sharedStyles.statLabel}>Total Bookings</Text>
+              <Text style={sharedStyles.statValue}>{stats.totalBookings}</Text>
+              <Text style={sharedStyles.statSubtitle}>All bookings</Text>
             </View>
           </View>
         </View>
@@ -424,6 +433,35 @@ export default function OwnerDashboard() {
               <Text style={sharedStyles.statSubtitle}>View and edit your properties</Text>
             </View>
             <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={sharedStyles.listItem}
+            onPress={() => router.push('/(owner)/bookings')}
+          >
+            <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
+              <Calendar size={20} color="#F59E0B" />
+            </View>
+            <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
+              <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>Bookings</Text>
+              <Text style={sharedStyles.statSubtitle}>Manage tenant bookings</Text>
+            </View>
+            {pendingBookingsCount > 0 && (
+              <View style={{
+                backgroundColor: '#EF4444',
+                borderRadius: 10,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                minWidth: 20,
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
+                  {pendingBookingsCount > 9 ? '9+' : pendingBookingsCount}
+                </Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 20, color: designTokens.colors.textMuted, marginLeft: designTokens.spacing.sm }}>›</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 

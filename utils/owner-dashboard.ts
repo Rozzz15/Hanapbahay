@@ -25,7 +25,7 @@ export interface OwnerDashboardStats {
   totalListings: number;
   totalViews: number;
   monthlyRevenue: number;
-  totalInquiries: number;
+  totalBookings: number;
 }
 
 export interface OwnerListing {
@@ -115,32 +115,14 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
     const totalListings = ownerListings.length;
     const totalViews = ownerListings.reduce((sum, listing) => sum + (listing.views || 0), 0);
     
-    // Get inquiries from both listing inquiries and conversation messages
-    const listingInquiries = ownerListings.reduce((sum, listing) => sum + (listing.inquiries || 0), 0);
-    
-    // Also count messages from tenants to this owner
-    const allMessages = await db.list<any>('messages');
-    const allConversations = await db.list<any>('conversations');
-    
-    // Find conversations where this user is the owner
-    const ownerConversations = allConversations.filter(conv => 
-      conv.ownerId === ownerId || conv.owner_id === ownerId ||
-      (conv.participantIds && conv.participantIds.includes(ownerId)) ||
-      (conv.participant_ids && conv.participant_ids.includes(ownerId))
-    );
-    
-    // Count messages from tenants (not from the owner)
-    const tenantMessages = allMessages.filter(msg => {
-      const conversation = ownerConversations.find(conv => conv.id === msg.conversationId);
-      return conversation && msg.senderId !== ownerId;
-    });
-    
-    const totalInquiries = Math.max(listingInquiries, tenantMessages.length);
+    // Get total bookings for this owner (all statuses)
+    const allBookingsData = await db.list<any>('bookings');
+    const ownerBookings = allBookingsData.filter(booking => booking.ownerId === ownerId);
+    const totalBookings = ownerBookings.length;
 
     // Get monthly revenue from approved bookings with PAID status only
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
-    const allBookings = await db.list<any>('bookings');
-    const ownerBookings = allBookings.filter(booking => 
+    const paidOwnerBookings = allBookingsData.filter(booking => 
       booking.ownerId === ownerId && 
       booking.status === 'approved' &&
       booking.paymentStatus === 'paid' && // ONLY count paid bookings in revenue
@@ -148,28 +130,27 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
       booking.createdAt.startsWith(currentMonth)
     );
     
-    const monthlyRevenue = ownerBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    const monthlyRevenue = paidOwnerBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
     
     console.log('💰 Revenue calculation:', {
-      totalBookings: allBookings.filter((b: any) => b.ownerId === ownerId && b.status === 'approved').length,
-      paidBookings: ownerBookings.length,
+      totalBookings: allBookingsData.filter((b: any) => b.ownerId === ownerId && b.status === 'approved').length,
+      paidBookings: paidOwnerBookings.length,
       monthlyRevenue
     });
 
     console.log(`📊 Dashboard stats for owner ${ownerId}:`, {
       totalListings,
       totalViews,
-      totalInquiries,
+      totalBookings,
       monthlyRevenue,
-      listingsCount: ownerListings.length,
-      bookingsCount: ownerBookings.length
+      listingsCount: ownerListings.length
     });
 
     return {
       totalListings,
       totalViews,
       monthlyRevenue,
-      totalInquiries
+      totalBookings
     };
   } catch (error) {
     console.error('Error fetching owner dashboard stats:', error);
@@ -177,7 +158,7 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
       totalListings: 0,
       totalViews: 0,
       monthlyRevenue: 0,
-      totalInquiries: 0
+      totalBookings: 0
     };
   }
 }

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
-import { getBookingsByOwner, updateBookingStatus, getStatusColor, getStatusIcon } from '@/utils/booking';
+import { getBookingsByOwner, updateBookingStatus, getStatusColor, getStatusIcon, deleteBookingByOwner } from '@/utils/booking';
 import { BookingRecord } from '@/types';
 import { showAlert } from '../../utils/alert';
 import TenantInfoModal from '../../components/TenantInfoModal';
@@ -31,15 +31,21 @@ export default function BookingsPage() {
     try {
       setLoading(true);
       
-      // Clean up any cancelled bookings first
-      const { cleanupCancelledBookingsForUser } = await import('../../utils/cleanup-cancelled-bookings');
-      await cleanupCancelledBookingsForUser(user.id, 'owner');
+      // Clean up any cancelled bookings first (wrap in try-catch to not fail if cleanup fails)
+      try {
+        const { cleanupCancelledBookingsForUser } = await import('../../utils/cleanup-cancelled-bookings');
+        await cleanupCancelledBookingsForUser(user.id, 'owner');
+      } catch (cleanupError) {
+        console.warn('⚠️ Error during cleanup, continuing with bookings load:', cleanupError);
+        // Continue loading bookings even if cleanup fails
+      }
       
       const ownerBookings = await getBookingsByOwner(user.id);
       setBookings(ownerBookings);
     } catch (error) {
       console.error('❌ Error loading bookings:', error);
-      showAlert('Error', 'Failed to load bookings');
+      // Don't show alert on every error to prevent spam
+      console.warn('Failed to load bookings');
     } finally {
       setLoading(false);
     }
@@ -156,6 +162,40 @@ export default function BookingsPage() {
     setSelectedTenant(null);
   };
 
+  const handleDeleteBooking = (booking: BookingRecord) => {
+    Alert.alert(
+      'Delete Booking Request',
+      `Are you sure you want to delete the booking request from ${booking.tenantName} for ${booking.propertyTitle}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (!user?.id) return;
+            
+            try {
+              const success = await deleteBookingByOwner(booking.id, user.id);
+              
+              if (success) {
+                // Remove from UI after successful deletion
+                setBookings(prevBookings => prevBookings.filter(b => b.id !== booking.id));
+              } else {
+                showAlert('Error', 'Failed to delete booking request');
+              }
+            } catch (error) {
+              console.error('Error deleting booking:', error);
+              showAlert('Error', 'Failed to delete booking request');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const getBookingStats = () => {
     const total = bookings.length;
     const pending = bookings.filter(b => b.status === 'pending').length;
@@ -269,7 +309,11 @@ export default function BookingsPage() {
           ) : (
             <View style={styles.bookingsList}>
               {filteredBookings.map((booking) => (
-                <View key={booking.id} style={styles.bookingCard}>
+                <Pressable
+                  key={booking.id}
+                  onLongPress={() => handleDeleteBooking(booking)}
+                >
+                  <View style={styles.bookingCard}>
                   {/* Header */}
                   <View style={styles.bookingHeader}>
                     <View style={styles.bookingTitleContainer}>
@@ -318,19 +362,19 @@ export default function BookingsPage() {
                     <View style={styles.detailRow}>
                       <Ionicons name="calendar" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>
-                        Move-in: {booking.startDate ? new Date(booking.startDate).toLocaleDateString() : 'N/A'}
+                        Move-in: {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
                       </Text>
                     </View>
                     <View style={styles.detailRow}>
                       <Ionicons name="cash" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>
-                        Monthly: ₱{booking.monthlyRent ? booking.monthlyRent.toLocaleString() : '0'}
+                        Monthly: ₱{booking.monthlyRent ? String(booking.monthlyRent.toLocaleString()) : '0'}
                       </Text>
                     </View>
                     <View style={styles.detailRow}>
                       <Ionicons name="wallet" size={14} color="#6B7280" />
                       <Text style={[styles.detailText, { fontWeight: '600', color: '#10B981' }]}>
-                        Total: ₱{booking.totalAmount ? booking.totalAmount.toLocaleString() : '0'}
+                        Total: ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
                       </Text>
                     </View>
                   </View>
@@ -431,7 +475,8 @@ export default function BookingsPage() {
                       </TouchableOpacity>
                     </View>
                   )}
-                </View>
+                  </View>
+                </Pressable>
               ))}
             </View>
           )}

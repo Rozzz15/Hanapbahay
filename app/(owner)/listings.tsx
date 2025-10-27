@@ -144,13 +144,13 @@ export default function ListingsPage() {
     if (listing.ownerName) {
       return `${listing.ownerName}'s ${listing.propertyType || 'Property'}`;
     }
-    return listing.propertyType || 'Property';
+    return String(listing.propertyType || 'Property');
   };
 
   const getPropertyAddress = (listing: any) => {
     const title = getPropertyTitle(listing);
     const address = listing.address || 'No address';
-    return `${title} in ${address}`;
+    return `${title} in ${String(address)}`;
   };
 
 
@@ -262,7 +262,7 @@ export default function ListingsPage() {
                         <View style={styles.locationRow}>
                           <MapPin size={14} color="#6B7280" />
                           <Text style={styles.locationText} numberOfLines={1}>
-                            {listing.address || 'No address'}
+                            {String(listing.address || 'No address')}
                           </Text>
                         </View>
                       </View>
@@ -284,7 +284,7 @@ export default function ListingsPage() {
                         <View style={styles.rentalInfoRow}>
                           <View style={styles.rentalInfoItem}>
                             <Text style={styles.rentalTypeLabel}>Type:</Text>
-                            <Text style={styles.rentalTypeValue}>{listing.rentalType || 'N/A'}</Text>
+                            <Text style={styles.rentalTypeValue}>{String(listing.rentalType || 'N/A')}</Text>
                           </View>
                           <View style={styles.rentalInfoItem}>
                             <Text style={styles.availabilityLabel}>Status:</Text>
@@ -292,7 +292,7 @@ export default function ListingsPage() {
                               styles.availabilityValue,
                               listing.availabilityStatus === 'Available' ? styles.availableStatus : styles.unavailableStatus
                             ]}>
-                              {listing.availabilityStatus || 'Available'}
+                              {String(listing.availabilityStatus || 'Available')}
                             </Text>
                           </View>
                         </View>
@@ -303,17 +303,17 @@ export default function ListingsPage() {
                         <View style={styles.priceInfo}>
                           <View>
                             <Text style={styles.priceAmount}>
-                              ₱{String((listing.monthlyRent || 0).toLocaleString())}
+                              ₱{String(Number(listing.monthlyRent || 0).toLocaleString())}
                             </Text>
                             <Text style={styles.priceLabel}>per month</Text>
                           </View>
-                          {listing.securityDeposit && listing.securityDeposit > 0 && (
+                          {listing.securityDeposit && listing.securityDeposit > 0 ? (
                             <View style={styles.additionalCosts}>
                               <Text style={styles.additionalCostText}>
-                                Deposit: ₱{(listing.securityDeposit || 0).toLocaleString()}
+                                Deposit: ₱{String(Number(listing.securityDeposit || 0).toLocaleString())}
                               </Text>
                             </View>
-                          )}
+                          ) : null}
                         </View>
                         <View style={styles.dateInfo}>
                           <Text style={styles.dateText}>

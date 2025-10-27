@@ -272,6 +272,47 @@ export async function cancelBooking(bookingId: string, tenantId: string): Promis
   }
 }
 
+// Delete booking (for owners) - Deletes the booking completely
+export async function deleteBookingByOwner(bookingId: string, ownerId: string): Promise<boolean> {
+  try {
+    console.log('🔄 Deleting booking by owner:', { bookingId, ownerId });
+    
+    const booking = await db.get<BookingRecord>('bookings', bookingId);
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+    
+    if (booking.ownerId !== ownerId) {
+      throw new Error('Unauthorized: You can only delete bookings for your own properties');
+    }
+    
+    // Delete the booking completely
+    await db.remove('bookings', bookingId);
+    console.log('✅ Booking deleted successfully by owner');
+    
+    // Dispatch event to notify tenant dashboard that booking was deleted
+    // Wrapped in try-catch to prevent event errors from breaking the deletion
+    try {
+      const { dispatchCustomEvent } = await import('./custom-events');
+      dispatchCustomEvent('bookingDeleted', {
+        bookingId,
+        propertyId: booking.propertyId,
+        tenantId: booking.tenantId,
+        ownerId: booking.ownerId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (eventError) {
+      console.warn('⚠️ Could not dispatch bookingDeleted event:', eventError);
+      // Don't fail the deletion if event dispatch fails
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Error deleting booking:', error);
+    throw error;
+  }
+}
+
 // Get booking summary for display
 export async function getBookingSummary(bookingId: string): Promise<BookingSummary | null> {
   try {
