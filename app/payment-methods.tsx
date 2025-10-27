@@ -144,31 +144,31 @@ export default function PaymentMethods() {
     const isCopied = copiedText === account.accountNumber;
 
     return (
-      <View key={account.id} style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-          <View style={[sharedStyles.statIcon, { backgroundColor: paymentType?.color + '20', marginRight: designTokens.spacing.md }]}>
-            <Text style={{ fontSize: 24 }}>{paymentType?.icon}</Text>
+      <View key={account.id} style={[sharedStyles.card, { marginBottom: 16, padding: 16 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+          <View style={[sharedStyles.statIcon, { backgroundColor: paymentType?.color + '20', marginRight: 12, width: 32, height: 32, borderRadius: 16 }]}>
+            <Text style={{ fontSize: 20 }}>{paymentType?.icon}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.lg, marginBottom: 4 }]}>
+            <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 2, fontWeight: '600' }]}>
               {paymentType?.name}
             </Text>
-            <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.textPrimary }]}>
+            <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.textPrimary, fontSize: designTokens.typography.sm }]}>
               {account.accountName}
             </Text>
           </View>
         </View>
 
-        <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: designTokens.spacing.lg }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
-            <Text style={sharedStyles.statSubtitle}>
-              {account.type === 'cash' ? 'Payment Instructions:' : 'Account Number:'}
+        <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: 12, marginTop: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>
+              {account.type === 'cash' ? 'Instructions:' : 'Account Number:'}
             </Text>
             <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center' }}
+              style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginLeft: 12 }}
               onPress={() => copyToClipboard(account.accountNumber, 'Account number')}
             >
-              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, marginRight: designTokens.spacing.sm }]}>
+              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, marginRight: 8, flex: 1, textAlign: 'right', fontWeight: '600' }]}>
                 {account.accountNumber}
               </Text>
               {isCopied ? (
@@ -180,9 +180,9 @@ export default function PaymentMethods() {
           </View>
           
           {account.accountDetails && (
-            <View style={{ marginBottom: designTokens.spacing.md }}>
-              <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs }]}>Payment Instructions:</Text>
-              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, lineHeight: 20 }]}>
+            <View style={{ marginTop: 12 }}>
+              <Text style={[sharedStyles.statSubtitle, { marginBottom: 8, fontSize: designTokens.typography.sm }]}>Payment Instructions:</Text>
+              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, lineHeight: 18 }]}>
                 {account.accountDetails}
               </Text>
             </View>
@@ -195,7 +195,7 @@ export default function PaymentMethods() {
   if (loading) {
     return (
       <View style={sharedStyles.loadingContainer}>
-        <Text style={sharedStyles.loadingText}>Loading payment methods...</Text>
+        <Text style={[sharedStyles.loadingText, { fontSize: designTokens.typography.base }]}>Loading payment methods...</Text>
       </View>
     );
   }
@@ -204,10 +204,10 @@ export default function PaymentMethods() {
     return (
       <View style={sharedStyles.container}>
         <View style={sharedStyles.mainContent}>
-          <View style={sharedStyles.pageContainer}>
-            <View style={sharedStyles.emptyState}>
-              <Text style={sharedStyles.emptyStateTitle}>Booking not found</Text>
-              <Text style={sharedStyles.emptyStateText}>The requested booking could not be found.</Text>
+          <View style={[sharedStyles.pageContainer, { padding: 16 }]}>
+            <View style={[sharedStyles.emptyState, { padding: 48 }]}>
+              <Text style={[sharedStyles.emptyStateTitle, { fontSize: designTokens.typography.base }]}>Booking not found</Text>
+              <Text style={[sharedStyles.emptyStateText, { fontSize: designTokens.typography.sm }]}>The requested booking could not be found.</Text>
             </View>
           </View>
         </View>
@@ -219,57 +219,57 @@ export default function PaymentMethods() {
     <View style={sharedStyles.container}>
       <View style={sharedStyles.mainContent}>
         <ScrollView style={sharedStyles.scrollView}>
-          <View style={sharedStyles.pageContainer}>
+          <View style={[sharedStyles.pageContainer, { padding: 16, paddingTop: 20 }]}>
             {/* Header */}
-            <View style={sharedStyles.pageHeader}>
-              <View style={sharedStyles.headerLeft}>
-                <TouchableOpacity onPress={() => router.back()} style={{ marginRight: designTokens.spacing.md }}>
-                  <ArrowLeft size={24} color={designTokens.colors.textPrimary} />
+            <View style={[sharedStyles.pageHeader, { marginBottom: 16 }]}>
+              <View style={[sharedStyles.headerLeft, { flexDirection: 'row', alignItems: 'flex-start' }]}>
+                <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12, marginTop: 2 }}>
+                  <ArrowLeft size={22} color={designTokens.colors.textPrimary} />
                 </TouchableOpacity>
-                <View>
-                  <Text style={sharedStyles.pageTitle}>Payment Methods</Text>
-                  <Text style={sharedStyles.pageSubtitle}>Send payment to property owner</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[sharedStyles.pageTitle, { fontSize: designTokens.typography.xl, marginBottom: 2, fontWeight: '700' }]}>Payment Methods</Text>
+                  <Text style={[sharedStyles.pageSubtitle, { fontSize: designTokens.typography.sm }]}>Send payment to property owner</Text>
                 </View>
               </View>
             </View>
 
             {/* Booking Info */}
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
-              <Text style={[sharedStyles.sectionTitle, { marginBottom: designTokens.spacing.lg }]}>
+            <View style={[sharedStyles.card, { marginBottom: 16, padding: 16 }]}>
+              <Text style={[sharedStyles.sectionTitle, { marginBottom: 12, fontSize: designTokens.typography.base, fontWeight: '600' }]}>
                 Booking Details
               </Text>
               
-              <View style={{ marginBottom: designTokens.spacing.md }}>
-                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.lg, marginBottom: 4 }]}>
+              <View style={{ marginBottom: 12 }}>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 2, fontWeight: '600' }]}>
                   {booking.propertyTitle}
                 </Text>
-                <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm }]}>
+                <Text style={[sharedStyles.statSubtitle, { marginBottom: 0, fontSize: designTokens.typography.sm }]}>
                   {booking.propertyAddress}
                 </Text>
               </View>
 
-              <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: designTokens.spacing.lg }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>Monthly Rent:</Text>
-                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary }]}>
+              <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: 12, marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Monthly Rent:</Text>
+                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.sm, fontWeight: '600' }]}>
                     {formatCurrency(booking.monthlyRent)}
                   </Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>Security Deposit:</Text>
-                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Security Deposit:</Text>
+                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.sm, fontWeight: '600' }]}>
                     {formatCurrency(booking.securityDeposit)}
                   </Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>Total Amount:</Text>
-                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.lg, fontWeight: 'bold' }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Total Amount:</Text>
+                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.base, fontWeight: 'bold' }]}>
                     {formatCurrency(booking.totalAmount)}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={sharedStyles.statSubtitle}>Lease Period:</Text>
-                  <Text style={sharedStyles.statLabel}>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Lease Period:</Text>
+                  <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, flex: 1, textAlign: 'right' }]}>
                     {formatDate(booking.startDate)} - {formatDate(booking.endDate)}
                   </Text>
                 </View>
@@ -277,50 +277,50 @@ export default function PaymentMethods() {
             </View>
 
             {/* Owner Contact Info */}
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
-              <Text style={[sharedStyles.sectionTitle, { marginBottom: designTokens.spacing.lg }]}>
+            <View style={[sharedStyles.card, { marginBottom: 16, padding: 16 }]}>
+              <Text style={[sharedStyles.sectionTitle, { marginBottom: 12, fontSize: designTokens.typography.base, fontWeight: '600' }]}>
                 Property Owner
               </Text>
               
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginRight: designTokens.spacing.md }]}>
-                  <Building2 size={20} color="#3B82F6" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginRight: 12, width: 32, height: 32, borderRadius: 16 }]}>
+                  <Building2 size={18} color="#3B82F6" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.base, fontWeight: '600' }]}>
                     {booking.ownerName}
                   </Text>
-                  <Text style={sharedStyles.statSubtitle}>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>
                     Property Owner
                   </Text>
                 </View>
               </View>
 
-              <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: designTokens.spacing.lg }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>Contact:</Text>
-                  <Text style={sharedStyles.statLabel}>{booking.ownerPhone}</Text>
+              <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: 12, marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Contact:</Text>
+                  <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, fontWeight: '600' }]}>{booking.ownerPhone}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={sharedStyles.statSubtitle}>Email:</Text>
-                  <Text style={sharedStyles.statLabel}>{booking.ownerEmail}</Text>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Email:</Text>
+                  <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, flex: 1, textAlign: 'right' }]}>{booking.ownerEmail}</Text>
                 </View>
               </View>
             </View>
 
             {/* Payment Methods */}
-            <View style={sharedStyles.section}>
-              <Text style={[sharedStyles.sectionTitle, { marginBottom: designTokens.spacing.lg }]}>
+            <View style={{ marginBottom: 16 }}>
+              <Text style={[sharedStyles.sectionTitle, { marginBottom: 12, fontSize: designTokens.typography.base, fontWeight: '600' }]}>
                 Available Payment Methods
               </Text>
               
               {paymentAccounts.length === 0 ? (
-                <View style={sharedStyles.emptyState}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginBottom: designTokens.spacing.lg }]}>
-                    <CreditCard size={32} color="#3B82F6" />
+                <View style={[sharedStyles.emptyState, { padding: 16 }]}>
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginBottom: 12, width: 32, height: 32, borderRadius: 16 }]}>
+                    <CreditCard size={20} color="#3B82F6" />
                   </View>
-                  <Text style={sharedStyles.emptyStateTitle}>No payment methods available</Text>
-                  <Text style={sharedStyles.emptyStateText}>
+                  <Text style={[sharedStyles.emptyStateTitle, { fontSize: designTokens.typography.base }]}>No payment methods available</Text>
+                  <Text style={[sharedStyles.emptyStateText, { fontSize: designTokens.typography.sm, lineHeight: 18 }]}>
                     The property owner hasn't set up any payment methods yet. Please contact them directly.
                   </Text>
                 </View>
@@ -332,11 +332,11 @@ export default function PaymentMethods() {
             </View>
 
             {/* Payment Instructions */}
-            <View style={[sharedStyles.card, { backgroundColor: designTokens.colors.infoLight }]}>
-              <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, marginBottom: designTokens.spacing.sm }]}>
-                <Text style={{ fontWeight: '600' as const }}>Payment Instructions:</Text>
+            <View style={[sharedStyles.card, { backgroundColor: designTokens.colors.infoLight, padding: 16, marginBottom: 32 }]}>
+              <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, marginBottom: 12 }]}>
+                <Text style={{ fontWeight: '600' as const, fontSize: designTokens.typography.sm }}>Payment Instructions:</Text>
               </Text>
-              <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, lineHeight: 20 }]}>
+              <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, lineHeight: 20, fontSize: designTokens.typography.sm }]}>
                 1. Choose a payment method above{'\n'}
                 2. Send the exact amount: {formatCurrency(booking.totalAmount)}{'\n'}
                 3. Include your booking reference: {booking.id.slice(-8)}{'\n'}

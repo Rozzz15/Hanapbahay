@@ -27,6 +27,7 @@ import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-
 import { showAlert } from '../../utils/alert';
 import { Image } from '../../components/ui/image';
 import TenantInfoModal from '../../components/TenantInfoModal';
+import ApprovedBookingsPayment from '../../components/ApprovedBookingsPayment';
 
 // Types are now imported from owner-dashboard.ts
 
@@ -374,7 +375,7 @@ export default function OwnerDashboard() {
               <Text style={[sharedStyles.statValue, { color: designTokens.colors.success }]}>
                 {`₱${stats.monthlyRevenue.toLocaleString()}`}
               </Text>
-              <Text style={sharedStyles.statSubtitle}>Potential income</Text>
+              <Text style={sharedStyles.statSubtitle}>Confirmed paid</Text>
             </View>
           </View>
 
@@ -441,6 +442,13 @@ export default function OwnerDashboard() {
 
         </View>
       </View>
+
+      {/* Approved Bookings & Payment Status Section */}
+      {user?.id && (
+        <View style={sharedStyles.section}>
+          <ApprovedBookingsPayment ownerId={user.id} />
+        </View>
+      )}
 
       {/* Recent Listings Section */}
       <View style={sharedStyles.section}>

@@ -18,3 +18,6 @@ export * from './ui';
 
 // Navigation
 export { default as OwnerBottomNav } from './OwnerBottomNav';
+
+// Approved Bookings
+export { default as ApprovedBookingsPayment } from './ApprovedBookingsPayment';

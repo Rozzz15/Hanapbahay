@@ -51,6 +51,7 @@ export default function OwnerChatRoom() {
         otherParticipantAvatar: Array.isArray(tenantAvatar) ? tenantAvatar[0] : (tenantAvatar || Array.isArray(ownerAvatar) ? ownerAvatar[0] : (ownerAvatar || ''))
     });
     const [ownerId, setOwnerId] = useState<string | null>(null);
+    const [tenantId, setTenantId] = useState<string | null>(null);
     const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
 
@@ -64,7 +65,9 @@ export default function OwnerChatRoom() {
 
             // Store owner ID and determine if current user is owner
             const conversationOwnerId = conversation.ownerId || conversation.owner_id;
+            const conversationTenantId = conversation.tenantId || conversation.tenant_id;
             setOwnerId(conversationOwnerId);
+            setTenantId(conversationTenantId);
             setIsCurrentUserOwner(user.id === conversationOwnerId);
 
             // Find the other participant (not the current user)
@@ -519,8 +522,14 @@ export default function OwnerChatRoom() {
                     contentContainerStyle={styles.messagesContent}
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Payment Methods Display */}
-                    {ownerId && <PaymentMethodsDisplay ownerId={ownerId} isCurrentUserOwner={isCurrentUserOwner} />}
+                    {/* Payment Methods Display - Only show if there's an approved booking */}
+                    {ownerId && tenantId && (
+                      <PaymentMethodsDisplay 
+                        ownerId={ownerId} 
+                        tenantId={tenantId}
+                        isCurrentUserOwner={isCurrentUserOwner} 
+                      />
+                    )}
                     
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>

@@ -18,6 +18,7 @@ interface PaymentAccount {
 
 interface PaymentMethodsDisplayProps {
   ownerId: string;
+  tenantId: string;
   isCurrentUserOwner: boolean;
 }
 
@@ -28,14 +29,38 @@ const PAYMENT_TYPES = [
   { id: 'cash', name: 'Cash Payment', icon: '💵', color: '#059669' }
 ];
 
-export default function PaymentMethodsDisplay({ ownerId, isCurrentUserOwner }: PaymentMethodsDisplayProps) {
+export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUserOwner }: PaymentMethodsDisplayProps) {
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [hasApprovedBooking, setHasApprovedBooking] = useState(false);
 
   useEffect(() => {
+    checkApprovedBooking();
     loadPaymentAccounts();
-  }, [ownerId]);
+  }, [ownerId, tenantId]);
+
+  const checkApprovedBooking = async () => {
+    try {
+      // Check if there's an approved booking between this owner and tenant
+      const allBookings = await db.list('bookings');
+      const approvedBooking = allBookings.find((booking: any) => 
+        booking.ownerId === ownerId && 
+        booking.tenantId === tenantId &&
+        booking.status === 'approved'
+      );
+      
+      setHasApprovedBooking(!!approvedBooking);
+      console.log('📋 Approved booking check:', {
+        hasApprovedBooking: !!approvedBooking,
+        ownerId,
+        tenantId
+      });
+    } catch (error) {
+      console.error('Error checking approved booking:', error);
+      setHasApprovedBooking(false);
+    }
+  };
 
   const loadPaymentAccounts = async () => {
     try {
@@ -69,6 +94,11 @@ export default function PaymentMethodsDisplay({ ownerId, isCurrentUserOwner }: P
       showAlert('Error', 'Failed to copy to clipboard');
     }
   };
+
+  // Don't show payment methods if there's no approved booking
+  if (!hasApprovedBooking) {
+    return null;
+  }
 
   if (loading) {
     return (

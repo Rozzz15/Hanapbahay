@@ -55,6 +55,16 @@ export default function TenantMessages() {
 
             console.log(`📊 Found ${userConversations.length} conversations for tenant`);
 
+            // Get all messages to check which conversations have actual messages
+            const allMessages = await db.list('messages');
+            const conversationsWithMessages = new Set(
+                allMessages
+                    .filter((msg: any) => msg.conversationId && msg.text && msg.text.trim() !== '')
+                    .map((msg: any) => msg.conversationId)
+            );
+
+            console.log(`📨 Found ${conversationsWithMessages.size} conversations with actual messages`);
+
             const conversationsWithDetails: Conversation[] = await Promise.all(
                 userConversations.map(async (conv: any) => {
                     const ownerId = conv.ownerId || conv.participantIds?.find((id: string) => id !== user.id);
@@ -105,20 +115,26 @@ export default function TenantMessages() {
                         unreadCount: conv.unreadByTenant || 0,
                         ownerName,
                         ownerAvatar,
-                        propertyTitle
+                        propertyTitle,
+                        hasMessages: conversationsWithMessages.has(conv.id)
                     };
                 })
             );
 
+            // Filter out conversations with no messages
+            const conversationsWithActualMessages = conversationsWithDetails.filter(conv => 
+                (conv as any).hasMessages
+            );
+
             // Sort by last message time
-            conversationsWithDetails.sort((a, b) => {
+            conversationsWithActualMessages.sort((a, b) => {
                 const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
                 const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
                 return timeB - timeA;
             });
 
-            setConversations(conversationsWithDetails);
-            console.log(`✅ Loaded ${conversationsWithDetails.length} conversations`);
+            setConversations(conversationsWithActualMessages);
+            console.log(`✅ Loaded ${conversationsWithActualMessages.length} conversations with messages`);
         } catch (error) {
             console.error('❌ Error loading conversations:', error);
             showAlert('Error', 'Failed to load conversations');
@@ -189,7 +205,7 @@ export default function TenantMessages() {
     const handleDeleteConversation = (conversation: Conversation) => {
         showAlert(
             'Delete Conversation',
-            `Are you sure you want to delete conversation with ${conversation.ownerName}?`,
+            `Are you sure you want to delete this conversation with ${conversation.ownerName}? This action cannot be undone.`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -213,7 +229,7 @@ export default function TenantMessages() {
                             // Update local state
                             setConversations(prev => prev.filter(c => c.id !== conversation.id));
                             
-                            showAlert('Success', 'Conversation deleted successfully');
+                            showAlert('Done', 'Conversation has been deleted');
                         } catch (error) {
                             console.error('Error deleting conversation:', error);
                             showAlert('Error', 'Failed to delete conversation');
@@ -313,6 +329,7 @@ export default function TenantMessages() {
                                     key={conversation.id} 
                                     style={styles.conversationCard}
                                     onPress={() => handleChatPress(conversation)}
+                                    onLongPress={() => handleDeleteConversation(conversation)}
                                     activeOpacity={0.7}
                                 >
                                     <View style={styles.conversationContent}>
@@ -347,13 +364,6 @@ export default function TenantMessages() {
                                                     <Text style={styles.messageTime}>
                                                         {formatTime(conversation.lastMessageAt)}
                                                     </Text>
-                                                    <TouchableOpacity
-                                                        style={styles.deleteButton}
-                                                        onPress={() => handleDeleteConversation(conversation)}
-                                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                                    >
-                                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                                    </TouchableOpacity>
                                                 </View>
                                             </View>
                                             
@@ -568,13 +578,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-    },
-    deleteButton: {
-        padding: 8,
-        borderRadius: 8,
-        backgroundColor: '#FEF2F2',
-        borderWidth: 1,
-        borderColor: '#FECACA',
     },
     ownerName: {
         fontSize: 16,

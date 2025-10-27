@@ -91,6 +91,7 @@ export default function ChatRoomNew() {
         otherParticipantAvatar: string;
     }>(initialParticipantInfo);
     const [ownerId, setOwnerId] = useState<string | null>(null);
+    const [tenantId, setTenantId] = useState<string | null>(null);
     const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
 
     // Add validation for required parameters
@@ -143,7 +144,9 @@ export default function ChatRoomNew() {
 
             // Store owner ID and determine if current user is owner
             const conversationOwnerId = conversation.ownerId || conversation.owner_id;
+            const conversationTenantId = conversation.tenantId || conversation.tenant_id;
             setOwnerId(conversationOwnerId);
+            setTenantId(conversationTenantId);
             setIsCurrentUserOwner(user.id === conversationOwnerId);
 
             // Find the other participant (not the current user)
@@ -723,8 +726,14 @@ export default function ChatRoomNew() {
                     contentContainerStyle={styles.messagesContent}
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Payment Methods Display */}
-                    {ownerId && <PaymentMethodsDisplay ownerId={ownerId} isCurrentUserOwner={isCurrentUserOwner} />}
+                    {/* Payment Methods Display - Only show if there's an approved booking */}
+                    {ownerId && tenantId && (
+                      <PaymentMethodsDisplay 
+                        ownerId={ownerId} 
+                        tenantId={tenantId}
+                        isCurrentUserOwner={isCurrentUserOwner} 
+                      />
+                    )}
                     
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>

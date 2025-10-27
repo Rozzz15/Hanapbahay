@@ -137,17 +137,24 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
     
     const totalInquiries = Math.max(listingInquiries, tenantMessages.length);
 
-    // Get monthly revenue from approved bookings
+    // Get monthly revenue from approved bookings with PAID status only
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
     const allBookings = await db.list<any>('bookings');
     const ownerBookings = allBookings.filter(booking => 
       booking.ownerId === ownerId && 
       booking.status === 'approved' &&
+      booking.paymentStatus === 'paid' && // ONLY count paid bookings in revenue
       booking.createdAt && 
       booking.createdAt.startsWith(currentMonth)
     );
     
     const monthlyRevenue = ownerBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    
+    console.log('💰 Revenue calculation:', {
+      totalBookings: allBookings.filter((b: any) => b.ownerId === ownerId && b.status === 'approved').length,
+      paidBookings: ownerBookings.length,
+      monthlyRevenue
+    });
 
     console.log(`📊 Dashboard stats for owner ${ownerId}:`, {
       totalListings,

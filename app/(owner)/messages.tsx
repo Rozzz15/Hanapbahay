@@ -19,6 +19,7 @@ import { useNotifications } from '@/context/NotificationContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
 import TenantInfoModal from '@/components/TenantInfoModal';
+import ApprovedBookingsPayment from '@/components/ApprovedBookingsPayment';
 
 interface Conversation {
     id: string;
@@ -30,6 +31,8 @@ interface Conversation {
     tenantName: string;
     tenantAvatar?: string;
     propertyTitle?: string;
+    bookingStatus?: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
+    paymentStatus?: 'pending' | 'partial' | 'paid' | 'refunded';
 }
 
 export default function OwnerMessages() {
@@ -59,6 +62,16 @@ export default function OwnerMessages() {
 
             console.log(`📊 Found ${ownerConversations.length} conversations for owner`);
 
+            // Get all messages to check which conversations have actual messages
+            const allMessages = await db.list('messages');
+            const conversationsWithMessages = new Set(
+                allMessages
+                    .filter((msg: any) => msg.conversationId && msg.text && msg.text.trim() !== '')
+                    .map((msg: any) => msg.conversationId)
+            );
+
+            console.log(`📨 Found ${conversationsWithMessages.size} conversations with actual messages`);
+
             const conversationsWithDetails: Conversation[] = await Promise.all(
                 ownerConversations.map(async (conv: any) => {
                     const tenantId = conv.tenantId || conv.participantIds?.find((id: string) => id !== user.id);
@@ -66,13 +79,16 @@ export default function OwnerMessages() {
                     console.log('🔍 Processing conversation tenant:', {
                         conversationId: conv.id,
                         tenantId: tenantId,
-                        hasTenantId: !!tenantId
+                        hasTenantId: !!tenantId,
+                        hasMessages: conversationsWithMessages.has(conv.id)
                     });
                     
                     // Get tenant details
                     let tenantName = 'Unknown Tenant';
                     let tenantAvatar = '';
                     let propertyTitle = '';
+                    let bookingStatus: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed' | undefined;
+                    let paymentStatus: 'pending' | 'partial' | 'paid' | 'refunded' | undefined;
 
                     try {
                         if (!tenantId) {
@@ -138,6 +154,32 @@ export default function OwnerMessages() {
                                 propertyTitle = (property as any).propertyType || '';
                             }
                         }
+
+                        // Get booking and payment status
+                        if (tenantId) {
+                            try {
+                                const allBookings = await db.list('bookings');
+                                const booking = allBookings.find((booking: any) => 
+                                    booking.ownerId === user.id && 
+                                    booking.tenantId === tenantId
+                                );
+                                
+                                if (booking) {
+                                    bookingStatus = booking.status;
+                                    paymentStatus = booking.paymentStatus;
+                                    console.log('📋 Found booking for tenant:', {
+                                        tenantId,
+                                        tenantName,
+                                        bookingStatus,
+                                        paymentStatus
+                                    });
+                                } else {
+                                    console.log('⚠️ No booking found for tenant:', tenantId, tenantName);
+                                }
+                            } catch (bookingError) {
+                                console.log('⚠️ Error loading booking status:', bookingError);
+                            }
+                        }
                     } catch (error) {
                         console.log('Error loading tenant details:', error);
                     }
@@ -151,20 +193,38 @@ export default function OwnerMessages() {
                         unreadCount: conv.unreadByOwner || 0,
                         tenantName,
                         tenantAvatar,
-                        propertyTitle
+                        propertyTitle,
+                        bookingStatus,
+                        paymentStatus,
+                        hasMessages: conversationsWithMessages.has(conv.id)
                     };
                 })
             );
 
+            // Filter out conversations with no messages
+            const conversationsWithActualMessages = conversationsWithDetails.filter(conv => 
+                (conv as any).hasMessages
+            );
+
             // Sort by last message time
-            conversationsWithDetails.sort((a, b) => {
+            conversationsWithActualMessages.sort((a, b) => {
                 const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
                 const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
                 return timeB - timeA;
             });
 
-            setConversations(conversationsWithDetails);
-            console.log(`✅ Loaded ${conversationsWithDetails.length} conversations`);
+            setConversations(conversationsWithActualMessages);
+            console.log(`✅ Loaded ${conversationsWithActualMessages.length} conversations with messages`);
+            
+            // Debug: Log payment status info
+            conversationsWithActualMessages.forEach(conv => {
+                if (conv.bookingStatus === 'approved') {
+                    console.log(`💳 Payment confirmation for ${conv.tenantName}:`, {
+                        bookingStatus: conv.bookingStatus,
+                        paymentStatus: conv.paymentStatus
+                    });
+                }
+            });
         } catch (error) {
             console.error('❌ Error loading conversations:', error);
             showAlert('Error', 'Failed to load conversations');
@@ -239,7 +299,7 @@ export default function OwnerMessages() {
     const handleDeleteConversation = (conversation: Conversation) => {
         showAlert(
             'Delete Conversation',
-            `Are you sure you want to delete conversation with ${conversation.tenantName}?`,
+            `Are you sure you want to delete this conversation with ${conversation.tenantName}? This action cannot be undone.`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -265,7 +325,7 @@ export default function OwnerMessages() {
                             // Update local state
                             setConversations(prev => prev.filter(c => c.id !== conversation.id));
                             
-                            showAlert('Success', 'Conversation deleted successfully');
+                            showAlert('Done', 'Conversation has been deleted');
                         } catch (error) {
                             console.error('Error deleting conversation:', error);
                             showAlert('Error', 'Failed to delete conversation');
@@ -346,6 +406,13 @@ export default function OwnerMessages() {
                 </View>
             </View>
 
+            {/* Approved Bookings & Payment Status */}
+            {user?.id && (
+                <View style={styles.approvedBookingsContainer}>
+                    <ApprovedBookingsPayment ownerId={user.id} />
+                </View>
+            )}
+
             {/* Conversations List */}
             <ScrollView 
                 style={styles.scrollView}
@@ -375,6 +442,7 @@ export default function OwnerMessages() {
                                     key={conversation.id} 
                                     style={styles.conversationCard}
                                     onPress={() => handleChatPress(conversation)}
+                                    onLongPress={() => handleDeleteConversation(conversation)}
                                     activeOpacity={0.7}
                                 >
                                     <View style={styles.conversationContent}>
@@ -416,18 +484,34 @@ export default function OwnerMessages() {
                                         {/* Message Content */}
                                         <View style={styles.messageContent}>
                                             <View style={styles.messageHeader}>
-                                                <Text style={styles.tenantName}>{conversation.tenantName}</Text>
+                                                <View style={styles.tenantNameContainer}>
+                                                    <Text style={styles.tenantName}>{conversation.tenantName}</Text>
+                                                    {/* Payment Confirmation Icon */}
+                                                    {conversation.bookingStatus === 'approved' && (
+                                                        <View style={styles.paymentStatusContainer}>
+                                                            {conversation.paymentStatus === 'paid' ? (
+                                                                <View style={styles.paymentBadgePaid}>
+                                                                    <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                                                                    <Text style={styles.paymentStatusText}>Paid</Text>
+                                                                </View>
+                                                            ) : conversation.paymentStatus === 'partial' ? (
+                                                                <View style={styles.paymentBadgePartial}>
+                                                                    <Ionicons name="time-outline" size={18} color="#F59E0B" />
+                                                                    <Text style={styles.paymentStatusText}>Partial</Text>
+                                                                </View>
+                                                            ) : (
+                                                                <View style={styles.paymentBadgePending}>
+                                                                    <Ionicons name="hourglass-outline" size={18} color="#6366F1" />
+                                                                    <Text style={styles.paymentStatusText}>Pending</Text>
+                                                                </View>
+                                                            )}
+                                                        </View>
+                                                    )}
+                                                </View>
                                                 <View style={styles.messageHeaderRight}>
                                                     <Text style={styles.messageTime}>
                                                         {formatTime(conversation.lastMessageAt)}
                                                     </Text>
-                                                    <TouchableOpacity
-                                                        style={styles.deleteButton}
-                                                        onPress={() => handleDeleteConversation(conversation)}
-                                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                                    >
-                                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                                    </TouchableOpacity>
                                                 </View>
                                             </View>
                                             
@@ -650,17 +734,57 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 4,
     },
+    tenantNameContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flex: 1,
+    },
+    paymentStatusContainer: {
+        marginLeft: 4,
+    },
+    paymentBadgePaid: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#F0FDF4',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#10B981',
+    },
+    paymentBadgePartial: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#FFFBEB',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#F59E0B',
+    },
+    paymentBadgePending: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#EEF2FF',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#6366F1',
+    },
+    paymentStatusText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#111827',
+    },
     messageHeaderRight: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-    },
-    deleteButton: {
-        padding: 8,
-        borderRadius: 8,
-        backgroundColor: '#FEF2F2',
-        borderWidth: 1,
-        borderColor: '#FECACA',
     },
     tenantName: {
         fontSize: 16,
@@ -685,5 +809,9 @@ const styles = StyleSheet.create({
     unreadMessage: {
         fontWeight: '600',
         color: '#111827',
+    },
+    approvedBookingsContainer: {
+        paddingHorizontal: 0,
+        paddingVertical: 0,
     },
 });

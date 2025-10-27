@@ -374,42 +374,55 @@ export default function BookingsPage() {
                             return;
                           }
 
-                          try {
-                            console.log('💬 Starting conversation with tenant:', booking.tenantId);
-                            
-                            // Get owner's display name
-                            let ownerDisplayName = 'Property Owner';
-                            try {
-                              const ownerProfile = await db.get('owner_profiles', user.id);
-                              ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
-                            } catch (error) {
-                              console.log('⚠️ Could not load owner profile, using user name');
-                              ownerDisplayName = user.name || 'Property Owner';
-                            }
+                          // Show confirmation dialog
+                          showAlert(
+                            'Start Conversation',
+                            `Do you want to start a conversation with ${booking.tenantName}?`,
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Start',
+                                onPress: async () => {
+                                  try {
+                                    console.log('💬 Starting conversation with tenant:', booking.tenantId);
+                                    
+                                    // Get owner's display name
+                                    let ownerDisplayName = 'Property Owner';
+                                    try {
+                                      const ownerProfile = await db.get('owner_profiles', user.id);
+                                      ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+                                    } catch (error) {
+                                      console.log('⚠️ Could not load owner profile, using user name');
+                                      ownerDisplayName = user.name || 'Property Owner';
+                                    }
 
-                            // Create or find conversation
-                            const conversationId = await createOrFindConversation({
-                              ownerId: user.id,
-                              tenantId: booking.tenantId,
-                              ownerName: ownerDisplayName,
-                              tenantName: booking.tenantName,
-                              propertyId: booking.propertyId,
-                              propertyTitle: booking.propertyTitle
-                            });
+                                    // Create or find conversation
+                                    const conversationId = await createOrFindConversation({
+                                      ownerId: user.id,
+                                      tenantId: booking.tenantId,
+                                      ownerName: ownerDisplayName,
+                                      tenantName: booking.tenantName,
+                                      propertyId: booking.propertyId,
+                                      propertyTitle: booking.propertyTitle
+                                    });
 
-                            console.log('✅ Created/found conversation:', conversationId);
+                                    console.log('✅ Created/found conversation:', conversationId);
 
-                            // Navigate to chat room with conversation ID
-                            router.push({
-                              pathname: '/chat-room',
-                              params: {
-                                conversationId: conversationId
+                                    // Navigate to chat room with conversation ID
+                                    router.push({
+                                      pathname: '/chat-room',
+                                      params: {
+                                        conversationId: conversationId
+                                      }
+                                    });
+                                  } catch (error) {
+                                    console.error('❌ Error starting conversation:', error);
+                                    showAlert('Error', 'Failed to start conversation. Please try again.');
+                                  }
+                                }
                               }
-                            });
-                          } catch (error) {
-                            console.error('❌ Error starting conversation:', error);
-                            showAlert('Error', 'Failed to start conversation. Please try again.');
-                          }
+                            ]
+                          );
                         }}
                         style={styles.messageButton}
                       >

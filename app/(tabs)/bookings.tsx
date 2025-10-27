@@ -407,34 +407,47 @@ export default function TenantBookings() {
                               return;
                             }
 
-                            try {
-                              console.log('💬 Starting conversation with owner from approved booking:', booking.ownerId);
-                              
-                              // Create or find conversation
-                              const conversationId = await createOrFindConversation({
-                                ownerId: booking.ownerId,
-                                tenantId: user.id,
-                                ownerName: booking.ownerName,
-                                tenantName: user.name || 'Tenant',
-                                propertyId: booking.propertyId,
-                                propertyTitle: booking.propertyTitle
-                              });
+                            // Show confirmation dialog
+                            showAlert(
+                              'Start Conversation',
+                              `Do you want to start a conversation with ${booking.ownerName}?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Start',
+                                  onPress: async () => {
+                                    try {
+                                      console.log('💬 Starting conversation with owner from approved booking:', booking.ownerId);
+                                      
+                                      // Create or find conversation
+                                      const conversationId = await createOrFindConversation({
+                                        ownerId: booking.ownerId,
+                                        tenantId: user.id,
+                                        ownerName: booking.ownerName,
+                                        tenantName: user.name || 'Tenant',
+                                        propertyId: booking.propertyId,
+                                        propertyTitle: booking.propertyTitle
+                                      });
 
-                              console.log('✅ Created/found conversation:', conversationId);
+                                      console.log('✅ Created/found conversation:', conversationId);
 
-                              // Navigate to chat room with conversation ID
-                              router.push({
-                                pathname: '/chat-room',
-                                params: {
-                                  conversationId: conversationId,
-                                  ownerName: booking.ownerName,
-                                  propertyTitle: booking.propertyTitle
+                                      // Navigate to chat room with conversation ID
+                                      router.push({
+                                        pathname: '/chat-room',
+                                        params: {
+                                          conversationId: conversationId,
+                                          ownerName: booking.ownerName,
+                                          propertyTitle: booking.propertyTitle
+                                        }
+                                      });
+                                    } catch (error) {
+                                      console.error('❌ Error starting conversation:', error);
+                                      showAlert('Error', 'Failed to start conversation. Please try again.');
+                                    }
+                                  }
                                 }
-                              });
-                            } catch (error) {
-                              console.error('❌ Error starting conversation:', error);
-                              showAlert('Error', 'Failed to start conversation. Please try again.');
-                            }
+                              ]
+                            );
                           }}
                           style={styles.contactOwnerButton}
                         >

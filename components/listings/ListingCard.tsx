@@ -241,35 +241,49 @@ const ListingCard: React.FC<ListingType> = ({
                                             return;
                                         }
 
-                                        try {
-                                            const displayName = businessName || ownerName || title;
-                                            console.log('💬 Starting conversation with owner from listing card:', ownerUserId);
-                                            
-                                            // Create or find conversation
-                                            const conversationId = await createOrFindConversation({
-                                                ownerId: ownerUserId,
-                                                tenantId: user.id,
-                                                ownerName: displayName,
-                                                tenantName: user.name || 'Tenant',
-                                                propertyId: id || '',
-                                                propertyTitle: title
-                                            });
+                                        const displayName = businessName || ownerName || title;
+                                        
+                                        // Show confirmation dialog
+                                        showAlert(
+                                            'Start Conversation',
+                                            `Do you want to start a conversation with ${displayName} about this property?`,
+                                            [
+                                                { text: 'Cancel', style: 'cancel' },
+                                                {
+                                                    text: 'Start',
+                                                    onPress: async () => {
+                                                        try {
+                                                            console.log('💬 Starting conversation with owner from listing card:', ownerUserId);
+                                                            
+                                                            // Create or find conversation
+                                                            const conversationId = await createOrFindConversation({
+                                                                ownerId: ownerUserId,
+                                                                tenantId: user.id,
+                                                                ownerName: displayName,
+                                                                tenantName: user.name || 'Tenant',
+                                                                propertyId: id || '',
+                                                                propertyTitle: title
+                                                            });
 
-                                            console.log('✅ Created/found conversation:', conversationId);
+                                                            console.log('✅ Created/found conversation:', conversationId);
 
-                                            // Navigate to chat room with conversation ID
-                                            router.push({
-                                                pathname: '/chat-room',
-                                                params: {
-                                                    conversationId: conversationId,
-                                                    ownerName: displayName,
-                                                    propertyTitle: title
+                                                            // Navigate to chat room with conversation ID
+                                                            router.push({
+                                                                pathname: '/chat-room',
+                                                                params: {
+                                                                    conversationId: conversationId,
+                                                                    ownerName: displayName,
+                                                                    propertyTitle: title
+                                                                }
+                                                            });
+                                                        } catch (error) {
+                                                            console.error('❌ Error starting conversation:', error);
+                                                            showAlert('Error', 'Failed to start conversation. Please try again.');
+                                                        }
+                                                    }
                                                 }
-                                            });
-                                        } catch (error) {
-                                            console.error('❌ Error starting conversation:', error);
-                                            showAlert('Error', 'Failed to start conversation. Please try again.');
-                                        }
+                                            ]
+                                        );
                                     }}
                                 >
                                     <Text className="text-white font-semibold text-sm">Message Owner</Text>
