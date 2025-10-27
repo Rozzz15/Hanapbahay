@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Modal, useWindowDimensions } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
 import { db, generateId } from '../../../utils/db';
@@ -22,6 +22,7 @@ import {
   Camera
 } from 'lucide-react-native';
 import { PROPERTY_TYPES, RENTAL_TYPES, AMENITIES, PAYMENT_METHODS, LEASE_TERMS } from '../../../types/property';
+import { BARANGAYS } from '../../../constants/Barangays';
 import { sharedStyles, designTokens } from '../../../styles/owner-dashboard-styles';
 import { professionalStyles } from '../../../styles/create-listing-professional';
 import { dispatchCustomEvent } from '../../../utils/custom-events';
@@ -35,6 +36,7 @@ interface ListingFormData {
   availabilityStatus: 'available' | 'occupied' | 'reserved';
   leaseTerm: 'short-term' | 'long-term' | 'negotiable';
   address: string;
+  barangay: string; // Barangay where property is located
   bedrooms: string;
   bathrooms: string;
   description: string;
@@ -55,6 +57,8 @@ interface ListingFormData {
 export default function EditListing() {
   const { user } = useAuth();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const { id } = useLocalSearchParams();
   const listingId = Array.isArray(id) ? id[0] : id;
   
@@ -62,6 +66,7 @@ export default function EditListing() {
   const [saving, setSaving] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [customRule, setCustomRule] = useState('');
+  const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
   const [formData, setFormData] = useState<ListingFormData>({
     propertyType: '',
     rentalType: '',
@@ -69,6 +74,7 @@ export default function EditListing() {
     availabilityStatus: 'available',
     leaseTerm: 'short-term',
     address: '',
+    barangay: '', // Barangay selection
     bedrooms: '',
     bathrooms: '',
     description: '',
@@ -129,6 +135,7 @@ export default function EditListing() {
         availabilityStatus: listing.availabilityStatus || 'available',
         leaseTerm: listing.leaseTerm || 'short-term',
         address: listing.address || '',
+        barangay: (listing as any).barangay || '', // Load barangay
         bedrooms: listing.bedrooms?.toString() || '',
         bathrooms: listing.bathrooms?.toString() || '',
         description: listing.description || '',
@@ -191,7 +198,7 @@ export default function EditListing() {
       case 1:
         return !!(formData.propertyType && formData.rentalType && formData.monthlyRent);
       case 2:
-        return !!(formData.address && formData.description && formData.bedrooms && formData.bathrooms);
+        return !!(formData.address && formData.barangay && formData.description && formData.bedrooms && formData.bathrooms);
       case 3:
         return !!(formData.ownerName && formData.contactNumber && formData.email);
       case 4:
@@ -310,6 +317,7 @@ export default function EditListing() {
         availabilityStatus: formData.availabilityStatus,
         leaseTerm: formData.leaseTerm,
         address: formData.address,
+        barangay: formData.barangay, // Use selected barangay from dropdown
         title: `${formData.propertyType} in ${formData.address.split(',')[0]}`,
         location: formData.address.split(',')[0] || 'Location not specified',
         bedrooms: parseInt(formData.bedrooms),
@@ -558,6 +566,118 @@ export default function EditListing() {
         </View>
       </View>
 
+      <View style={{ marginBottom: 24 }} />
+
+      <View style={professionalStyles.inputGroup}>
+        <Text style={professionalStyles.inputLabel}>Barangay *</Text>
+        <TouchableOpacity
+          onPress={() => setShowBarangayDropdown(true)}
+          style={{
+            borderWidth: 1,
+            borderColor: formData.barangay ? designTokens.colors.primary : designTokens.colors.border,
+            borderRadius: 12,
+            backgroundColor: 'white',
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Text style={{
+            fontSize: 16,
+            color: formData.barangay ? designTokens.colors.text : designTokens.colors.textMuted,
+            fontWeight: formData.barangay ? '500' : '400',
+          }}>
+            {formData.barangay || 'Select Barangay'}
+          </Text>
+          <Text style={{
+            fontSize: 16,
+            color: designTokens.colors.textMuted,
+          }}>▼</Text>
+        </TouchableOpacity>
+        {formData.barangay && (
+          <Text style={{ marginTop: 8, fontSize: 14, color: designTokens.colors.success }}>
+            ✓ Selected: {formData.barangay}
+          </Text>
+        )}
+
+        {/* Barangay Dropdown Modal */}
+        <Modal
+          visible={showBarangayDropdown}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowBarangayDropdown(false)}
+        >
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-end',
+          }}>
+            <View style={{
+              backgroundColor: 'white',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              maxHeight: '70%',
+            }}>
+              <View style={{
+                padding: 20,
+                borderBottomWidth: 1,
+                borderBottomColor: '#eee',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: 'bold',
+                  color: designTokens.colors.text,
+                }}>
+                  Select Barangay
+                </Text>
+                <TouchableOpacity onPress={() => setShowBarangayDropdown(false)}>
+                  <Text style={{
+                    fontSize: 16,
+                    color: designTokens.colors.primary,
+                    fontWeight: '600',
+                  }}>
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={{ maxHeight: 400 }}>
+                {BARANGAYS.map((brgy) => (
+                  <TouchableOpacity
+                    key={brgy}
+                    style={{
+                      paddingVertical: 16,
+                      paddingHorizontal: 20,
+                      backgroundColor: formData.barangay === brgy ? designTokens.colors.primaryLight : 'white',
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#f0f0f0',
+                    }}
+                    onPress={() => {
+                      updateFormData('barangay', brgy);
+                      setShowBarangayDropdown(false);
+                    }}
+                  >
+                    <Text style={{
+                      fontSize: 16,
+                      color: formData.barangay === brgy ? designTokens.colors.primary : designTokens.colors.text,
+                      fontWeight: formData.barangay === brgy ? '600' : '400',
+                    }}>
+                      {brgy}
+                      {formData.barangay === brgy && ' ✓'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </View>
+
       <View style={professionalStyles.inputGroup}>
         <Text style={professionalStyles.inputLabel}>Description *</Text>
         <TextInput
@@ -570,39 +690,41 @@ export default function EditListing() {
         />
       </View>
 
-      <View style={{ flexDirection: 'row', gap: designTokens.spacing.lg }}>
-        <View style={{ flex: 1 }}>
-          <View style={professionalStyles.inputGroup}>
-            <Text style={professionalStyles.inputLabel}>Bedrooms *</Text>
-            <View style={professionalStyles.inputContainer}>
-              <View style={professionalStyles.inputIcon}>
-                <Home size={18} color={designTokens.colors.textMuted} />
-              </View>
-              <TextInput
-                style={[professionalStyles.input, professionalStyles.inputWithIcon]}
-                placeholder="Number of bedrooms"
-                value={formData.bedrooms}
-                onChangeText={(value) => updateFormData('bedrooms', value)}
-                keyboardType="numeric"
-              />
+      <View style={{
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: 16,
+        marginTop: 8,
+        marginBottom: 24,
+        alignItems: 'flex-start',
+      }}>
+        <View style={{ flex: isMobile ? 0 : 1, width: isMobile ? '100%' : undefined }}>
+          <Text style={[professionalStyles.inputLabel, { marginBottom: 10 }]}>Bedrooms *</Text>
+          <View style={[professionalStyles.inputContainer, { minHeight: 50 }]}>
+            <View style={professionalStyles.inputIcon}>
+              <Home size={18} color={designTokens.colors.textMuted} />
             </View>
+            <TextInput
+              style={[professionalStyles.input, professionalStyles.inputWithIcon, { height: 50 }]}
+              placeholder="Number of bedrooms"
+              value={formData.bedrooms}
+              onChangeText={(value) => updateFormData('bedrooms', value)}
+              keyboardType="numeric"
+            />
           </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <View style={professionalStyles.inputGroup}>
-            <Text style={professionalStyles.inputLabel}>Bathrooms *</Text>
-            <View style={professionalStyles.inputContainer}>
-              <View style={professionalStyles.inputIcon}>
-                <Home size={18} color={designTokens.colors.textMuted} />
-              </View>
-              <TextInput
-                style={[professionalStyles.input, professionalStyles.inputWithIcon]}
-                placeholder="Number of bathrooms"
-                value={formData.bathrooms}
-                onChangeText={(value) => updateFormData('bathrooms', value)}
-                keyboardType="numeric"
-              />
+        <View style={{ flex: isMobile ? 0 : 1, width: isMobile ? '100%' : undefined }}>
+          <Text style={[professionalStyles.inputLabel, { marginBottom: 10 }]}>Bathrooms *</Text>
+          <View style={[professionalStyles.inputContainer, { minHeight: 50 }]}>
+            <View style={professionalStyles.inputIcon}>
+              <Home size={18} color={designTokens.colors.textMuted} />
             </View>
+            <TextInput
+              style={[professionalStyles.input, professionalStyles.inputWithIcon, { height: 50 }]}
+              placeholder="Number of bathrooms"
+              value={formData.bathrooms}
+              onChangeText={(value) => updateFormData('bathrooms', value)}
+              keyboardType="numeric"
+            />
           </View>
         </View>
       </View>

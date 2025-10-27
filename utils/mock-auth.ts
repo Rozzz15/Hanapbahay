@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Mock user database for development - using persistent storage
 const MOCK_USERS_KEY = 'mock_users_database';
-let mockUsers = new Map<string, { email: string; password: string; id: string; roles: string[]; createdAt: string }>();
+let mockUsers = new Map<string, { email: string; password: string; id: string; roles: string[]; role?: string; barangay?: string; createdAt: string; name?: string; phone?: string; address?: string }>();
 
 // Create default users for testing connectivity
 const createDefaultUsers = async () => {
@@ -40,12 +40,61 @@ const createDefaultUsers = async () => {
       address: '789 Property Lane, Dumaguete City',
       role: 'owner',
       createdAt: new Date().toISOString()
+    },
+    // Barangay Officials
+    {
+      id: 'brgy_rizal_001',
+      email: 'brgy.rizal@hanapbahay.com',
+      password: 'rizal123',
+      name: 'Barangay Rizal Official',
+      phone: '+63 910 111 2222',
+      address: 'Rizal Street, Dumaguete City',
+      role: 'brgy_official',
+      barangay: 'RIZAL',
+      roles: ['brgy_official'],
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 'brgy_talongon_001',
+      email: 'brgy.talongon@hanapbahay.com',
+      password: 'talongon123',
+      name: 'Barangay Talolong Official',
+      phone: '+63 910 333 4444',
+      address: 'Talolong Street, Dumaguete City',
+      role: 'brgy_official',
+      barangay: 'TALOLONG',
+      roles: ['brgy_official'],
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 'brgy_gomez_001',
+      email: 'brgy.gomez@hanapbahay.com',
+      password: 'gomez123',
+      name: 'Barangay Gomez Official',
+      phone: '+63 910 555 6666',
+      address: 'Gomez Street, Dumaguete City',
+      role: 'brgy_official',
+      barangay: 'GOMEZ',
+      roles: ['brgy_official'],
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 'brgy_magsaysay_001',
+      email: 'brgy.magsaysay@hanapbahay.com',
+      password: 'magsaysay123',
+      name: 'Barangay Magsaysay Official',
+      phone: '+63 910 777 8888',
+      address: 'Magsaysay Street, Dumaguete City',
+      role: 'brgy_official',
+      barangay: 'MAGSAYSAY',
+      roles: ['brgy_official'],
+      createdAt: new Date().toISOString()
     }
   ];
 
   for (const user of defaultUsers) {
-    if (!mockUsers.has(user.id)) {
-      mockUsers.set(user.id, user);
+    if (!mockUsers.has(user.email)) {
+      mockUsers.set(user.email, user);
       console.log(`✅ Created default user: ${user.name} (${user.role})`);
     }
   }

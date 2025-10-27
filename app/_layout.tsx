@@ -48,6 +48,7 @@ export default function RootLayout() {
                 <Stack.Screen name="index" />
                 <Stack.Screen name="(tabs)" />
                 <Stack.Screen name="(owner)" />
+                <Stack.Screen name="(brgy)" />
                 <Stack.Screen name="+not-found" />
                 <Stack.Screen name="unauthorized" options={{ title: 'Unauthorized' }} />
                 <Stack.Screen name="login" options={{ headerShown: false }} />

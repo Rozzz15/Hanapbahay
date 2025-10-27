@@ -4,7 +4,7 @@ export interface User {
   email: string;
   name: string;
   permissions: string[];
-  role: 'tenant' | 'owner' | 'admin';
+  role: 'tenant' | 'owner' | 'admin' | 'brgy_official';
 }
 
 export interface AuthContextType {
@@ -70,10 +70,11 @@ export interface DbUserRecord {
   name: string;
   phone: string;
   address: string;
-  role: 'tenant' | 'owner';
+  role: 'tenant' | 'owner' | 'brgy_official';
   roles?: string[]; // Array format for AuthContext compatibility
   gender?: 'male' | 'female';
   familyType?: 'individual' | 'family';
+  barangay?: string; // Barangay name for officials
   createdAt: string;
 }
 
@@ -198,6 +199,7 @@ export interface PublishedListingRecord {
   propertyType: string;
   rentalType: string;
   address: string;
+  barangay?: string; // Barangay where the property is located
   bedrooms: number;
   bathrooms: number;
   monthlyRent: number;

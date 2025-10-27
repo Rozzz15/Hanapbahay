@@ -10,7 +10,6 @@ import {
 import { 
   Plus, 
   Edit, 
-  Trash2, 
   Eye,
   MapPin,
   MessageSquare,
@@ -207,6 +206,7 @@ export default function ListingsPage() {
                     key={listing.id} 
                     style={styles.listingCard}
                     activeOpacity={0.95}
+                    onLongPress={() => handleDeleteListing(listing.id, getPropertyTitle(listing))}
                   >
                     {/* Cover Photo */}
                     <View style={styles.imageContainer}>
@@ -332,13 +332,6 @@ export default function ListingsPage() {
                         >
                           <Edit size={16} color="#FFFFFF" />
                           <Text style={styles.actionButtonText}>Edit</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                          style={[styles.actionButton, styles.deleteButton]}
-                          onPress={() => handleDeleteListing(listing.id, getPropertyTitle(listing))}
-                          activeOpacity={0.7}
-                        >
-                          <Trash2 size={16} color="#FFFFFF" />
                         </TouchableOpacity>
                       </View>
                     </View>

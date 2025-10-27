@@ -2,7 +2,6 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { getAuthUser, clearAuthUser, clearAuthSession } from '../utils/auth-user';
 import { supabase } from '../utils/supabase-client';
 import { useRouter } from 'expo-router';
-import { hasOwnerListings } from '../utils/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dispatchCustomEvent } from '../utils/custom-events';
 
@@ -22,6 +21,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   redirectOwnerBasedOnListings: (ownerId: string) => Promise<void>;
   redirectTenantToTabs: () => Promise<void>;
+  redirectBrgyOfficial: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -218,6 +218,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const redirectBrgyOfficial = async () => {
+    try {
+      console.log('🏛️ Redirecting barangay official to dashboard');
+      router.replace('/(brgy)/dashboard');
+    } catch (error) {
+      console.error('❌ Error redirecting barangay official:', error);
+      router.replace('/(brgy)/dashboard');
+    }
+  };
+
   const signOut = async () => {
     try {
       console.log('🚪 Starting comprehensive logout process...');
@@ -323,8 +333,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    refreshUser();
-  }, [refreshUser]);
+    // Clear auth session on app initialization to force logout
+    const initializeAuth = async () => {
+      console.log('🚀 App initialized - clearing auth session');
+      try {
+        await clearAuthSession();
+        console.log('✅ Auth session cleared on app initialization');
+        setUser(null);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('❌ Error clearing auth session on initialization:', error);
+        // Continue even if clearing fails
+        setUser(null);
+        setIsLoading(false);
+      }
+    };
+    
+    initializeAuth();
+  }, []);
 
   const value: AuthContextType = {
     user,
@@ -334,6 +360,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshUser,
     redirectOwnerBasedOnListings,
     redirectTenantToTabs,
+    redirectBrgyOfficial,
   };
 
   return (

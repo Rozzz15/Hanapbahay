@@ -16,7 +16,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { refreshUser, redirectOwnerBasedOnListings, redirectTenantToTabs } = useAuth();
+    const { refreshUser, redirectOwnerBasedOnListings, redirectTenantToTabs, redirectBrgyOfficial } = useAuth();
     const toast = useToast();
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
@@ -116,6 +116,9 @@ export default function LoginScreen() {
                     // Use the AuthContext function to handle owner redirect
                     const ownerId = (result as any).user?.id || (result as any).id;
                     await redirectOwnerBasedOnListings(ownerId);
+                } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
+                    // Redirect barangay official to barangay dashboard
+                    await redirectBrgyOfficial();
                 } else {
                     // Redirect tenant to tenant dashboard
                     await redirectTenantToTabs();
