@@ -408,7 +408,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                 }
                 
                 const result = await ImagePicker.launchImageLibraryAsync({
-                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    mediaTypes: ['images'],
                     allowsEditing: true,
                     aspect: [1, 1] as [number, number],
                     quality: 0.7,

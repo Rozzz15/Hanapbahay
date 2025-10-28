@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, View, Text, TouchableOpacity, Image, Alert, useWindowDimensions, Pressable, Modal, StyleSheet, TextInput } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, Image, Alert, useWindowDimensions, Pressable, Modal, StyleSheet, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
@@ -59,7 +59,7 @@ export default function SignUpScreen() {
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             quality: 0.8,
         });
         if (!result.canceled && result.assets?.length) {
@@ -246,8 +246,8 @@ export default function SignUpScreen() {
             <View style={styles.header}>
                 <TouchableOpacity 
                     style={styles.backButton}
-                            onPress={() => router.navigate('/')}
-                        >
+                    onPress={() => router.navigate('/')}
+                >
                     <Ionicons name="arrow-back" size={24} color="#374151" />
                 </TouchableOpacity>
                 
@@ -259,15 +259,21 @@ export default function SignUpScreen() {
                 <Text style={styles.welcomeText}>Create Your Account</Text>
                 <Text style={styles.subtitleText}>
                     Join thousands of users finding their perfect home
-                            </Text>
+                </Text>
             </View>
 
             {/* Form Card */}
-            <ScrollView 
-                style={styles.scrollView}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
             >
+                <ScrollView 
+                    style={styles.scrollView}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                >
                 <View style={styles.formCard}>
                     {/* Role Selection */}
                     <View style={styles.roleSection}>
@@ -551,6 +557,7 @@ export default function SignUpScreen() {
                                 )}
                             </View>
                         )}
+                    </View>
 
                     {/* Security Section */}
                     <View style={styles.securitySection}>
@@ -683,8 +690,8 @@ export default function SignUpScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
-                </View>
-            </ScrollView>
+                </ScrollView>
+            </KeyboardAvoidingView>
 
             {/* Terms and Conditions Modal */}
             <Modal
@@ -1032,7 +1039,7 @@ export default function SignUpScreen() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+            </SafeAreaView>
     );
 }
 

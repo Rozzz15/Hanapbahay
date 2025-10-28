@@ -15,36 +15,59 @@ export async function getBrgyDashboardStats(
     // Get all users
     const allUsers = await db.list<DbUserRecord>('users');
     
-    // Filter users in this barangay
-    const residentsInBarangay = allUsers.filter(
-      u => (u as any).barangay === barangayName
-    );
-    
     // Get all listings
     const allListings = await db.list<PublishedListingRecord>('published_listings');
     
-    // Get listings in this barangay
+    // Get ACTIVE listings in this barangay (only available, not occupied or reserved)
     const listingsInBarangay = allListings.filter(listing => {
-      const listingUser = allUsers.find(u => u.id === listing.userId);
-      return listingUser && (listingUser as any).barangay === barangayName;
+      // First check if listing is active (only 'available' status)
+      const isActive = listing.availabilityStatus === 'available';
+      
+      // Check barangay match
+      let isInBarangay = false;
+      if (listing.barangay) {
+        const listingBarangay = listing.barangay.trim().toUpperCase();
+        const targetBarangay = barangayName.trim().toUpperCase();
+        console.log(`🔍 Comparing listing barangay "${listingBarangay}" with target "${targetBarangay}"`);
+        isInBarangay = listingBarangay === targetBarangay;
+      } else {
+        // Fallback: if barangay field not set, check via user
+        const listingUser = allUsers.find(u => u.id === listing.userId);
+        const userBarangay = listingUser && (listingUser as any).barangay;
+        isInBarangay = userBarangay ? userBarangay.trim().toUpperCase() === barangayName.trim().toUpperCase() : false;
+      }
+      
+      return isActive && isInBarangay;
     });
     
     // Get all bookings
     const allBookings = await db.list<BookingRecord>('bookings');
     
-    // Get active bookings in this barangay
-    const activeBookingsInBarangay = allBookings.filter(booking => {
+    // Get approved bookings in this barangay - only count tenants with approved bookings
+    const approvedBookingsInBarangay = allBookings.filter(booking => {
       const property = allListings.find(l => l.id === booking.propertyId);
       if (!property) return false;
+      
+      // Check property's barangay field
+      if (property.barangay) {
+        return property.barangay.trim().toUpperCase() === barangayName.trim().toUpperCase() && booking.status === 'approved';
+      }
+      
+      // Fallback: check via property user
       const propertyUser = allUsers.find(u => u.id === property.userId);
-      return propertyUser && (propertyUser as any).barangay === barangayName && booking.status === 'approved';
+      const userBarangay = propertyUser && (propertyUser as any).barangay;
+      return userBarangay && userBarangay.trim().toUpperCase() === barangayName.trim().toUpperCase() && booking.status === 'approved';
     });
     
+    // Count unique tenants (residents) with approved bookings in this barangay
+    const uniqueTenantIds = new Set(approvedBookingsInBarangay.map(booking => booking.tenantId));
+    const totalResidents = uniqueTenantIds.size;
+    
     return {
-      totalResidents: residentsInBarangay.length,
+      totalResidents,
       totalProperties: listingsInBarangay.length,
       totalListings: listingsInBarangay.length,
-      activeBookings: activeBookingsInBarangay.length
+      activeBookings: approvedBookingsInBarangay.length
     };
   } catch (error) {
     console.error('Error getting barangay stats:', error);
@@ -59,15 +82,32 @@ export async function getBrgyDashboardStats(
 
 export async function getBrgyListings(barangayName: string): Promise<PublishedListingRecord[]> {
   try {
-    // Get all listings
+    // Get all listings and users
     const allListings = await db.list<PublishedListingRecord>('published_listings');
+    const allUsers = await db.list<DbUserRecord>('users');
     
-    // Filter listings by barangay - now using explicit barangay field
+    // Filter ACTIVE listings by barangay (only available, not occupied or reserved)
     const listingsInBarangay = allListings.filter(listing => {
+      // First check if listing is active (only 'available' status)
+      const isActive = listing.availabilityStatus === 'available';
+      
+      // Check barangay match
+      let isInBarangay = false;
       if (listing.barangay) {
-        return listing.barangay.toUpperCase() === barangayName.toUpperCase();
+        const listingBarangay = listing.barangay.trim().toUpperCase();
+        const targetBarangay = barangayName.trim().toUpperCase();
+        console.log(`🔍 Comparing listing barangay "${listingBarangay}" with target "${targetBarangay}"`);
+        isInBarangay = listingBarangay === targetBarangay;
+      } else {
+        // Fallback: check via listing's user barangay field
+        const listingUser = allUsers.find(u => u.id === listing.userId);
+        const userBarangay = listingUser && (listingUser as any).barangay;
+        if (userBarangay) {
+          isInBarangay = userBarangay.trim().toUpperCase() === barangayName.trim().toUpperCase();
+        }
       }
-      return false;
+      
+      return isActive && isInBarangay;
     });
     
     // Sort by published date (newest first)

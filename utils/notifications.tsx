@@ -79,6 +79,13 @@ export const notifications = {
   // Authentication
   loginSuccess: () => 'Welcome back! You\'ve successfully signed in. Ready to find your perfect home? 🏠',
 
+  loginError: () => createNotification({
+    title: 'Login Failed ❌',
+    description: 'Invalid email or password. Please check your credentials and try again.',
+    type: 'error',
+    duration: 5000,
+  }),
+
   logoutSuccess: () => 'You\'ve been logged out successfully. See you next time! 👋',
 
   // Profile Updates

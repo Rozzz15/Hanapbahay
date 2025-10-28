@@ -19,28 +19,6 @@ const createDefaultUsers = async () => {
       roles: ['tenant'],
       createdAt: new Date().toISOString()
     },
-    // Default Owner 1
-    {
-      id: 'owner_default_001',
-      email: 'owner1@test.com',
-      password: 'owner123',
-      name: 'Maria Santos',
-      phone: '+63 917 123 4567',
-      address: '456 Owner Avenue, Dumaguete City',
-      role: 'owner',
-      createdAt: new Date().toISOString()
-    },
-    // Default Owner 2
-    {
-      id: 'owner_default_002',
-      email: 'owner2@test.com',
-      password: 'owner123',
-      name: 'Robert Chen',
-      phone: '+63 918 234 5678',
-      address: '789 Property Lane, Dumaguete City',
-      role: 'owner',
-      createdAt: new Date().toISOString()
-    },
     // Barangay Officials
     {
       id: 'brgy_rizal_001',
@@ -55,9 +33,9 @@ const createDefaultUsers = async () => {
       createdAt: new Date().toISOString()
     },
     {
-      id: 'brgy_talongon_001',
-      email: 'brgy.talongon@hanapbahay.com',
-      password: 'talongon123',
+      id: 'brgy_talolong_001',
+      email: 'brgy.talolong@hanapbahay.com',
+      password: 'talolong123',
       name: 'Barangay Talolong Official',
       phone: '+63 910 333 4444',
       address: 'Talolong Street, Dumaguete City',
@@ -127,15 +105,6 @@ const clearDefaultProperties = async () => {
         console.log(`🗑️ Removed default property: ${propertyId}`);
       } catch (error) {
         console.log(`⚠️ Property ${propertyId} may not exist:`, error);
-      }
-    }
-    
-    // Also remove any properties with default owner IDs
-    const defaultOwnerIds = ['owner_default_001', 'owner_default_002'];
-    for (const listing of allListings) {
-      if (listing.ownerUserId && defaultOwnerIds.includes(listing.ownerUserId)) {
-        await db.remove('published_listings', listing.id);
-        console.log(`🗑️ Removed property with default owner: ${listing.id}`);
       }
     }
     
@@ -235,6 +204,8 @@ export interface MockAuthResponse {
     id: string;
     email: string;
     roles: string[];
+    role?: string;
+    permissions?: string[];
   };
   error?: string;
 }
@@ -289,6 +260,25 @@ export async function mockSignUp(email: string, password: string, role: 'tenant'
     } catch (saveError) {
       console.error('❌ Failed to save users to storage:', saveError);
       console.log('🔄 Continuing without persistent storage...');
+    }
+
+    // IMPORTANT: Save user data to the database so other parts of the app can access it
+    try {
+      const { db } = await import('./db');
+      await db.upsert('users', userId, {
+        id: userId,
+        email: normalizedEmail,
+        name: normalizedEmail.split('@')[0],
+        phone: '', // Default empty
+        address: '', // Default empty
+        roles: [role],
+        role: role,
+        createdAt: userData.createdAt,
+      });
+      console.log('✅ User data saved to database:', userId);
+    } catch (dbError) {
+      console.error('❌ Failed to save user to database:', dbError);
+      // Continue anyway - some app features might not work
     }
 
     // Store auth user data for immediate login (with both role and roles)
@@ -377,12 +367,32 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
 
     console.log('✅ Password verified for user:', user.id);
 
+    // IMPORTANT: Save user data to the database so other parts of the app can access it
+    try {
+      const { db } = await import('./db');
+      await db.upsert('users', user.id, {
+        id: user.id,
+        email: user.email,
+        name: user.name || user.email.split('@')[0],
+        roles: user.roles,
+        role: (user.role || user.roles[0]) as 'tenant' | 'owner' | 'brgy_official',
+        barangay: user.barangay, // Include barangay field for brgy accounts
+        phone: user.phone || '',
+        address: user.address || '',
+        createdAt: user.createdAt,
+      });
+      console.log('✅ User data saved to database:', user.id);
+    } catch (dbError) {
+      console.error('❌ Failed to save user to database:', dbError);
+      // Continue anyway - some app features might not work
+    }
+
     // Store auth user data for session
     const authUser = {
       id: user.id,
       roles: user.roles,
       permissions: [],
-      name: user.email.split('@')[0], // Use email prefix as name
+      name: user.name || user.email.split('@')[0],
       email: user.email
     };
     

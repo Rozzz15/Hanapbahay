@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, Pressable, View, Text, StyleSheet, Dimensions } from 'react-native';
+import { ScrollView, Pressable, View, Text, StyleSheet, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { loginUser, loginSchema } from '@/api/auth/login';
 // Removed react-hook-form - using React state instead
@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from "@/components/ui/toast";
 import { notifications } from "@/utils";
+import { showSimpleAlert } from "@/utils/alert";
 import { Ionicons } from '@expo/vector-icons';
 import { TextInput } from 'react-native';
 
@@ -125,11 +126,11 @@ export default function LoginScreen() {
                 }
             } else {
                 console.log('Sign-in failed:', result.error);
-                alert(result.error || "Invalid email or password");
+                showSimpleAlert('Login Failed ❌', 'Invalid email or password. Please check your credentials and try again.');
             }
         } catch (error) {
             console.error('Login error:', error);
-            alert("Invalid email or password");
+            showSimpleAlert('Login Failed ❌', 'Invalid email or password. Please check your credentials and try again.');
         } finally {
             setIsSubmitting(false);
         }
@@ -163,11 +164,17 @@ export default function LoginScreen() {
             </View>
 
             {/* Form Card */}
-            <ScrollView 
-                style={styles.scrollView}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
             >
+                <ScrollView 
+                    style={styles.scrollView}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                >
                 <View style={styles.formCard}>
                     <Text style={styles.formTitle}>Sign In to Your Account</Text>
                     <Text style={styles.formSubtitle}>
@@ -262,7 +269,8 @@ export default function LoginScreen() {
                         </Pressable>
                     </View>
                 </View>
-            </ScrollView>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </View>
     );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Modal, useWindowDimensions } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Modal, useWindowDimensions, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, generateId } from '../../utils/db';
@@ -178,7 +178,7 @@ export default function CreateListing() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [16, 9],
       quality: 0.8,
@@ -197,7 +197,7 @@ export default function CreateListing() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: true,
       quality: 0.8,
     });
@@ -216,7 +216,7 @@ export default function CreateListing() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ['videos'],
       allowsEditing: false,
       quality: 0.8,
     });
@@ -250,6 +250,7 @@ export default function CreateListing() {
     try {
       setLoading(true);
       console.log('📝 Creating listing for user:', user.id);
+      console.log('📍 Barangay selected:', formData.barangay.trim());
 
       // Generate unique ID for the listing
       const listingId = generateId('listing');
@@ -266,7 +267,7 @@ export default function CreateListing() {
         availabilityStatus: formData.availabilityStatus,
         leaseTerm: formData.leaseTerm,
         address: formData.address,
-        barangay: formData.barangay, // Use selected barangay from dropdown
+        barangay: formData.barangay.trim().toUpperCase(), // Use selected barangay from dropdown (trim and uppercase to avoid whitespace/case issues)
         title: `${formData.propertyType} in ${formData.address.split(',')[0]}`, // Generate title
         location: formData.address.split(',')[0] || 'Location not specified', // Extract location from address
         bedrooms: parseInt(formData.bedrooms),
@@ -310,6 +311,7 @@ export default function CreateListing() {
           if (verification && verification.id === listingId) {
             saveSuccess = true;
             console.log('✅ Listing saved and verified successfully');
+            console.log('📍 Listing barangay:', verification.barangay);
           } else {
             throw new Error('Verification failed - listing not found after save');
           }
@@ -1169,11 +1171,20 @@ export default function CreateListing() {
       </View>
 
       {/* Content */}
-      <ScrollView style={sharedStyles.scrollView}>
-        <View style={sharedStyles.pageContainer}>
-          {renderCurrentStep()}
-        </View>
-      </ScrollView>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView 
+          style={sharedStyles.scrollView}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={sharedStyles.pageContainer}>
+            {renderCurrentStep()}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Professional Footer */}
       <View style={professionalStyles.professionalFooter}>

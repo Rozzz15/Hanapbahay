@@ -10,8 +10,8 @@ Use these credentials to login as a Barangay Official for different barangays:
 **Location:** Rizal Street, Dumaguete City
 
 ### 🏛️ Barangay TALOLONG  
-**Email:** `brgy.talongon@hanapbahay.com`  
-**Password:** `talongon123`  
+**Email:** `brgy.talolong@hanapbahay.com`  
+**Password:** `talolong123`  
 **Location:** Talolong Street, Dumaguete City
 
 ### 🏛️ Barangay GOMEZ

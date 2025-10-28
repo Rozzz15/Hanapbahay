@@ -21,7 +21,7 @@ A modern and professional Barangay Dashboard has been successfully created for t
 | Barangay | Email | Password | Status |
 |----------|-------|----------|--------|
 | RIZAL | brgy.rizal@hanapbahay.com | rizal123 | ✅ Created |
-| TALONGON | brgy.talongon@hanapbahay.com | talongon123 | ✅ Created |
+| TALOLONG | brgy.talolong@hanapbahay.com | talolong123 | ✅ Created |
 | GOMEZ | brgy.gomez@hanapbahay.com | gomez123 | ✅ Created |
 | MAGSAYSAY | brgy.magsaysay@hanapbahay.com | magsaysay123 | ✅ Created |
 

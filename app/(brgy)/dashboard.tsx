@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getBrgyDashboardStats,
@@ -30,23 +30,87 @@ export default function BrgyDashboard() {
     activeBookings: 0
   });
   const [loading, setLoading] = useState(true);
+  const [barangayName, setBarangayName] = useState<string>('');
+  const [officialName, setOfficialName] = useState<string>('');
 
-  // Check authentication
-  useEffect(() => {
-    if (!user) {
-      router.replace('/login');
-      return;
+  // Define loadStats first (before loadDashboardData)
+  const loadStats = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      // Get barangay name from user data
+      const userRecord = await db.get<DbUserRecord>('users', user.id);
+      const barangay = userRecord?.barangay || 'Unknown Barangay';
+      setBarangayName(barangay);
+      
+      // Set official name from database
+      if (userRecord?.name) {
+        setOfficialName(userRecord.name);
+      }
+      
+      // Get all users
+      const allUsers = await db.list<DbUserRecord>('users');
+      
+      // Get all published listings
+      const allListings = await db.list<PublishedListingRecord>('published_listings');
+      
+      // Filter ACTIVE listings by barangay (only available, not occupied or reserved)
+      const listingsInBarangay = allListings.filter(listing => {
+        // First check if listing is active (only 'available' status)
+        const isActive = listing.availabilityStatus === 'available';
+        
+        // Check barangay match
+        let isInBarangay = false;
+        if (listing.barangay) {
+          const listingBarangay = listing.barangay.trim().toUpperCase();
+          const targetBarangay = barangay.trim().toUpperCase();
+          console.log(`🔍 Dashboard: Comparing listing barangay "${listingBarangay}" with target "${targetBarangay}"`);
+          isInBarangay = listingBarangay === targetBarangay;
+        } else {
+          // Fallback: if barangay field not set, check via user
+          const listingUser = allUsers.find(u => u.id === listing.userId);
+          const userBarangay = listingUser?.barangay;
+          if (userBarangay) {
+            isInBarangay = userBarangay.trim().toUpperCase() === barangay.trim().toUpperCase();
+          }
+        }
+        
+        return isActive && isInBarangay;
+      });
+      
+      // Get all bookings for properties in this barangay
+      const allBookings = await db.list<BookingRecord>('bookings');
+      const approvedBookingsInBarangay = allBookings.filter(b => {
+        const property = allListings.find(l => l.id === b.propertyId);
+        if (!property) return false;
+        
+        // Check property's barangay field
+        if (property.barangay) {
+          return property.barangay.trim().toUpperCase() === barangay.trim().toUpperCase() && b.status === 'approved';
+        }
+        
+        // Fallback: check via property user
+        const propertyUser = allUsers.find(u => u.id === property.userId);
+        const userBarangay = propertyUser?.barangay;
+        return userBarangay && userBarangay.trim().toUpperCase() === barangay.trim().toUpperCase() && b.status === 'approved';
+      });
+      
+      // Count unique tenants (residents) with approved bookings in this barangay
+      const uniqueTenantIds = new Set(approvedBookingsInBarangay.map(booking => booking.tenantId));
+      const totalResidents = uniqueTenantIds.size;
+      
+      setStats({
+        totalResidents,
+        totalProperties: listingsInBarangay.length,
+        totalListings: listingsInBarangay.length,
+        activeBookings: approvedBookingsInBarangay.length
+      });
+    } catch (error) {
+      console.error('Error loading stats:', error);
     }
+  }, [user?.id]);
 
-    if (!user.roles?.includes('brgy_official')) {
-      showAlert('Access Denied', 'This dashboard is for Barangay Officials only.');
-      router.replace('/(tabs)');
-      return;
-    }
-
-    loadDashboardData();
-  }, [user]);
-
+  // Define loadDashboardData after loadStats
   const loadDashboardData = useCallback(async () => {
     if (!user?.id) return;
 
@@ -59,46 +123,41 @@ export default function BrgyDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, loadStats]);
 
-  const loadStats = useCallback(async () => {
-    if (!user?.id) return;
+  // Check authentication and load user data
+  useEffect(() => {
+    const loadInitialData = async () => {
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
 
-    try {
-      // Get barangay name from user data
-      const userRecord = await db.get<DbUserRecord>('users', user.id);
-      const barangay = userRecord?.barangay || 'Unknown Barangay';
-      
-      // Get all users in this barangay
-      const allUsers = await db.list<DbUserRecord>('users');
-      const residentsInBarangay = allUsers.filter(u => u.barangay === barangay);
-      
-      // Get all published listings
-      const allListings = await db.list<PublishedListingRecord>('published_listings');
-      const listingsInBarangay = allListings.filter(l => {
-        const listingUser = allUsers.find(u => u.id === l.userId);
-        return listingUser?.barangay === barangay;
-      });
-      
-      // Get all bookings for properties in this barangay
-      const allBookings = await db.list<BookingRecord>('bookings');
-      const activeBookingsInBarangay = allBookings.filter(b => {
-        const property = allListings.find(l => l.id === b.propertyId);
-        if (!property) return false;
-        const propertyUser = allUsers.find(u => u.id === property.userId);
-        return propertyUser?.barangay === barangay && b.status === 'approved';
-      });
-      
-      setStats({
-        totalResidents: residentsInBarangay.length,
-        totalProperties: listingsInBarangay.length,
-        totalListings: listingsInBarangay.length,
-        activeBookings: activeBookingsInBarangay.length
-      });
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    }
-  }, [user?.id]);
+      if (!user.roles?.includes('brgy_official')) {
+        showAlert('Access Denied', 'This dashboard is for Barangay Officials only.');
+        router.replace('/(tabs)');
+        return;
+      }
+
+      // Set initial official name from context
+      if (user.name) {
+        setOfficialName(user.name);
+      }
+
+      loadDashboardData();
+    };
+
+    loadInitialData();
+  }, [user, loadDashboardData]);
+
+  // Reload data when screen comes into focus (e.g., returning from settings)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.roles?.includes('brgy_official')) {
+        loadDashboardData();
+      }
+    }, [user, loadDashboardData])
+  );
 
   const handleLogout = () => {
     if (!user) {
@@ -140,12 +199,6 @@ export default function BrgyDashboard() {
       return null;
     }
 
-    const userRecord = db.get<DbUserRecord>('users', user.id);
-    let barangayName = 'Unknown Barangay';
-    userRecord.then(record => {
-      if (record) barangayName = record.barangay || 'Unknown Barangay';
-    });
-
     return (
       <View style={sharedStyles.pageContainer}>
         {/* Header */}
@@ -182,9 +235,9 @@ export default function BrgyDashboard() {
               <Home size={20} color="#3B82F6" />
             </View>
             <View style={{ marginLeft: designTokens.spacing.md }}>
-              <Text style={sharedStyles.statLabel}>Barangay</Text>
+              <Text style={sharedStyles.statLabel}>BRGY {barangayName || (user as any)?.barangay || 'Barangay Official'}, LOPEZ, QUEZON</Text>
               <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.lg }]}>
-                {user?.name || 'Barangay Official'}
+                {officialName || user?.name || 'Barangay Official'}
               </Text>
             </View>
           </View>
@@ -203,7 +256,7 @@ export default function BrgyDashboard() {
                 </View>
                 <Text style={sharedStyles.statLabel}>Total Residents</Text>
                 <Text style={sharedStyles.statValue}>{stats.totalResidents}</Text>
-                <Text style={sharedStyles.statSubtitle}>Registered users</Text>
+                <Text style={sharedStyles.statSubtitle}>With approved bookings</Text>
               </View>
             </View>
 

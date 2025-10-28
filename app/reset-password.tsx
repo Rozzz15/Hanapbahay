@@ -1,5 +1,5 @@
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { View, ScrollView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
+import { View, ScrollView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import { InteractiveButton } from '@/components/buttons';
@@ -250,9 +250,14 @@ export default function ResetPasswordScreen() {
                 </View>
             </LinearGradient>
 
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                <View style={styles.card}>
-                    <View style={styles.formContainer}>
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.keyboardView}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            >
+                <ScrollView style={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                    <View style={styles.card}>
+                        <View style={styles.formContainer}>
                         {/* Email Display */}
                         <View style={styles.inputGroup}>
                             <Text style={styles.inputLabel}>Email Address</Text>
@@ -329,6 +334,7 @@ export default function ResetPasswordScreen() {
                     </View>
                 </View>
             </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -337,6 +343,9 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#F9FAFB',
+    },
+    keyboardView: {
+        flex: 1,
     },
     headerGradient: {
         paddingTop: 20,

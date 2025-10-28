@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { View, ScrollView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert } from 'react-native';
+import { View, ScrollView, Pressable, TextInput, StyleSheet, Dimensions, Text, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { VStack } from '@/components/ui/vstack';
 import { HStack } from '@/components/ui/hstack';
@@ -232,26 +232,31 @@ export default function ForgotPasswordScreen() {
                 </View>
             </LinearGradient>
 
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                <View style={styles.card}>
-                    <View style={styles.formContainer}>
-                        {/* Email Field */}
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Email Address</Text>
-                            <View style={styles.inputContainer}>
-                                <Ionicons name="mail" size={20} color="#6B7280" style={styles.inputIcon} />
-                                <TextInput
-                                    style={styles.textInput}
-                                    placeholder="Enter your email address"
-                                    placeholderTextColor="#9CA3AF"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.keyboardView}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            >
+                <ScrollView style={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                    <View style={styles.card}>
+                        <View style={styles.formContainer}>
+                            {/* Email Field */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.inputLabel}>Email Address</Text>
+                                <View style={styles.inputContainer}>
+                                    <Ionicons name="mail" size={20} color="#6B7280" style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.textInput}
+                                        placeholder="Enter your email address"
+                                        placeholderTextColor="#9CA3AF"
+                                        value={email}
+                                        onChangeText={setEmail}
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                </View>
                             </View>
-                        </View>
 
                         {/* Removed information card */}
 
@@ -293,6 +298,7 @@ export default function ForgotPasswordScreen() {
                     </View>
                 </View>
             </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -301,6 +307,9 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#F9FAFB',
+    },
+    keyboardView: {
+        flex: 1,
     },
     headerGradient: {
         paddingTop: 20,
