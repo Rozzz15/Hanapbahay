@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import { getBookingsByOwner, updateBookingStatus, getStatusColor, getStatusIcon, deleteBookingByOwner } from '@/utils/booking';
 import { BookingRecord } from '@/types';
 import { showAlert } from '../../utils/alert';
@@ -13,6 +14,7 @@ import { db } from '@/utils/db';
 
 export default function BookingsPage() {
   const { user, signOut } = useAuth();
+  const { refreshPendingBookings } = useNotifications();
   const router = useRouter();
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,6 +140,8 @@ export default function BookingsPage() {
         });
         
         loadBookings();
+        // Refresh the pending bookings count in the navigation badge
+        refreshPendingBookings();
       } else {
         throw new Error('Failed to update booking status');
       }
@@ -183,6 +187,8 @@ export default function BookingsPage() {
               if (success) {
                 // Remove from UI after successful deletion
                 setBookings(prevBookings => prevBookings.filter(b => b.id !== booking.id));
+                // Refresh the pending bookings count in the navigation badge
+                refreshPendingBookings();
               } else {
                 showAlert('Error', 'Failed to delete booking request');
               }
@@ -346,13 +352,19 @@ export default function BookingsPage() {
                         <Text style={styles.viewProfileText}>View Profile</Text>
                       </View>
                     </View>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="mail" size={14} color="#6B7280" />
-                      <Text style={styles.detailText}>{booking.tenantEmail}</Text>
-                    </View>
+                    {booking.tenantAddress && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="location" size={14} color="#6B7280" />
+                        <Text style={styles.detailText}>{booking.tenantAddress}</Text>
+                      </View>
+                    )}
                     <View style={styles.detailRow}>
                       <Ionicons name="call" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>{booking.tenantPhone}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="mail" size={14} color="#6B7280" />
+                      <Text style={styles.detailText}>{booking.tenantEmail}</Text>
                     </View>
                   </TouchableOpacity>
 

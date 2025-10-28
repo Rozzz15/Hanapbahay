@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Mock user database for development - using persistent storage
 const MOCK_USERS_KEY = 'mock_users_database';
-let mockUsers = new Map<string, { email: string; password: string; id: string; roles: string[]; role?: string; barangay?: string; createdAt: string; name?: string; phone?: string; address?: string }>();
+let mockUsers = new Map<string, { email: string; password: string; id: string; roles: string[]; role?: string; barangay?: string; createdAt: string; updatedAt?: string; name?: string; phone?: string; address?: string }>();
 
 // Create default users for testing connectivity
 const createDefaultUsers = async () => {
@@ -168,6 +168,27 @@ const saveUsersToStorage = async () => {
   }
 };
 
+// Update a user in the mockUsers Map
+export const updateMockUser = (userId: string, updates: Partial<{ email: string; name: string; phone: string; address: string; barangay: string; roles: string[]; role: string; updatedAt: string }>) => {
+  console.log('🔄 Updating mock user:', userId, updates);
+  
+  // Find the user by id
+  for (const [email, userData] of mockUsers.entries()) {
+    if (userData.id === userId) {
+      const updatedUser = { ...userData, ...updates };
+      mockUsers.set(email, updatedUser);
+      console.log('✅ Updated mock user:', email, updatedUser);
+      
+      // Save to persistent storage
+      saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
+      return true;
+    }
+  }
+  
+  console.error('❌ User not found in mockUsers:', userId);
+  return false;
+};
+
 // Do not auto-load on import to prevent SSR issues; callers will load as needed
 
 // Test function to verify AsyncStorage is working
@@ -265,6 +286,7 @@ export async function mockSignUp(email: string, password: string, role: 'tenant'
     // IMPORTANT: Save user data to the database so other parts of the app can access it
     try {
       const { db } = await import('./db');
+      const now = new Date().toISOString();
       await db.upsert('users', userId, {
         id: userId,
         email: normalizedEmail,
@@ -274,6 +296,7 @@ export async function mockSignUp(email: string, password: string, role: 'tenant'
         roles: [role],
         role: role,
         createdAt: userData.createdAt,
+        updatedAt: now, // Track when user was last updated
       });
       console.log('✅ User data saved to database:', userId);
     } catch (dbError) {
@@ -367,7 +390,50 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
 
     console.log('✅ Password verified for user:', user.id);
 
-    // IMPORTANT: Save user data to the database so other parts of the app can access it
+    // IMPORTANT: Check database for updated user data
+    let dbUserData = null;
+    try {
+      const { db } = await import('./db');
+      dbUserData = await db.get('users', user.id);
+      
+      if (dbUserData) {
+        console.log('📊 Found user data in database:', dbUserData);
+        
+        // If database has updatedAt and it's newer than mockUsers, use database data
+        if (dbUserData.updatedAt) {
+          const mockUserUpdated = user.updatedAt || user.createdAt;
+          const dbUserUpdated = dbUserData.updatedAt;
+          
+          if (new Date(dbUserUpdated) > new Date(mockUserUpdated)) {
+            console.log('🔄 Database has newer data, updating mockUsers');
+            // Update mockUsers with database data
+            mockUsers.set(normalizedEmail, {
+              ...user,
+              name: dbUserData.name || user.name || user.email.split('@')[0],
+              email: dbUserData.email || user.email,
+              phone: dbUserData.phone || user.phone || '',
+              address: dbUserData.address || user.address || '',
+              barangay: dbUserData.barangay || user.barangay,
+              updatedAt: dbUserData.updatedAt,
+            });
+            
+            // Update persistent storage
+            await saveUsersToStorage();
+            
+            // Use updated data
+            user.name = dbUserData.name || user.name || user.email.split('@')[0];
+            user.phone = dbUserData.phone || user.phone || '';
+            user.address = dbUserData.address || user.address || '';
+            user.barangay = dbUserData.barangay || user.barangay;
+            user.updatedAt = dbUserData.updatedAt;
+          }
+        }
+      }
+    } catch (dbError) {
+      console.error('❌ Failed to check database for user data:', dbError);
+    }
+
+    // IMPORTANT: Save/update user data to the database so other parts of the app can access it
     try {
       const { db } = await import('./db');
       await db.upsert('users', user.id, {
@@ -380,6 +446,7 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
         phone: user.phone || '',
         address: user.address || '',
         createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
       });
       console.log('✅ User data saved to database:', user.id);
     } catch (dbError) {

@@ -28,6 +28,12 @@ export default function SignUpScreen() {
 
     // Owner-specific state
     const [govIdUri, setGovIdUri] = useState<string | null>(null);
+    const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
+    const [ownerAddress, setOwnerAddress] = useState({
+        houseNumber: '',
+        street: '',
+        barangay: '' as 'RIZAL' | 'TALOLONG' | 'GOMEZ' | 'MAGSAYSAY' | ''
+    });
 
     // Form state management with React useState
     const [formData, setFormData] = useState({
@@ -48,7 +54,10 @@ export default function SignUpScreen() {
         password: '',
         confirmPassword: '',
         gender: '',
-        familyType: ''
+        familyType: '',
+        houseNumber: '',
+        street: '',
+        barangay: ''
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -106,6 +115,22 @@ export default function SignUpScreen() {
         if (selectedRole === 'tenant' && !formData.address.trim()) {
             newErrors.address = 'Address is required';
             isValid = false;
+        }
+
+        // Owner-specific address fields validation
+        if (selectedRole === 'owner') {
+            if (!ownerAddress.houseNumber.trim()) {
+                newErrors.houseNumber = 'House number is required';
+                isValid = false;
+            }
+            if (!ownerAddress.street.trim()) {
+                newErrors.street = 'Street is required';
+                isValid = false;
+            }
+            if (!ownerAddress.barangay) {
+                newErrors.barangay = 'Barangay is required';
+                isValid = false;
+            }
         }
 
         // Gender and Family Type are required for tenants
@@ -182,6 +207,12 @@ export default function SignUpScreen() {
                 familyType: formData.familyType === '' ? undefined : formData.familyType,
                 // Ensure address is handled properly
                 address: formData.address === '' ? undefined : formData.address,
+                // Add owner-specific fields
+                ...(selectedRole === 'owner' ? {
+                    houseNumber: ownerAddress.houseNumber,
+                    street: ownerAddress.street,
+                    barangay: ownerAddress.barangay as any,
+                } : {}),
             };
             
             console.log('🚀 Calling signUpUser with data:', submissionData);
@@ -195,15 +226,22 @@ export default function SignUpScreen() {
                 await refreshUser(); // Refresh user context
                 
                 console.log('User context refreshed, showing success message...');
-                // Show success toast
-                Alert.alert('Account Created!', 'Welcome to HanapBahay! Your account has been created successfully.');
-
-                // Route by role - owners always go to dashboard
-                if (result.role === 'owner') {
-                    console.log('🏠 Owner account created - redirecting to dashboard');
-                    router.replace('/(owner)/dashboard');
+                
+                // Route by role - owners with barangay need approval
+                if (result.role === 'owner' && ownerAddress.barangay) {
+                    Alert.alert(
+                        'Application Submitted!', 
+                        'Your owner account application has been submitted successfully! Your barangay official will review your application and notify you once approved.'
+                    );
+                    router.replace('/login'); // Redirect to login
                 } else {
-                    router.replace('/(tabs)');
+                    Alert.alert('Account Created!', 'Welcome to HanapBahay! Your account has been created successfully.');
+                    if (result.role === 'owner') {
+                        console.log('🏠 Owner account created - redirecting to dashboard');
+                        router.replace('/(owner)/dashboard');
+                    } else {
+                        router.replace('/(tabs)');
+                    }
                 }
             } else {
                 // Handle sign-up failure (e.g., duplicate account)
@@ -523,6 +561,112 @@ export default function SignUpScreen() {
                                 {errors.familyType && (
                                     <Text style={styles.errorText}>{errors.familyType}</Text>
                                 )}
+                            </View>
+                        )}
+
+                        {/* Owner Address Section */}
+                        {selectedRole === 'owner' && (
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.sectionTitle}>Business Address</Text>
+                                <Text style={styles.verificationSubtext}>
+                                    Please provide your complete business address
+                                </Text>
+                                
+                                {/* House Number */}
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>House Number *</Text>
+                                    <View style={[styles.inputWrapper, errors.houseNumber && styles.inputError]}>
+                                        <Ionicons name="home" size={20} color="#10B981" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.textInput}
+                                            placeholder="Enter house/building number"
+                                            placeholderTextColor="#9CA3AF"
+                                            value={ownerAddress.houseNumber}
+                                            onChangeText={(text) => setOwnerAddress(prev => ({ ...prev, houseNumber: text }))}
+                                        />
+                                    </View>
+                                    {errors.houseNumber && (
+                                        <Text style={styles.errorText}>{errors.houseNumber}</Text>
+                                    )}
+                                </View>
+
+                                {/* Street */}
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Street *</Text>
+                                    <View style={[styles.inputWrapper, errors.street && styles.inputError]}>
+                                        <Ionicons name="road" size={20} color="#10B981" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.textInput}
+                                            placeholder="Enter street name"
+                                            placeholderTextColor="#9CA3AF"
+                                            value={ownerAddress.street}
+                                            onChangeText={(text) => setOwnerAddress(prev => ({ ...prev, street: text }))}
+                                        />
+                                    </View>
+                                    {errors.street && (
+                                        <Text style={styles.errorText}>{errors.street}</Text>
+                                    )}
+                                </View>
+
+                                {/* Barangay Selection */}
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Barangay *</Text>
+                                    <View style={{ position: 'relative' }}>
+                                        <TouchableOpacity 
+                                            style={[styles.inputWrapper, errors.barangay && styles.inputError]}
+                                            onPress={() => setShowBarangayDropdown(!showBarangayDropdown)}
+                                        >
+                                            <Ionicons name="location" size={20} color="#10B981" style={styles.inputIcon} />
+                                            <Text style={[styles.textInput, !ownerAddress.barangay && { color: '#9CA3AF' }]}>
+                                                {ownerAddress.barangay || 'Select barangay'}
+                                            </Text>
+                                            <Ionicons name={showBarangayDropdown ? "chevron-up" : "chevron-down"} size={20} color="#6B7280" />
+                                        </TouchableOpacity>
+                                        {showBarangayDropdown && (
+                                            <View style={styles.dropdownOptions}>
+                                                <TouchableOpacity 
+                                                    style={styles.dropdownOption}
+                                                    onPress={() => {
+                                                        setOwnerAddress(prev => ({ ...prev, barangay: 'RIZAL' }));
+                                                        setShowBarangayDropdown(false);
+                                                    }}
+                                                >
+                                                    <Text style={styles.dropdownOptionText}>Rizal</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity 
+                                                    style={styles.dropdownOption}
+                                                    onPress={() => {
+                                                        setOwnerAddress(prev => ({ ...prev, barangay: 'TALOLONG' }));
+                                                        setShowBarangayDropdown(false);
+                                                    }}
+                                                >
+                                                    <Text style={styles.dropdownOptionText}>Talongon</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity 
+                                                    style={styles.dropdownOption}
+                                                    onPress={() => {
+                                                        setOwnerAddress(prev => ({ ...prev, barangay: 'GOMEZ' }));
+                                                        setShowBarangayDropdown(false);
+                                                    }}
+                                                >
+                                                    <Text style={styles.dropdownOptionText}>Gomez</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity 
+                                                    style={styles.dropdownOption}
+                                                    onPress={() => {
+                                                        setOwnerAddress(prev => ({ ...prev, barangay: 'MAGSAYSAY' }));
+                                                        setShowBarangayDropdown(false);
+                                                    }}
+                                                >
+                                                    <Text style={styles.dropdownOptionText}>Magsaysay</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+                                    </View>
+                                    {errors.barangay && (
+                                        <Text style={styles.errorText}>{errors.barangay}</Text>
+                                    )}
+                                </View>
                             </View>
                         )}
 
@@ -1504,5 +1648,35 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         textAlign: 'center',
         fontWeight: '600',
+    },
+    dropdownContainer: {
+        position: 'relative',
+    },
+    dropdownOptions: {
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        right: 0,
+        marginTop: 4,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
+        zIndex: 1000,
+    },
+    dropdownOption: {
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    dropdownOptionText: {
+        fontSize: 16,
+        color: '#1F2937',
     },
 });

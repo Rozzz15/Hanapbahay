@@ -12,12 +12,14 @@ import {
   FileText, 
   AlertCircle,
   LogOut,
-  Settings
+  Settings,
+  Bell,
+  CheckSquare
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import { db } from '../../utils/db';
-import { DbUserRecord, PublishedListingRecord, BookingRecord } from '../../types';
+import { DbUserRecord, PublishedListingRecord, BookingRecord, OwnerApplicationRecord, BrgyNotificationRecord } from '../../types';
 
 export default function BrgyDashboard() {
   const { user, signOut } = useAuth();
@@ -32,6 +34,7 @@ export default function BrgyDashboard() {
   const [loading, setLoading] = useState(true);
   const [barangayName, setBarangayName] = useState<string>('');
   const [officialName, setOfficialName] = useState<string>('');
+  const [pendingApplicationsCount, setPendingApplicationsCount] = useState(0);
 
   // Define loadStats first (before loadDashboardData)
   const loadStats = useCallback(async () => {
@@ -105,6 +108,13 @@ export default function BrgyDashboard() {
         totalListings: listingsInBarangay.length,
         activeBookings: approvedBookingsInBarangay.length
       });
+
+      // Get pending owner applications count
+      const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+      const pendingApps = allApplications.filter(
+        app => app.status === 'pending' && app.barangay.toUpperCase() === barangay.toUpperCase()
+      );
+      setPendingApplicationsCount(pendingApps.length);
     } catch (error) {
       console.error('Error loading stats:', error);
     }
@@ -204,39 +214,41 @@ export default function BrgyDashboard() {
         {/* Header */}
         <View style={sharedStyles.pageHeader}>
           <View style={sharedStyles.headerLeft}>
-            <Text style={sharedStyles.pageTitle}>Barangay Dashboard</Text>
-            <Text style={sharedStyles.pageSubtitle}>Welcome back!</Text>
+            <Text style={[sharedStyles.pageTitle, { fontSize: designTokens.typography['2xl'] }]}>Barangay Dashboard</Text>
+            <Text style={[sharedStyles.pageSubtitle, { fontSize: designTokens.typography.sm }]}>Welcome back!</Text>
           </View>
           <View style={sharedStyles.headerRight}>
             <TouchableOpacity 
-              style={sharedStyles.primaryButton}
+              style={[sharedStyles.primaryButton, { paddingHorizontal: designTokens.spacing.md, paddingVertical: designTokens.spacing.sm }]}
               onPress={() => router.push('/(brgy)/settings' as any)}
             >
               <Settings size={16} color="white" />
-              <Text style={sharedStyles.primaryButtonText}>Settings</Text>
+              <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.sm }]}>Settings</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={sharedStyles.primaryButton}
+              style={[sharedStyles.primaryButton, { paddingHorizontal: designTokens.spacing.md, paddingVertical: designTokens.spacing.sm }]}
               onPress={() => {
                 handleLogout();
               }}
               activeOpacity={0.7}
             >
               <LogOut size={16} color="white" />
-              <Text style={sharedStyles.primaryButtonText}>Logout</Text>
+              <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.sm }]}>Logout</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Barangay Info Card */}
-        <View style={sharedStyles.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
-            <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-              <Home size={20} color="#3B82F6" />
+        <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 48, height: 48, borderRadius: 24 }]}>
+              <Home size={24} color="#3B82F6" />
             </View>
-            <View style={{ marginLeft: designTokens.spacing.md }}>
-              <Text style={sharedStyles.statLabel}>BRGY {barangayName || (user as any)?.barangay || 'Barangay Official'}, LOPEZ, QUEZON</Text>
-              <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.lg }]}>
+            <View style={{ marginLeft: designTokens.spacing.md, flex: 1 }}>
+              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, marginBottom: 4 }]}>
+                BRGY {barangayName || (user as any)?.barangay || 'Barangay Official'}, LOPEZ, QUEZON
+              </Text>
+              <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.lg, marginBottom: 0 }]}>
                 {officialName || user?.name || 'Barangay Official'}
               </Text>
             </View>
@@ -245,57 +257,57 @@ export default function BrgyDashboard() {
 
         {/* Overview Section */}
         <View style={sharedStyles.section}>
-          <Text style={sharedStyles.sectionTitle}>Statistics</Text>
+          <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg }]}>Statistics</Text>
           <View style={sharedStyles.grid}>
             <View style={sharedStyles.gridItem}>
-              <View style={sharedStyles.statCard}>
+              <View style={[sharedStyles.statCard, { minHeight: 90 }]}>
                 <View style={sharedStyles.statIconContainer}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-                    <Users size={20} color="#3B82F6" />
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 32, height: 32, borderRadius: 16 }]}>
+                    <Users size={18} color="#3B82F6" />
                   </View>
                 </View>
-                <Text style={sharedStyles.statLabel}>Total Residents</Text>
-                <Text style={sharedStyles.statValue}>{stats.totalResidents}</Text>
-                <Text style={sharedStyles.statSubtitle}>With approved bookings</Text>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Total Residents</Text>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.totalResidents}</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>With approved bookings</Text>
               </View>
             </View>
 
             <View style={sharedStyles.gridItem}>
-              <View style={sharedStyles.statCard}>
+              <View style={[sharedStyles.statCard, { minHeight: 90 }]}>
                 <View style={sharedStyles.statIconContainer}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-                    <Home size={20} color="#10B981" />
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.green, { width: 32, height: 32, borderRadius: 16 }]}>
+                    <Home size={18} color="#10B981" />
                   </View>
                 </View>
-                <Text style={sharedStyles.statLabel}>Total Properties</Text>
-                <Text style={sharedStyles.statValue}>{stats.totalProperties}</Text>
-                <Text style={sharedStyles.statSubtitle}>Available listings</Text>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Total Properties</Text>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.totalProperties}</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Available listings</Text>
               </View>
             </View>
 
             <View style={sharedStyles.gridItem}>
-              <View style={sharedStyles.statCard}>
+              <View style={[sharedStyles.statCard, { minHeight: 90 }]}>
                 <View style={sharedStyles.statIconContainer}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
-                    <FileText size={20} color="#F59E0B" />
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { width: 32, height: 32, borderRadius: 16 }]}>
+                    <FileText size={18} color="#F59E0B" />
                   </View>
                 </View>
-                <Text style={sharedStyles.statLabel}>Active Listings</Text>
-                <Text style={sharedStyles.statValue}>{stats.totalListings}</Text>
-                <Text style={sharedStyles.statSubtitle}>Published properties</Text>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Active Listings</Text>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.totalListings}</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Published properties</Text>
               </View>
             </View>
 
             <View style={sharedStyles.gridItem}>
-              <View style={sharedStyles.statCard}>
+              <View style={[sharedStyles.statCard, { minHeight: 90 }]}>
                 <View style={sharedStyles.statIconContainer}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.red]}>
-                    <AlertCircle size={20} color="#EF4444" />
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.red, { width: 32, height: 32, borderRadius: 16 }]}>
+                    <AlertCircle size={18} color="#EF4444" />
                   </View>
                 </View>
-                <Text style={sharedStyles.statLabel}>Active Bookings</Text>
-                <Text style={sharedStyles.statValue}>{stats.activeBookings}</Text>
-                <Text style={sharedStyles.statSubtitle}>On-going rentals</Text>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Active Bookings</Text>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.activeBookings}</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>On-going rentals</Text>
               </View>
             </View>
           </View>
@@ -303,48 +315,98 @@ export default function BrgyDashboard() {
 
         {/* Quick Actions Section */}
         <View style={sharedStyles.section}>
-          <Text style={sharedStyles.sectionTitle}>Quick Actions</Text>
+          <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg }]}>Quick Actions</Text>
           <View style={sharedStyles.list}>
+            {pendingApplicationsCount > 0 && (
+              <TouchableOpacity 
+                style={[sharedStyles.listItem, { padding: designTokens.spacing.md }]}
+                onPress={() => router.push('/(brgy)/owner-applications' as any)}
+              >
+                <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { width: 40, height: 40, borderRadius: 20 }]}>
+                  <Bell size={18} color="#F59E0B" />
+                  {pendingApplicationsCount > 0 && (
+                    <View style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      backgroundColor: '#EF4444',
+                      borderRadius: 10,
+                      minWidth: 18,
+                      height: 18,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      paddingHorizontal: 4,
+                    }}>
+                      <Text style={{ color: 'white', fontSize: 9, fontWeight: 'bold' }}>
+                        {pendingApplicationsCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>Owner Applications</Text>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>
+                    {pendingApplicationsCount} pending review{pendingApplicationsCount > 1 ? 's' : ''}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity 
-              style={sharedStyles.listItem}
+              style={[sharedStyles.listItem, { padding: designTokens.spacing.md }]}
+              onPress={() => router.push('/(brgy)/approved-owners' as any)}
+            >
+              <View style={[sharedStyles.statIcon, iconBackgrounds.green, { width: 40, height: 40, borderRadius: 20 }]}>
+                <CheckSquare size={18} color="#10B981" />
+              </View>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>Approved Owners</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>View all approved owner accounts</Text>
+              </View>
+              <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[sharedStyles.listItem, { padding: designTokens.spacing.md }]}
               onPress={() => router.push('/(brgy)/residents' as any)}
             >
-              <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-                <Users size={20} color="#3B82F6" />
+              <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 40, height: 40, borderRadius: 20 }]}>
+                <Users size={18} color="#3B82F6" />
               </View>
-              <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-                <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>View Residents</Text>
-                <Text style={sharedStyles.statSubtitle}>Manage registered users in your barangay</Text>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>View Residents</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Manage registered users in your barangay</Text>
               </View>
-              <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+              <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={sharedStyles.listItem}
+              style={[sharedStyles.listItem, { padding: designTokens.spacing.md }]}
               onPress={() => router.push('/(brgy)/properties' as any)}
             >
-              <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-                <Home size={20} color="#10B981" />
+              <View style={[sharedStyles.statIcon, iconBackgrounds.green, { width: 40, height: 40, borderRadius: 20 }]}>
+                <Home size={18} color="#10B981" />
               </View>
-              <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-                <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>View Properties</Text>
-                <Text style={sharedStyles.statSubtitle}>Browse available rental properties</Text>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>View Properties</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Browse available rental properties</Text>
               </View>
-              <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+              <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={sharedStyles.listItem}
+              style={[sharedStyles.listItem, { padding: designTokens.spacing.md }]}
               onPress={() => router.push('/(brgy)/reports' as any)}
             >
-              <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
-                <FileText size={20} color="#F59E0B" />
+              <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { width: 40, height: 40, borderRadius: 20 }]}>
+                <FileText size={18} color="#F59E0B" />
               </View>
-              <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-                <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>Reports</Text>
-                <Text style={sharedStyles.statSubtitle}>Generate barangay reports and analytics</Text>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>Reports</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Generate barangay reports and analytics</Text>
               </View>
-              <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+              <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -30,6 +30,8 @@ interface Conversation {
     unreadCount: number;
     tenantName: string;
     tenantAvatar?: string;
+    tenantEmail?: string;
+    tenantPhone?: string;
     propertyTitle?: string;
     bookingStatus?: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
     paymentStatus?: 'pending' | 'partial' | 'paid' | 'refunded';
@@ -86,6 +88,8 @@ export default function OwnerMessages() {
                     // Get tenant details
                     let tenantName = 'Unknown Tenant';
                     let tenantAvatar = '';
+                    let tenantEmail = '';
+                    let tenantPhone = '';
                     let propertyTitle = '';
                     let bookingStatus: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed' | undefined;
                     let paymentStatus: 'pending' | 'partial' | 'paid' | 'refunded' | undefined;
@@ -97,7 +101,9 @@ export default function OwnerMessages() {
                             const tenantRecord = await db.get('users', tenantId);
                             if (tenantRecord) {
                                 tenantName = (tenantRecord as any).name || tenantName;
-                                console.log('✅ Found tenant record:', tenantName);
+                                tenantEmail = (tenantRecord as any).email || '';
+                                tenantPhone = (tenantRecord as any).phone || '';
+                                console.log('✅ Found tenant record:', tenantName, tenantEmail, tenantPhone);
                                 
                                 // Load profile photo from user_profile_photos table
                                 try {
@@ -193,6 +199,8 @@ export default function OwnerMessages() {
                         unreadCount: conv.unreadByOwner || 0,
                         tenantName,
                         tenantAvatar,
+                        tenantEmail,
+                        tenantPhone,
                         propertyTitle,
                         bookingStatus,
                         paymentStatus,
@@ -543,8 +551,8 @@ export default function OwnerMessages() {
                     visible={isModalVisible}
                     tenantId={selectedTenant.tenantId}
                     tenantName={selectedTenant.tenantName}
-                    tenantEmail=""
-                    tenantPhone=""
+                    tenantEmail={selectedTenant.tenantEmail || ""}
+                    tenantPhone={selectedTenant.tenantPhone || ""}
                     onClose={handleCloseModal}
                 />
             )}

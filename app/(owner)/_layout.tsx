@@ -13,15 +13,27 @@ export default function OwnerLayout() {
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
+        console.log('🚫 Owner layout: No user found, redirecting to login');
         router.replace('/login');
       } else if (!user.roles?.includes('owner')) {
+        console.log('🚫 Owner layout: User does not have owner role, redirecting to tenant tabs');
         router.replace('/(tabs)');
       }
     }
   }, [user, isLoading, router]);
 
   if (isLoading) {
-    return null; // or a loading spinner
+    return null;
+  }
+  
+  // Don't render if user check is still pending
+  if (!user) {
+    return null;
+  }
+  
+  // Don't render if user doesn't have owner role
+  if (!user.roles?.includes('owner')) {
+    return null;
   }
 
   return (

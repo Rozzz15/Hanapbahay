@@ -15,13 +15,21 @@ export default function OnboardingScreen() {
     if (!isLoading && isAuthenticated && user) {
       console.log('🔄 User is authenticated, redirecting from onboarding...', user.roles);
       
-      if (user.roles.includes('owner')) {
-        console.log('🏠 Redirecting owner to dashboard...');
-        router.replace('/(owner)/dashboard');
-      } else if (user.roles.includes('tenant')) {
-        console.log('🏠 Redirecting tenant to tabs...');
-        router.replace('/(tabs)');
-      }
+      // Use a small delay to ensure auth state is fully settled
+      const redirectTimer = setTimeout(() => {
+        if (user.roles?.includes('owner')) {
+          console.log('🏠 Redirecting owner to dashboard...');
+          router.replace('/(owner)/dashboard');
+        } else if (user.roles?.includes('brgy_official')) {
+          console.log('🏛️ Redirecting barangay official to dashboard...');
+          router.replace('/(brgy)/dashboard');
+        } else if (user.roles?.includes('tenant')) {
+          console.log('🏠 Redirecting tenant to tabs...');
+          router.replace('/(tabs)');
+        }
+      }, 100);
+      
+      return () => clearTimeout(redirectTimer);
     }
   }, [isLoading, isAuthenticated, user, router]);
 

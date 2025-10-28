@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
-import { View, ScrollView, Pressable, Alert, Modal, TextInput, TouchableOpacity, Image, Platform, StyleSheet, Text, KeyboardAvoidingView, Keyboard } from 'react-native';
+import { View, ScrollView, Pressable, Alert, Modal, TextInput, TouchableOpacity, Image, Platform, StyleSheet, Text, KeyboardAvoidingView, Keyboard, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,8 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/ui/toast';
 import { saveUserProfilePhoto } from '../../utils/user-profile-photos';
+import { changePassword } from '../../api/auth/change-password';
+import { showAlert } from '../../utils/alert';
 
 type MenuItem = {
     icon: React.ReactNode;
@@ -67,7 +69,17 @@ const ProfileScreen = memo(function ProfileScreen() {
     // State for modals
     const [showPersonalDetails, setShowPersonalDetails] = useState(false);
     const [showFAQ, setShowFAQ] = useState(false);
+    const [showChangePassword, setShowChangePassword] = useState(false);
     const [hasError, setHasError] = useState(false);
+    
+    // Password change states
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+    const [showNewPassword, setShowNewPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [changingPassword, setChangingPassword] = useState(false);
     
     // Personal details state - single source of truth
     const [personalDetails, setPersonalDetails] = useState({
@@ -262,14 +274,81 @@ const ProfileScreen = memo(function ProfileScreen() {
     const savePersonalDetails = async (data: typeof personalDetails) => {
         try {
             console.log('💾 Saving personal details...');
+            console.log('📊 Data to save:', {
+                firstName: data.firstName,
+                lastName: data.lastName,
+                email: data.email,
+                phone: data.phone,
+                address: data.address,
+                gender: data.gender,
+                familyType: data.familyType
+            });
             
             if (!user?.id) {
                 throw new Error('No user ID available');
             }
             
-            // Save basic details
+            // Save basic details to AsyncStorage
             const { profilePhoto, ...detailsWithoutPhoto } = data;
             await AsyncStorage.setItem(PERSONAL_DETAILS_KEY, JSON.stringify(detailsWithoutPhoto));
+            console.log('✅ Saved to AsyncStorage');
+            
+            // IMPORTANT: Also update the users table in database so owner can see the changes
+            try {
+                const { db } = await import('../../utils/db');
+                const userRecord = await db.get('users', user.id);
+                
+                if (userRecord) {
+                    const updatedUser = {
+                        ...userRecord,
+                        name: `${data.firstName} ${data.lastName}`.trim() || data.email,
+                        email: data.email,
+                        phone: data.phone,
+                        address: data.address,
+                        gender: data.gender,
+                        familyType: data.familyType,
+                        updatedAt: new Date().toISOString()
+                    };
+                    
+                    await db.upsert('users', user.id, updatedUser);
+                    console.log('✅ Updated users table with personal details:', {
+                        name: updatedUser.name,
+                        email: updatedUser.email,
+                        phone: updatedUser.phone,
+                        address: updatedUser.address,
+                        gender: updatedUser.gender,
+                        familyType: updatedUser.familyType
+                    });
+                    
+                    // ALSO update the tenants table with gender and familyType for owner visibility
+                    try {
+                        const tenantProfile = await db.get('tenants', user.id);
+                        if (tenantProfile) {
+                            const updatedTenantProfile = {
+                                ...tenantProfile,
+                                contactNumber: data.phone,
+                                email: data.email,
+                                address: data.address,
+                                gender: data.gender,
+                                familyType: data.familyType
+                            };
+                            await db.upsert('tenants', user.id, updatedTenantProfile);
+                            console.log('✅ Updated tenants table with personal details:', {
+                                contactNumber: updatedTenantProfile.contactNumber,
+                                email: updatedTenantProfile.email,
+                                address: updatedTenantProfile.address,
+                                gender: updatedTenantProfile.gender,
+                                familyType: updatedTenantProfile.familyType
+                            });
+                        }
+                    } catch (tenantError) {
+                        console.warn('⚠️ Could not update tenants table:', tenantError);
+                    }
+                }
+            } catch (dbError) {
+                console.warn('⚠️ Could not update users table:', dbError);
+                // Don't fail the entire save for database issues
+            }
             
             // Save profile photo separately
             if (profilePhoto) {
@@ -381,6 +460,52 @@ const ProfileScreen = memo(function ProfileScreen() {
 
 
 
+    const handleChangePassword = async () => {
+        if (!user?.id) return;
+        
+        // Validate inputs
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            showAlert('Validation Error', 'All password fields are required');
+            return;
+        }
+        
+        if (newPassword.length < 6) {
+            showAlert('Validation Error', 'New password must be at least 6 characters');
+            return;
+        }
+        
+        if (newPassword !== confirmPassword) {
+            showAlert('Validation Error', 'New passwords do not match');
+            return;
+        }
+        
+        try {
+            setChangingPassword(true);
+            
+            const result = await changePassword(user.id, {
+                currentPassword,
+                newPassword,
+                confirmPassword
+            });
+            
+            if (result.success) {
+                showAlert('Success', 'Password changed successfully!');
+                // Clear password fields
+                setCurrentPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+                setShowChangePassword(false);
+            } else {
+                showAlert('Error', result.error || 'Failed to change password');
+            }
+        } catch (error) {
+            console.error('Error changing password:', error);
+            showAlert('Error', 'Failed to change password. Please try again.');
+        } finally {
+            setChangingPassword(false);
+        }
+    };
+
     const handlePhotoAction = async (action: 'gallery' | 'remove') => {
         if (action === 'remove') {
             Alert.alert(
@@ -455,6 +580,11 @@ const ProfileScreen = memo(function ProfileScreen() {
                 setFormData({...personalDetails});
                 setShowPersonalDetails(true);
             },
+        },
+        {
+            icon: <Ionicons name="lock-closed" size={20} color="#4B5563" />,
+            label: 'Change Password',
+            onPress: () => setShowChangePassword(true),
         },
         {
             icon: <Ionicons name="help-circle" size={20} color="#4B5563" />,
@@ -555,6 +685,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                     </View>
                     <ScrollView 
                         style={styles.modalContent}
+                        contentContainerStyle={styles.modalScrollContent}
                         keyboardShouldPersistTaps="handled"
                     >
                         <TouchableOpacity 
@@ -796,7 +927,10 @@ const ProfileScreen = memo(function ProfileScreen() {
                             <Ionicons name="close" size={24} color="#6B7280" />
                         </TouchableOpacity>
                     </View>
-                    <ScrollView style={styles.modalContent}>
+                    <ScrollView 
+                        style={styles.modalContent}
+                        contentContainerStyle={styles.modalScrollContent}
+                    >
                         <View style={styles.faqContent}>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>How do I search for properties in HanapBahay?</Text>
@@ -849,6 +983,122 @@ const ProfileScreen = memo(function ProfileScreen() {
                         </View>
                     </ScrollView>
                 </View>
+            </Modal>
+
+            {/* Change Password Modal */}
+            <Modal 
+                visible={showChangePassword} 
+                animationType="slide" 
+                presentationStyle="pageSheet"
+            >
+                <KeyboardAvoidingView 
+                    style={styles.modalContainer}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                >
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Change Password</Text>
+                        <TouchableOpacity onPress={() => {
+                            setShowChangePassword(false);
+                            setCurrentPassword('');
+                            setNewPassword('');
+                            setConfirmPassword('');
+                        }}>
+                            <Ionicons name="close" size={24} color="#6B7280" />
+                        </TouchableOpacity>
+                    </View>
+                    <ScrollView 
+                        style={styles.modalContent}
+                        contentContainerStyle={styles.modalScrollContent}
+                        keyboardShouldPersistTaps="handled"
+                    >
+                        <View style={styles.modalForm}>
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Current Password</Text>
+                                <View style={styles.passwordInputWrapper}>
+                                    <TextInput
+                                        style={styles.passwordTextInput}
+                                        value={currentPassword}
+                                        onChangeText={setCurrentPassword}
+                                        placeholder="Enter current password"
+                                        secureTextEntry={!showCurrentPassword}
+                                    />
+                                    <TouchableOpacity
+                                        style={styles.eyeIcon}
+                                        onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                                    >
+                                        <Ionicons 
+                                            name={showCurrentPassword ? "eye-off" : "eye"} 
+                                            size={20} 
+                                            color="#6B7280" 
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>New Password</Text>
+                                <View style={styles.passwordInputWrapper}>
+                                    <TextInput
+                                        style={styles.passwordTextInput}
+                                        value={newPassword}
+                                        onChangeText={setNewPassword}
+                                        placeholder="Enter new password"
+                                        secureTextEntry={!showNewPassword}
+                                    />
+                                    <TouchableOpacity
+                                        style={styles.eyeIcon}
+                                        onPress={() => setShowNewPassword(!showNewPassword)}
+                                    >
+                                        <Ionicons 
+                                            name={showNewPassword ? "eye-off" : "eye"} 
+                                            size={20} 
+                                            color="#6B7280" 
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={styles.helperText}>Must be at least 6 characters</Text>
+                            </View>
+
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Confirm New Password</Text>
+                                <View style={styles.passwordInputWrapper}>
+                                    <TextInput
+                                        style={styles.passwordTextInput}
+                                        value={confirmPassword}
+                                        onChangeText={setConfirmPassword}
+                                        placeholder="Confirm new password"
+                                        secureTextEntry={!showConfirmPassword}
+                                    />
+                                    <TouchableOpacity
+                                        style={styles.eyeIcon}
+                                        onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                                    >
+                                        <Ionicons 
+                                            name={showConfirmPassword ? "eye-off" : "eye"} 
+                                            size={20} 
+                                            color="#6B7280" 
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </ScrollView>
+                    
+                    <View style={styles.modalFooter}>
+                        <TouchableOpacity
+                            style={[styles.saveButton, changingPassword && styles.saveButtonDisabled]}
+                            onPress={handleChangePassword}
+                            disabled={changingPassword}
+                        >
+                            {changingPassword ? (
+                                <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                                <Text style={styles.saveButtonText}>Change Password</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
         </ScrollView>
     );
@@ -988,6 +1238,9 @@ const styles = StyleSheet.create({
         flex: 1,
         padding: 20,
     },
+    modalScrollContent: {
+        paddingBottom: 100, // Add bottom padding to ensure content isn't cut off
+    },
     modalForm: {
         gap: 24,
     },
@@ -1096,6 +1349,32 @@ const styles = StyleSheet.create({
         color: '#111827',
         backgroundColor: '#FFFFFF',
     },
+    passwordInputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 8,
+        backgroundColor: '#FFFFFF',
+        paddingRight: 8,
+    },
+    passwordTextInput: {
+        flex: 1,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        fontSize: 16,
+        color: '#111827',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+    },
+    eyeIcon: {
+        padding: 4,
+    },
+    helperText: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 4,
+    },
     addressInput: {
         height: 80,
         textAlignVertical: 'top',
@@ -1187,6 +1466,9 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         paddingVertical: 16,
         alignItems: 'center',
+    },
+    saveButtonDisabled: {
+        opacity: 0.6,
     },
     saveButtonText: {
         color: '#FFFFFF',

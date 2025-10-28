@@ -4,6 +4,7 @@ import { supabase } from '../utils/supabase-client';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dispatchCustomEvent } from '../utils/custom-events';
+import { db } from '../utils/db';
 
 interface AuthUser {
   id: string;
@@ -33,6 +34,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
+      // Set loading state immediately
+      setIsLoading(true);
+      
       const authUser = await getAuthUser();
       if (authUser) {
         // Ensure user has required fields with fallbacks
@@ -94,25 +98,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
 
             // Also dispatch individual media loaded events for each listing (like profile photos)
-            try {
-              const publishedListings = await db.list('published_listings');
-              for (const listing of publishedListings) {
-                const { loadPropertyMediaFromStorage } = await import('../utils/media-storage');
-                const storedMedia = await loadPropertyMediaFromStorage(listing.id);
-                if (storedMedia && storedMedia.coverPhoto) {
-                  dispatchCustomEvent('propertyMediaLoaded', {
-                    listingId: listing.id,
-                    userId: userWithFallbacks.id,
-                    coverPhoto: storedMedia.coverPhoto,
-                    photos: storedMedia.photos,
-                    videos: storedMedia.videos
-                  });
+            // This is done in the background to avoid blocking the auth flow
+            (async () => {
+              try {
+                const publishedListings = await db.list('published_listings');
+                for (const listing of publishedListings) {
+                  try {
+                    const { loadPropertyMediaFromStorage } = await import('../utils/media-storage');
+                    const storedMedia = await loadPropertyMediaFromStorage(listing.id);
+                    if (storedMedia && storedMedia.coverPhoto) {
+                      dispatchCustomEvent('propertyMediaLoaded', {
+                        listingId: listing.id,
+                        userId: userWithFallbacks.id,
+                        coverPhoto: storedMedia.coverPhoto,
+                        photos: storedMedia.photos,
+                        videos: storedMedia.videos
+                      });
+                    }
+                  } catch (listingError) {
+                    console.log('⚠️ Error loading media for listing:', listing.id, listingError);
+                  }
                 }
+                console.log('✅ Dispatched property media loaded events for all listings (tenant)');
+              } catch (mediaEventError) {
+                console.log('⚠️ Could not dispatch property media loaded events (tenant):', mediaEventError);
               }
-              console.log('✅ Dispatched property media loaded events for all listings (tenant)');
-            } catch (mediaEventError) {
-              console.log('⚠️ Could not dispatch property media loaded events (tenant):', mediaEventError);
-            }
+            })();
 
             // Also refresh tenant profile photo
             try {
@@ -333,17 +344,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // Clear auth session on app initialization to force logout
+    // Initialize auth state on app startup
     const initializeAuth = async () => {
-      console.log('🚀 App initialized - clearing auth session');
+      console.log('🚀 App initialized - checking auth state');
       try {
-        await clearAuthSession();
-        console.log('✅ Auth session cleared on app initialization');
-        setUser(null);
-        setIsLoading(false);
+        // Check if user has a valid auth session
+        const authUser = await getAuthUser();
+        if (authUser) {
+          console.log('✅ Found existing auth session - user is logged in');
+          // Load user data
+          const userWithFallbacks = {
+            id: authUser.id || `user-${Date.now()}`,
+            roles: authUser.roles || ['tenant'],
+            permissions: authUser.permissions || [],
+            name: authUser.name,
+            email: authUser.email
+          };
+          setUser(userWithFallbacks);
+          setIsLoading(false);
+        } else {
+          console.log('ℹ️ No auth session found - user needs to login');
+          setUser(null);
+          setIsLoading(false);
+        }
       } catch (error) {
-        console.error('❌ Error clearing auth session on initialization:', error);
-        // Continue even if clearing fails
+        console.error('❌ Error initializing auth:', error);
+        // On error, assume user needs to login
         setUser(null);
         setIsLoading(false);
       }

@@ -4,7 +4,9 @@ import { useAuth } from './AuthContext';
 
 interface NotificationContextType {
   unreadCount: number;
+  pendingBookingsCount: number;
   refreshUnreadCount: () => Promise<void>;
+  refreshPendingBookings: () => Promise<void>;
   markAsRead: (conversationId: string) => Promise<void>;
 }
 
@@ -20,6 +22,7 @@ export const useNotifications = () => {
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingBookingsCount, setPendingBookingsCount] = useState(0);
   const { user } = useAuth();
 
   const refreshUnreadCount = useCallback(async () => {
@@ -86,19 +89,46 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [user?.id]);
 
+  const refreshPendingBookings = useCallback(async () => {
+    if (!user?.id || !user?.roles?.includes('owner')) {
+      setPendingBookingsCount(0);
+      return;
+    }
+
+    try {
+      console.log('📋 Refreshing pending bookings count for owner:', user.id);
+      
+      const allBookings = await db.list('bookings');
+      const pendingCount = allBookings.filter(
+        (booking: any) => booking.ownerId === user.id && booking.status === 'pending'
+      ).length;
+
+      console.log('📊 Pending bookings count:', pendingCount);
+      setPendingBookingsCount(pendingCount);
+    } catch (error) {
+      console.error('❌ Error refreshing pending bookings count:', error);
+    }
+  }, [user?.id, user?.roles]);
+
+  // Create a stable reference to avoid infinite loops
+  const refreshPendingBookingsRef = useRef(refreshPendingBookings);
+  refreshPendingBookingsRef.current = refreshPendingBookings;
+
   // Refresh unread count when user changes
   useEffect(() => {
     if (user?.id) {
       refreshUnreadCountRef.current();
+      refreshPendingBookingsRef.current();
     }
   }, [user?.id]);
 
-  // Periodic refresh of unread count
+  // Periodic refresh of unread count and pending bookings
   useEffect(() => {
     if (!user?.id) return;
 
     const interval = setInterval(() => {
       refreshUnreadCountRef.current();
+      refreshPendingBookingsRef.current();
     }, 15000); // Check every 15 seconds (reduced frequency)
 
     return () => clearInterval(interval);
@@ -107,7 +137,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   return (
     <NotificationContext.Provider value={{
       unreadCount,
+      pendingBookingsCount,
       refreshUnreadCount,
+      refreshPendingBookings,
       markAsRead
     }}>
       {children}

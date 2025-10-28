@@ -27,6 +27,8 @@ interface TenantProfile {
   phone?: string;
   profilePhoto?: string;
   address?: string;
+  gender?: 'male' | 'female';
+  familyType?: 'individual' | 'family';
   role: string;
   createdAt: string;
 }
@@ -51,38 +53,112 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
   const loadTenantProfile = async () => {
     try {
       setLoading(true);
+      
+      // Try to load user data first
       const user = await db.get('users', tenantId);
-      if (user) {
-        // Load profile photo from user_profile_photos table
-        let profilePhoto = '';
-        try {
-          const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
-          const photoUri = await loadUserProfilePhoto(tenantId);
-          if (photoUri) {
-            profilePhoto = photoUri;
-            console.log('✅ Loaded tenant profile photo for:', tenantId);
-          }
-        } catch (photoError) {
-          console.log('⚠️ Could not load tenant profile photo:', photoError);
+      
+      // Load profile photo - THIS IS THE KEY PART
+      let profilePhoto = '';
+      try {
+        const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+        const photoUri = await loadUserProfilePhoto(tenantId);
+        if (photoUri && photoUri.trim() && photoUri.length > 10) {
+          profilePhoto = photoUri.trim();
+          console.log('✅ Loaded tenant profile photo');
         }
+      } catch (error) {
+        console.log('⚠️ Could not load profile photo:', error);
+        
+        // Try direct database query as fallback
+        try {
+          const allPhotos = await db.list('user_profile_photos');
+          const tenantPhoto = allPhotos.find((photo: any) => {
+            const photoUserId = photo.userId || photo.userid;
+            return photoUserId === tenantId && photo.photoData && photo.photoData.trim();
+          });
+          
+          if (tenantPhoto) {
+            const photoData = tenantPhoto.photoData;
+            if (photoData && photoData.trim()) {
+              if (photoData.startsWith('data:')) {
+                profilePhoto = photoData.trim();
+              } else {
+                const mimeType = tenantPhoto.mimeType || 'image/jpeg';
+                profilePhoto = `data:${mimeType};base64,${photoData.trim()}`;
+              }
+              console.log('✅ Loaded profile photo via direct query');
+            }
+          }
+        } catch (fallbackError) {
+          console.log('⚠️ Fallback photo loading failed:', fallbackError);
+        }
+      }
+
+      if (user) {
+        // Get tenant-specific data
+        let tenantAddress = '';
+        let tenantPhoneFromProfile = '';
+        let gender: 'male' | 'female' | undefined;
+        let familyType: 'individual' | 'family' | undefined;
+        
+        try {
+          const tenantProfile = await db.get('tenants', tenantId);
+          if (tenantProfile) {
+            tenantAddress = (tenantProfile as any).address || '';
+            tenantPhoneFromProfile = (tenantProfile as any).contactNumber || '';
+            gender = (tenantProfile as any).gender;
+            familyType = (tenantProfile as any).familyType;
+          }
+        } catch (error) {
+          console.log('⚠️ Could not load tenant profile:', error);
+        }
+
+        // Fallback to users table for gender/familyType
+        if (!gender) gender = (user as any).gender;
+        if (!familyType) familyType = (user as any).familyType;
 
         setTenantProfile({
           name: (user as any).name || tenantName,
           email: (user as any).email || tenantEmail || '',
-          phone: (user as any).phone || tenantPhone || '',
-          profilePhoto,
-          address: (user as any).address || '',
+          phone: (user as any).phone || tenantPhoneFromProfile || tenantPhone || '',
+          profilePhoto, // Include the loaded photo
+          address: tenantAddress,
+          gender,
+          familyType,
           role: (user as any).role || 'tenant',
           createdAt: (user as any).createdAt || ''
         });
+      } else {
+        // Fallback when user not found
+        setTenantProfile({
+          name: tenantName,
+          email: tenantEmail || '',
+          phone: tenantPhone || '',
+          profilePhoto, // Include the loaded photo
+          role: 'tenant',
+          createdAt: ''
+        });
       }
     } catch (error) {
-      console.error('Error loading tenant profile:', error);
-      // Fallback to provided info
+      console.error('❌ Error loading tenant profile:', error);
+      
+      // Try to at least load the photo
+      let errorPhoto = '';
+      try {
+        const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+        const photoUri = await loadUserProfilePhoto(tenantId);
+        if (photoUri && photoUri.trim() && photoUri.length > 10) {
+          errorPhoto = photoUri.trim();
+        }
+      } catch (photoError) {
+        console.log('⚠️ Could not load photo on error:', photoError);
+      }
+      
       setTenantProfile({
         name: tenantName,
         email: tenantEmail || '',
         phone: tenantPhone || '',
+        profilePhoto: errorPhoto,
         role: 'tenant',
         createdAt: ''
       });
@@ -116,14 +192,19 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
             <Text style={styles.loadingText}>Loading profile...</Text>
           </View>
         ) : tenantProfile ? (
-          <ScrollView style={styles.content}>
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
             {/* Profile Photo and Name */}
             <View style={styles.profileSection}>
               <View style={styles.avatarContainer}>
-                {tenantProfile.profilePhoto ? (
+                {tenantProfile.profilePhoto && 
+                 tenantProfile.profilePhoto.trim() && 
+                 tenantProfile.profilePhoto.length > 10 ? (
                   <Image
                     source={{ uri: tenantProfile.profilePhoto }}
                     style={styles.avatar}
+                    onError={() => console.warn('⚠️ Profile photo failed to load')}
+                    onLoad={() => console.log('✅ Profile photo loaded successfully')}
+                    resizeMode="cover"
                   />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
@@ -178,6 +259,41 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
                   </View>
                 </View>
               )}
+            </View>
+
+            {/* Personal Information */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Personal Information</Text>
+              
+              <View style={styles.infoRow}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="person" size={20} color="#10B981" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Gender</Text>
+                  <Text style={styles.infoValue}>
+                    {tenantProfile.gender 
+                      ? tenantProfile.gender.charAt(0).toUpperCase() + tenantProfile.gender.slice(1)
+                      : 'Not specified'
+                    }
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.infoRow}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="people" size={20} color="#10B981" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Family Type</Text>
+                  <Text style={styles.infoValue}>
+                    {tenantProfile.familyType 
+                      ? tenantProfile.familyType.charAt(0).toUpperCase() + tenantProfile.familyType.slice(1)
+                      : 'Not specified'
+                    }
+                  </Text>
+                </View>
+              </View>
             </View>
 
             {/* Account Information */}

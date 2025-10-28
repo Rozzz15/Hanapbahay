@@ -76,6 +76,7 @@ export interface DbUserRecord {
   familyType?: 'individual' | 'family';
   barangay?: string; // Barangay name for officials
   createdAt: string;
+  updatedAt?: string; // Timestamp for when user was last updated
 }
 
 export interface TenantProfileRecord {
@@ -110,6 +111,34 @@ export interface OwnerVerificationRecord {
   userId: string;
   govIdUri: string;
   status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+}
+
+export interface OwnerApplicationRecord {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  contactNumber: string;
+  houseNumber: string;
+  street: string;
+  barangay: string;
+  govIdUri: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string; // Rejection reason
+  createdBy: string; // User ID who created the application
+  reviewedBy?: string; // Barangay official who reviewed
+  createdAt: string;
+  reviewedAt?: string;
+}
+
+export interface BrgyNotificationRecord {
+  id: string;
+  barangay: string;
+  type: 'owner_application';
+  ownerApplicationId: string;
+  ownerName: string;
+  isRead: boolean;
   createdAt: string;
 }
 
@@ -277,6 +306,7 @@ export interface BookingRecord {
   tenantName: string;
   tenantEmail: string;
   tenantPhone: string;
+  tenantAddress?: string;
   ownerName: string;
   ownerEmail: string;
   ownerPhone: string;

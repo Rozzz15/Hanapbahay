@@ -705,7 +705,9 @@ export default function OwnerDashboard() {
                       <User size={12} color={designTokens.colors.info} />
                     </View>
                   </TouchableOpacity>
-                  <Text style={sharedStyles.statSubtitle}>{booking.tenantEmail}</Text>
+                  {booking.tenantAddress && (
+                    <Text style={sharedStyles.statSubtitle}>{booking.tenantAddress}</Text>
+                  )}
                   <Text style={sharedStyles.statSubtitle}>{booking.tenantPhone}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>

@@ -104,7 +104,11 @@ export default function LoginScreen() {
                     await AsyncStorage.removeItem('remember_me');
                 }
                 
-                await refreshUser(); // Refresh user context
+                // Refresh user context - this is critical
+                await refreshUser();
+                
+                // Give auth state a moment to settle
+                await new Promise(resolve => setTimeout(resolve, 200));
                 
                 console.log('User context refreshed, showing welcome message...');
                 // Show welcome back toast
@@ -113,17 +117,20 @@ export default function LoginScreen() {
                 console.log('Redirecting based on role...');
                 const roles = (result as any).roles || (result as any).user?.roles || [];
                 
-                if (Array.isArray(roles) && roles.includes('owner')) {
-                    // Use the AuthContext function to handle owner redirect
-                    const ownerId = (result as any).user?.id || (result as any).id;
-                    await redirectOwnerBasedOnListings(ownerId);
-                } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
-                    // Redirect barangay official to barangay dashboard
-                    await redirectBrgyOfficial();
-                } else {
-                    // Redirect tenant to tenant dashboard
-                    await redirectTenantToTabs();
-                }
+                // Small delay before redirect to ensure state is settled
+                setTimeout(() => {
+                    if (Array.isArray(roles) && roles.includes('owner')) {
+                        // Use the AuthContext function to handle owner redirect
+                        const ownerId = (result as any).user?.id || (result as any).id;
+                        redirectOwnerBasedOnListings(ownerId);
+                    } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
+                        // Redirect barangay official to barangay dashboard
+                        redirectBrgyOfficial();
+                    } else {
+                        // Redirect tenant to tenant dashboard
+                        redirectTenantToTabs();
+                    }
+                }, 100);
             } else {
                 console.log('Sign-in failed:', result.error);
                 showSimpleAlert('Login Failed ❌', 'Invalid email or password. Please check your credentials and try again.');
@@ -191,10 +198,7 @@ export default function LoginScreen() {
                                 placeholder="Enter your email address"
                                 placeholderTextColor="#9CA3AF"
                                 value={email}
-                                onChangeText={(text) => {
-                                    setEmail(text);
-                                    setSavedEmail(text);
-                                }}
+                                onChangeText={setEmail}
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 autoCorrect={false}

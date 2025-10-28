@@ -13,15 +13,27 @@ export default function BrgyLayout() {
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
+        console.log('🚫 Brgy layout: No user found, redirecting to login');
         router.replace('/login');
       } else if (!user.roles?.includes('brgy_official')) {
+        console.log('🚫 Brgy layout: User does not have brgy_official role, redirecting to tenant tabs');
         router.replace('/(tabs)');
       }
     }
   }, [user, isLoading, router]);
 
   if (isLoading) {
-    return null; // or a loading spinner
+    return null;
+  }
+  
+  // Don't render if user check is still pending
+  if (!user) {
+    return null;
+  }
+  
+  // Don't render if user doesn't have brgy_official role
+  if (!user.roles?.includes('brgy_official')) {
+    return null;
   }
 
   return (
@@ -38,6 +50,8 @@ export default function BrgyLayout() {
             <Stack.Screen name="properties" />
             <Stack.Screen name="reports" />
             <Stack.Screen name="settings" />
+            <Stack.Screen name="owner-applications" />
+            <Stack.Screen name="approved-owners" />
           </Stack>
           <BrgyBottomNav />
         </View>

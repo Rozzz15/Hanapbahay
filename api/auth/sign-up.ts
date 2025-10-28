@@ -2,7 +2,7 @@ import { z } from "zod";
 import { mockSignUp, testAsyncStorage } from '../../utils/mock-auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db, generateId } from '@/utils/db';
-import { DbUserRecord, TenantProfileRecord, OwnerProfileRecord, OwnerVerificationRecord } from '@/types';
+import { DbUserRecord, TenantProfileRecord, OwnerProfileRecord, OwnerVerificationRecord, OwnerApplicationRecord, BrgyNotificationRecord } from '@/types';
 
 // Allow role selection: tenant or owner
 export const signUpSchema = z.object({
@@ -17,6 +17,10 @@ export const signUpSchema = z.object({
     role: z.enum(['tenant', 'owner']).default('tenant'),
     gender: z.enum(['male', 'female']).optional(),
     familyType: z.enum(['individual', 'family']).optional(),
+    // Owner-specific fields
+    houseNumber: z.string().optional(),
+    street: z.string().optional(),
+    barangay: z.enum(['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY']).optional(),
 }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords must match",
     path: ["confirmPassword"],
@@ -60,7 +64,7 @@ export async function signUpUser(data: SignUpData) {
 
         // Write to local DB (organized collections)
         const now = new Date().toISOString();
-        const userRecord: any = {
+        const userRecord: DbUserRecord = {
             id: result.user?.id || generateId('user'),
             email: data.email,
             name: data.name,
@@ -71,6 +75,7 @@ export async function signUpUser(data: SignUpData) {
             gender: data.gender,
             familyType: data.familyType,
             createdAt: now,
+            updatedAt: now, // Track when user was last updated
         };
         console.log('💾 Saving user record to database:', userRecord);
         try {
@@ -136,6 +141,53 @@ export async function signUpUser(data: SignUpData) {
                 console.log('✅ Owner verification record created');
             } else {
                 console.log('ℹ️ No government ID provided, skipping verification record');
+            }
+
+            // Create owner application if barangay is specified
+            if (data.barangay) {
+                console.log('📝 Creating owner application for barangay:', data.barangay);
+                
+                const applicationId = generateId('app');
+                const ownerApplication: OwnerApplicationRecord = {
+                    id: applicationId,
+                    userId: userRecord.id,
+                    name: data.name,
+                    email: data.email,
+                    contactNumber: data.contactNumber,
+                    houseNumber: data.houseNumber || '',
+                    street: data.street || '',
+                    barangay: data.barangay,
+                    govIdUri: verification?.govIdUri || null,
+                    status: 'pending',
+                    createdBy: userRecord.id,
+                    createdAt: now,
+                };
+
+                try {
+                    await db.upsert('owner_applications', applicationId, ownerApplication);
+                    console.log('✅ Owner application created');
+
+                    // Create notification for barangay officials
+                    const notificationId = generateId('brgy_notif');
+                    const brgyNotification: BrgyNotificationRecord = {
+                        id: notificationId,
+                        barangay: data.barangay,
+                        type: 'owner_application',
+                        ownerApplicationId: applicationId,
+                        ownerName: data.name,
+                        isRead: false,
+                        createdAt: now,
+                    };
+
+                    try {
+                        await db.upsert('brgy_notifications', notificationId, brgyNotification);
+                        console.log('✅ Barangay notification created');
+                    } catch (notifError) {
+                        console.error('❌ Failed to create notification:', notifError);
+                    }
+                } catch (appError) {
+                    console.error('❌ Failed to create owner application:', appError);
+                }
             }
         } else {
             // Create tenant profile

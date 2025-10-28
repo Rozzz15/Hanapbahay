@@ -112,6 +112,7 @@ const PersonalDetailsModal: React.FC<PersonalDetailsModalProps> = ({
                 </View>
                 <ScrollView 
                     style={styles.modalContent}
+                    contentContainerStyle={styles.modalScrollContent}
                     keyboardShouldPersistTaps="handled"
                 >
                     <TouchableOpacity 
@@ -359,6 +360,9 @@ const styles = StyleSheet.create({
     modalContent: {
         flex: 1,
         padding: 20,
+    },
+    modalScrollContent: {
+        paddingBottom: 100, // Add bottom padding to ensure content isn't cut off
     },
     modalForm: {
         gap: 24,

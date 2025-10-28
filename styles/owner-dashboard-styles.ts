@@ -154,6 +154,12 @@ export const sharedStyles = StyleSheet.create({
     fontWeight: '600' as const,
     fontSize: designTokens.typography.sm,
   } as TextStyle,
+
+  backButton: {
+    paddingVertical: designTokens.spacing.sm,
+    paddingHorizontal: designTokens.spacing.md,
+    marginBottom: designTokens.spacing.md,
+  } as ViewStyle,
   
   secondaryButton: {
     flexDirection: 'row',

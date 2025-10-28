@@ -4,6 +4,8 @@ import {
   TenantProfileRecord,
   OwnerProfileRecord,
   OwnerVerificationRecord,
+  OwnerApplicationRecord,
+  BrgyNotificationRecord,
   PaymentProfileRecord,
   PaymentAccount,
   UserProfilePhotoRecord,
@@ -23,6 +25,8 @@ type CollectionName =
   | 'owners'
   | 'owner_profiles'
   | 'owner_verifications'
+  | 'owner_applications'
+  | 'brgy_notifications'
   | 'payment_profiles'
   | 'payment_accounts'
   | 'conversations'
@@ -40,7 +44,7 @@ type CollectionName =
   | 'user_favorites'
   | 'listings';
 
-type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord;
+type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | OwnerApplicationRecord | BrgyNotificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord;
 
 // Type guards for better type safety
 export function isPublishedListingRecord(record: AnyRecord): record is PublishedListingRecord {

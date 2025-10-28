@@ -185,8 +185,28 @@ export async function getBookingsByOwner(ownerId: string): Promise<BookingRecord
       .filter(booking => booking.ownerId === ownerId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
-    console.log(`✅ Loaded ${ownerBookings.length} bookings for owner`);
-    return ownerBookings;
+    // Load tenant addresses for each booking
+    const bookingsWithTenantAddresses = await Promise.all(
+      ownerBookings.map(async (booking) => {
+        try {
+          // Try to get tenant address from tenants table
+          const tenantProfile = await db.get('tenants', booking.tenantId);
+          if (tenantProfile) {
+            const address = (tenantProfile as any).address || '';
+            return {
+              ...booking,
+              tenantAddress: address
+            };
+          }
+        } catch (error) {
+          console.log('⚠️ Could not load tenant address:', error);
+        }
+        return booking;
+      })
+    );
+    
+    console.log(`✅ Loaded ${bookingsWithTenantAddresses.length} bookings for owner with tenant addresses`);
+    return bookingsWithTenantAddresses;
   } catch (error) {
     console.error('❌ Error loading owner bookings:', error);
     return [];

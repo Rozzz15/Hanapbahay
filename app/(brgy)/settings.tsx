@@ -6,7 +6,8 @@ import { sharedStyles } from '../../styles/owner-dashboard-styles';
 import { db } from '../../utils/db';
 import { DbUserRecord } from '../../types';
 import { showAlert } from '../../utils/alert';
-import { User } from 'lucide-react-native';
+import { User, Lock } from 'lucide-react-native';
+import { changePassword } from '../../api/auth/change-password';
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
@@ -17,6 +18,16 @@ export default function SettingsPage() {
   const [barangay, setBarangay] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  
+  // Password change states
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -81,12 +92,21 @@ export default function SettingsPage() {
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim(),
-        barangay: barangay.trim() || userRecord.barangay,
+        // barangay is fixed and should not be changed
         updatedAt: new Date().toISOString()
       };
 
       // Update database
       await db.upsert('users', user.id, updatedUser);
+      
+      // IMPORTANT: Update the mock authentication storage
+      const { updateMockUser } = await import('../../utils/mock-auth');
+      updateMockUser(user.id, {
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        updatedAt: updatedUser.updatedAt,
+      });
       
       // IMPORTANT: Also update the auth session storage
       const { storeAuthUser, clearAuthUser } = await import('../../utils/auth-user');
@@ -123,6 +143,52 @@ export default function SettingsPage() {
       showAlert('Error', 'Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+  
+  const handleChangePassword = async () => {
+    if (!user?.id) return;
+    
+    // Validate inputs
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      showAlert('Validation Error', 'All password fields are required');
+      return;
+    }
+    
+    if (newPassword.length < 6) {
+      showAlert('Validation Error', 'New password must be at least 6 characters');
+      return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+      showAlert('Validation Error', 'New passwords do not match');
+      return;
+    }
+    
+    try {
+      setChangingPassword(true);
+      
+      const result = await changePassword(user.id, {
+        currentPassword,
+        newPassword,
+        confirmPassword
+      });
+      
+      if (result.success) {
+        showAlert('Success', 'Password changed successfully!');
+        // Clear password fields
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setShowPasswordSection(false);
+      } else {
+        showAlert('Error', result.error || 'Failed to change password');
+      }
+    } catch (error) {
+      console.error('Error changing password:', error);
+      showAlert('Error', 'Failed to change password. Please try again.');
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -289,7 +355,7 @@ export default function SettingsPage() {
               />
             </View>
 
-            {/* Barangay Field */}
+            {/* Barangay Field - Read Only */}
             <View style={{ marginBottom: 0 }}>
               <Text style={{
                 fontSize: 13,
@@ -301,22 +367,21 @@ export default function SettingsPage() {
               }}>
                 Barangay Name
               </Text>
-              <TextInput
-                style={{
-                  backgroundColor: '#F9FAFB',
-                  borderRadius: 12,
-                  padding: 16,
+              <View style={{
+                backgroundColor: '#F3F4F6',
+                borderRadius: 12,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+              }}>
+                <Text style={{
                   fontSize: 16,
                   color: '#111827',
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                }}
-                placeholder="Enter barangay name"
-                placeholderTextColor="#9CA3AF"
-                value={barangay}
-                onChangeText={setBarangay}
-                autoCapitalize="characters"
-              />
+                  fontWeight: '600',
+                }}>
+                  {barangay || 'Not Set'}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -367,6 +432,244 @@ export default function SettingsPage() {
             }}>
               💡 <Text style={{ fontWeight: '600' }}>Note:</Text> Changes to your name will be reflected throughout the app, including the dashboard display.
             </Text>
+          </View>
+
+          {/* Password Change Section */}
+          <View style={{
+            backgroundColor: 'white',
+            borderRadius: 16,
+            padding: 20,
+            marginTop: 20,
+            borderWidth: 1,
+            borderColor: '#E5E7EB',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+              <View style={{
+                backgroundColor: '#EF4444',
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 12,
+              }}>
+                <Lock size={24} color="white" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
+                  Change Password
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>
+                  Update your account password
+                </Text>
+              </View>
+            </View>
+
+            {!showPasswordSection ? (
+              <TouchableOpacity
+                onPress={() => setShowPasswordSection(true)}
+                style={{
+                  backgroundColor: '#EF4444',
+                  borderRadius: 12,
+                  padding: 16,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: 'white',
+                }}>
+                  Change Password
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View>
+                {/* Current Password */}
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: '600',
+                    color: '#6B7280',
+                    marginBottom: 8,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                  }}>
+                    Current Password
+                  </Text>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                  }}>
+                    <TextInput
+                      style={{
+                        flex: 1,
+                        padding: 16,
+                        fontSize: 16,
+                        color: '#111827',
+                      }}
+                      placeholder="Enter current password"
+                      placeholderTextColor="#9CA3AF"
+                      value={currentPassword}
+                      onChangeText={setCurrentPassword}
+                      secureTextEntry={!showCurrentPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                      style={{ padding: 16 }}
+                    >
+                      <Text style={{ color: '#3B82F6', fontWeight: '600' }}>
+                        {showCurrentPassword ? 'Hide' : 'Show'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* New Password */}
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: '600',
+                    color: '#6B7280',
+                    marginBottom: 8,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                  }}>
+                    New Password
+                  </Text>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                  }}>
+                    <TextInput
+                      style={{
+                        flex: 1,
+                        padding: 16,
+                        fontSize: 16,
+                        color: '#111827',
+                      }}
+                      placeholder="Enter new password"
+                      placeholderTextColor="#9CA3AF"
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showNewPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowNewPassword(!showNewPassword)}
+                      style={{ padding: 16 }}
+                    >
+                      <Text style={{ color: '#3B82F6', fontWeight: '600' }}>
+                        {showNewPassword ? 'Hide' : 'Show'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Confirm Password */}
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: '600',
+                    color: '#6B7280',
+                    marginBottom: 8,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                  }}>
+                    Confirm New Password
+                  </Text>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                  }}>
+                    <TextInput
+                      style={{
+                        flex: 1,
+                        padding: 16,
+                        fontSize: 16,
+                        color: '#111827',
+                      }}
+                      placeholder="Confirm new password"
+                      placeholderTextColor="#9CA3AF"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showConfirmPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                      style={{ padding: 16 }}
+                    >
+                      <Text style={{ color: '#3B82F6', fontWeight: '600' }}>
+                        {showConfirmPassword ? 'Hide' : 'Show'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Action Buttons */}
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowPasswordSection(false);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#F3F4F6',
+                      borderRadius: 12,
+                      padding: 16,
+                      alignItems: 'center',
+                    }}
+                    disabled={changingPassword}
+                  >
+                    <Text style={{
+                      fontSize: 16,
+                      fontWeight: '600',
+                      color: '#6B7280',
+                    }}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleChangePassword}
+                    disabled={changingPassword}
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#EF4444',
+                      borderRadius: 12,
+                      padding: 16,
+                      alignItems: 'center',
+                      opacity: changingPassword ? 0.7 : 1,
+                    }}
+                  >
+                    {changingPassword ? (
+                      <ActivityIndicator color="white" />
+                    ) : (
+                      <Text style={{
+                        fontSize: 16,
+                        fontWeight: '600',
+                        color: 'white',
+                      }}>
+                        Change Password
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </ScrollView>
