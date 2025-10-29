@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import { sharedStyles } from '../../styles/owner-dashboard-styles';
@@ -202,36 +202,45 @@ export default function SettingsPage() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      {/* Professional Header */}
-      <View style={{
-        backgroundColor: 'white',
-        paddingVertical: 20,
-        paddingHorizontal: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      }}>
-        <Text style={{
-          fontSize: 24,
-          fontWeight: '700',
-          color: '#111827',
-          marginBottom: 4,
+    <KeyboardAvoidingView 
+      style={{ flex: 1 }} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+        {/* Professional Header */}
+        <View style={{
+          backgroundColor: 'white',
+          paddingVertical: 20,
+          paddingHorizontal: 20,
+          borderBottomWidth: 1,
+          borderBottomColor: '#E5E7EB',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
         }}>
-          Settings
-        </Text>
-        <Text style={{
-          fontSize: 14,
-          color: '#6B7280',
-        }}>
-          Manage your barangay account settings
-        </Text>
-      </View>
+          <Text style={{
+            fontSize: 24,
+            fontWeight: '700',
+            color: '#111827',
+            marginBottom: 4,
+          }}>
+            Settings
+          </Text>
+          <Text style={{
+            fontSize: 14,
+            color: '#6B7280',
+          }}>
+            Manage your barangay account settings
+          </Text>
+        </View>
 
-      <ScrollView style={{ flex: 1 }}>
+        <ScrollView 
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={{ padding: 20 }}>
           {/* Profile Information Section */}
           <View style={{
@@ -673,6 +682,7 @@ export default function SettingsPage() {
           </View>
         </View>
       </ScrollView>
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

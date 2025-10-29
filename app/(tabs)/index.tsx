@@ -4,17 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react-native';
-import { db, clearCache, getAll, isPublishedListingRecord } from '../../utils/db';
+import { db, isPublishedListingRecord, clearCache, getAll } from '../../utils/db';
 import { OwnerProfileRecord, DbUserRecord, PublishedListingRecord } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 // Removed favorite functionality
 import { loadPropertyMedia } from '../../utils/media-storage';
+import { preloadSingleListingImages } from '../../utils/image-preloader';
+import { getPropertyRatingsMap } from '../../utils/property-ratings';
+import { cleanupTestMessages } from '../../utils/cleanup-test-messages';
 import { trackListingView } from '../../utils/view-tracking';
 import { trackListingInquiry } from '../../utils/inquiry-tracking';
-import { getPropertyRatingsMap } from '../../utils/property-ratings';
-import { preloadSingleListingImages } from '../../utils/image-preloader';
-import { cleanupTestMessages } from '../../utils/cleanup-test-messages';
 import { createOrFindConversation } from '../../utils/conversation-utils';
 
 export default function DashboardScreen() {
@@ -1239,68 +1239,54 @@ export default function DashboardScreen() {
   const handleMessageOwner = useCallback(async (listing: any) => {
     if (!user?.id) {
       console.log('❌ User not authenticated');
+      showAlert('Error', 'Please log in to message the owner.');
       return;
     }
 
     // Get owner display name (business name or owner name)
     const ownerDisplayName = listing.businessName || listing.ownerName || 'Property Owner';
     
-    // Show confirmation dialog
-    showAlert(
-      'Start Conversation',
-      `Do you want to start a conversation with ${ownerDisplayName} about this property?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Start',
-          onPress: async () => {
-            try {
-              console.log('💬 Starting conversation with owner:', listing.ownerUserId);
-              console.log('💬 Listing data:', listing);
-              
-              // Check if ownerUserId is valid
-              if (!listing.ownerUserId) {
-                console.error('❌ No ownerUserId found in listing');
-                console.log('❌ Listing data:', listing);
-                showAlert('Error', 'Unable to identify property owner. Please try again.');
-                return;
-              }
-              
-              // For testing purposes, if no ownerUserId, use a default owner
-              const actualOwnerId = listing.ownerUserId || 'default_owner_123';
-              console.log('💬 Using owner ID:', actualOwnerId);
-              
-              // Track inquiry
-              await trackListingInquiry(listing.id, user.id, 'message');
-              
-              // Create or find conversation using utility
-              const conversationId = await createOrFindConversation({
-                ownerId: actualOwnerId,
-                tenantId: user.id,
-                ownerName: ownerDisplayName,
-                tenantName: user.name || 'Tenant',
-                propertyId: listing.id,
-                propertyTitle: listing.title
-              });
-              
-              // Navigate to conversation
-              router.push({
-                pathname: '/chat-room',
-                params: {
-                  conversationId: conversationId,
-                  ownerName: ownerDisplayName,
-                  ownerAvatar: listing.ownerAvatar || '',
-                  propertyTitle: listing.title
-                }
-              });
-            } catch (error) {
-              console.error('❌ Error starting conversation:', error);
-              showAlert('Error', 'Failed to start conversation. Please try again.');
-            }
-          }
+    // Check if ownerUserId is valid first
+    if (!listing.ownerUserId) {
+      console.error('❌ No ownerUserId found in listing');
+      console.log('❌ Listing data:', listing);
+      showAlert('Error', 'Unable to identify property owner. Please try again.');
+      return;
+    }
+    
+    try {
+      console.log('💬 Starting conversation with owner:', listing.ownerUserId);
+      console.log('💬 Listing data:', listing);
+      
+      // Track inquiry
+      await trackListingInquiry(listing.id, user.id, 'message');
+      
+      // Create or find conversation using utility
+      const conversationId = await createOrFindConversation({
+        ownerId: listing.ownerUserId,
+        tenantId: user.id,
+        ownerName: ownerDisplayName,
+        tenantName: user.name || 'Tenant',
+        propertyId: listing.id,
+        propertyTitle: listing.title
+      });
+      
+      console.log('✅ Conversation created/found:', conversationId);
+      
+      // Navigate to conversation
+      router.push({
+        pathname: '/chat-room',
+        params: {
+          conversationId: conversationId,
+          ownerName: ownerDisplayName,
+          ownerAvatar: listing.ownerAvatar || '',
+          propertyTitle: listing.title
         }
-      ]
-    );
+      });
+    } catch (error) {
+      console.error('❌ Error starting conversation:', error);
+      showAlert('Error', 'Failed to start conversation. Please try again.');
+    }
   }, [user, router]);
 
   // Handle property view

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Platform } from "react-native";
 import { Icon } from "@/components/ui/icon";
 import { MapPin, ChevronUp, ChevronDown } from "lucide-react-native";
+import { BARANGAYS } from "@/constants/Barangays";
 
 export type BarangaySearchProps = {
     label: string;
@@ -10,15 +11,8 @@ export type BarangaySearchProps = {
     placeholder?: string;
 };
 
-// Specific barangays for the filter
-const barangayOptions = [
-    "Danlagan",
-    "Gomez", 
-    "Magsaysay",
-    "Rizal",
-    "Bocboc",
-    "Talolong"
-];
+// Use the official barangay list; format for display
+const barangayOptions = BARANGAYS.map(b => b.charAt(0) + b.slice(1).toLowerCase());
 
 const BarangaySearch: React.FC<BarangaySearchProps> = ({ 
     label, 

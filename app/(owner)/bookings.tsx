@@ -33,15 +33,6 @@ export default function BookingsPage() {
     try {
       setLoading(true);
       
-      // Clean up any cancelled bookings first (wrap in try-catch to not fail if cleanup fails)
-      try {
-        const { cleanupCancelledBookingsForUser } = await import('../../utils/cleanup-cancelled-bookings');
-        await cleanupCancelledBookingsForUser(user.id, 'owner');
-      } catch (cleanupError) {
-        console.warn('⚠️ Error during cleanup, continuing with bookings load:', cleanupError);
-        // Continue loading bookings even if cleanup fails
-      }
-      
       const ownerBookings = await getBookingsByOwner(user.id);
       setBookings(ownerBookings);
     } catch (error) {

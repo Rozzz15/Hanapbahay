@@ -10,28 +10,8 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const { user, isLoading, isAuthenticated } = useAuth();
 
-  // Redirect authenticated users to their appropriate dashboard
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && user) {
-      console.log('🔄 User is authenticated, redirecting from onboarding...', user.roles);
-      
-      // Use a small delay to ensure auth state is fully settled
-      const redirectTimer = setTimeout(() => {
-        if (user.roles?.includes('owner')) {
-          console.log('🏠 Redirecting owner to dashboard...');
-          router.replace('/(owner)/dashboard');
-        } else if (user.roles?.includes('brgy_official')) {
-          console.log('🏛️ Redirecting barangay official to dashboard...');
-          router.replace('/(brgy)/dashboard');
-        } else if (user.roles?.includes('tenant')) {
-          console.log('🏠 Redirecting tenant to tabs...');
-          router.replace('/(tabs)');
-        }
-      }, 100);
-      
-      return () => clearTimeout(redirectTimer);
-    }
-  }, [isLoading, isAuthenticated, user, router]);
+  // Stay on main onboarding screen regardless of authentication state
+  // Users can choose where to go from here (e.g., Login or Sign Up)
 
   // Show loading while checking authentication
   if (isLoading) {
@@ -44,16 +24,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // If user is authenticated, don't show onboarding (redirect will happen)
-  if (isAuthenticated && user) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Redirecting...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Always show onboarding as the main entry point
 
   // Sample property images for the grid
   const propertyImages = [

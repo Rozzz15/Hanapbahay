@@ -83,12 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               console.log('⚠️ Could not clear expired cache:', cacheError);
             }
             
-            const { refreshAllPropertyMedia } = await import('../utils/media-refresh');
-            await refreshAllPropertyMedia({
-              forceRefresh: true,
-              includeVideos: true,
-              includePhotos: true
-            });
+            const { refreshAllPropertyMedia } = await import('../utils/media-storage');
+            await refreshAllPropertyMedia();
             console.log('✅ Property media refreshed for tenant');
             
             // Dispatch property media refreshed event
@@ -155,12 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (userWithFallbacks.roles.includes('owner')) {
           console.log('🔄 Owner logged in - refreshing property media and profile photo...');
           try {
-            const { refreshAllPropertyMedia } = await import('../utils/media-refresh');
-            await refreshAllPropertyMedia({
-              forceRefresh: true,
-              includeVideos: true,
-              includePhotos: true
-            });
+            const { refreshAllPropertyMedia } = await import('../utils/media-storage');
+            await refreshAllPropertyMedia();
             console.log('✅ Property media refreshed for owner');
             
             // Also refresh owner profile photo

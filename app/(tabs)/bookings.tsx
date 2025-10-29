@@ -31,10 +31,6 @@ export default function TenantBookings() {
     try {
       setLoading(true);
       
-      // Clean up any cancelled bookings first
-      const { cleanupCancelledBookingsForUser } = await import('@/utils/cleanup-cancelled-bookings');
-      await cleanupCancelledBookingsForUser(user.id, 'tenant');
-      
       const tenantBookings = await getBookingsByTenant(user.id);
       setBookings(tenantBookings);
       console.log(`✅ Loaded ${tenantBookings.length} bookings for tenant ${user.id}`);
