@@ -99,8 +99,12 @@ export default function BrgyDashboard() {
         return userBarangay && userBarangay.trim().toUpperCase() === barangay.trim().toUpperCase() && b.status === 'approved';
       });
       
-      // Count unique tenants (residents) with approved bookings in this barangay
-      const uniqueTenantIds = new Set(approvedBookingsInBarangay.map(booking => booking.tenantId));
+      // Filter bookings to only include those with paid payment status
+      // Only count tenants with completed payments as residents
+      const paidBookingsInBarangay = approvedBookingsInBarangay.filter(b => b.paymentStatus === 'paid');
+      
+      // Count unique tenants (residents) with paid approved bookings in this barangay
+      const uniqueTenantIds = new Set(paidBookingsInBarangay.map(booking => booking.tenantId));
       const totalResidents = uniqueTenantIds.size;
       
       // Count approved owners in this barangay by checking owner_applications table
@@ -126,7 +130,7 @@ export default function BrgyDashboard() {
         totalResidents,
         totalProperties: listingsInBarangay.length,
         totalListings: listingsInBarangay.length,
-        activeBookings: approvedBookingsInBarangay.length,
+        activeBookings: paidBookingsInBarangay.length,
         totalApprovedOwners
       });
 
@@ -288,7 +292,7 @@ export default function BrgyDashboard() {
                 </View>
                 <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Total Residents</Text>
                 <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.totalResidents}</Text>
-                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>With approved bookings</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>With completed payments</Text>
               </View>
             </View>
 

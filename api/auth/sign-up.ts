@@ -17,6 +17,8 @@ export const signUpSchema = z.object({
     role: z.enum(['tenant', 'owner']).default('tenant'),
     gender: z.enum(['male', 'female']).optional(),
     familyType: z.enum(['individual', 'family']).optional(),
+    emergencyContactPerson: z.string().optional(),
+    emergencyContactNumber: z.string().optional(),
     // Owner-specific fields
     houseNumber: z.string().optional(),
     street: z.string().optional(),
@@ -59,6 +61,8 @@ export async function signUpUser(data: SignUpData) {
             address: data.address,
             gender: data.gender,
             familyType: data.familyType,
+            emergencyContactPerson: data.emergencyContactPerson || '',
+            emergencyContactNumber: data.emergencyContactNumber || '',
             profilePhoto: null
         };
 
@@ -72,12 +76,13 @@ export async function signUpUser(data: SignUpData) {
             address: data.address || '',
             role: data.role,
             roles: [data.role], // Add roles array for AuthContext compatibility
-            gender: data.gender,
+            gender: data.gender, // Save gender for analytics
             familyType: data.familyType,
             createdAt: now,
             updatedAt: now, // Track when user was last updated
         };
         console.log('💾 Saving user record to database:', userRecord);
+        console.log('💾 Gender saved:', userRecord.gender ? `✅ ${userRecord.gender}` : '⚠️ No gender provided');
         try {
           await db.upsert('users', userRecord.id, userRecord);
           console.log('✅ User record saved successfully');
@@ -122,25 +127,40 @@ export async function signUpUser(data: SignUpData) {
             
             console.log('✅ Owner profile created successfully');
 
-            // Load owner extras persisted by the sign-up screen
-            console.log('🔍 Checking for owner verification data...');
+            // Load owner documents persisted by the sign-up screen
+            console.log('🔍 Checking for owner verification documents...');
             const verificationRaw = await AsyncStorage.getItem('owner_verification');
 
             const verification = verificationRaw ? JSON.parse(verificationRaw) : null;
             console.log('📋 Verification data:', verification);
 
+            // Extract documents from verification data
+            const documents = verification?.documents || [];
+            
+            // For backward compatibility, also check for govIdUri
+            let govIdUri: string | null = null;
             if (verification?.govIdUri) {
+                govIdUri = verification.govIdUri;
+            } else if (documents.length > 0) {
+                // If no govIdUri but documents exist, use first document's URI for backward compatibility
+                const govIdDoc = documents.find((doc: any) => doc.name === 'Government ID');
+                if (govIdDoc) {
+                    govIdUri = govIdDoc.uri;
+                }
+            }
+
+            if (documents.length > 0 || govIdUri) {
                 console.log('📄 Creating owner verification record...');
                 const ownerVerification: OwnerVerificationRecord = {
                     userId: userRecord.id,
-                    govIdUri: verification.govIdUri,
+                    govIdUri: govIdUri || documents[0]?.uri || '',
                     status: 'pending',
                     createdAt: now,
                 };
                 await db.upsert('owner_verifications', userRecord.id, ownerVerification);
                 console.log('✅ Owner verification record created');
             } else {
-                console.log('ℹ️ No government ID provided, skipping verification record');
+                console.log('ℹ️ No documents provided, skipping verification record');
             }
 
             // Create owner application if barangay is specified
@@ -157,7 +177,8 @@ export async function signUpUser(data: SignUpData) {
                     houseNumber: data.houseNumber || '',
                     street: data.street || '',
                     barangay: data.barangay,
-                    govIdUri: verification?.govIdUri || null,
+                    govIdUri: govIdUri, // Keep for backward compatibility
+                    documents: documents.length > 0 ? documents : undefined, // New field for multiple documents
                     status: 'pending',
                     createdBy: userRecord.id,
                     createdAt: now,
@@ -200,6 +221,8 @@ export async function signUpUser(data: SignUpData) {
                 address: data.address || '',
                 gender: data.gender,
                 familyType: data.familyType,
+                emergencyContactPerson: data.emergencyContactPerson,
+                emergencyContactNumber: data.emergencyContactNumber,
                 preferences: {
                     budget: { min: 0, max: 100000 },
                     location: [],
@@ -208,6 +231,7 @@ export async function signUpUser(data: SignUpData) {
                 createdAt: now,
             };
             await db.upsert('tenants', userRecord.id, tenantProfile);
+            console.log('✅ Tenant profile saved with gender:', tenantProfile.gender ? `✅ ${tenantProfile.gender}` : '⚠️ No gender provided');
         }
 
         console.log('🎉 Sign-up completed successfully for:', data.email);

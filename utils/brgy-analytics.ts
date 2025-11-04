@@ -1,5 +1,5 @@
 import { db } from './db';
-import { BookingRecord, DbUserRecord } from '../types';
+import { BookingRecord, DbUserRecord, OwnerApplicationRecord } from '../types';
 
 export interface GenderAnalytics {
   total: number;
@@ -122,7 +122,14 @@ export async function getTenantGenderAnalytics(barangay: string): Promise<Gender
       booking => booking.status === 'approved'
     );
     
+    // Filter to only include bookings with paid payment status
+    // Only count tenants with completed payments as residents
+    const paidApprovedBookings = approvedBookings.filter(
+      booking => booking.paymentStatus === 'paid'
+    );
+    
     console.log(`✅ Found ${approvedBookings.length} approved bookings`);
+    console.log(`💳 Found ${paidApprovedBookings.length} paid approved bookings`);
     
     // Log booking status breakdown
     const statusBreakdown = allBookings.reduce((acc, b) => {
@@ -162,17 +169,17 @@ export async function getTenantGenderAnalytics(barangay: string): Promise<Gender
     const barangayPropertyIds = barangayListings.map(listing => listing.id);
     console.log(`📍 Property IDs in ${barangay}:`, barangayPropertyIds);
     
-    // Filter bookings for properties in this barangay
-    const barangayBookings = approvedBookings.filter(
+    // Filter bookings for properties in this barangay with paid payment status
+    const barangayBookings = paidApprovedBookings.filter(
       booking => barangayPropertyIds.includes(booking.propertyId)
     );
     
-    console.log(`✅ Found ${barangayBookings.length} approved bookings for properties in ${barangay}`);
+    console.log(`✅ Found ${barangayBookings.length} paid approved bookings for properties in ${barangay}`);
     
     // If no matches, log why
-    if (barangayBookings.length === 0 && approvedBookings.length > 0) {
-      console.log('⚠️  No bookings match barangay filter. Checking...');
-      approvedBookings.forEach(booking => {
+    if (barangayBookings.length === 0 && paidApprovedBookings.length > 0) {
+      console.log('⚠️  No paid bookings match barangay filter. Checking...');
+      paidApprovedBookings.forEach(booking => {
         console.log(`  Booking for property ${booking.propertyId} (${booking.propertyTitle})`);
       });
     }
@@ -200,14 +207,48 @@ export async function getTenantGenderAnalytics(barangay: string): Promise<Gender
       // Find the tenant user record
       const tenantUser = allUsers.find(user => user.id === booking.tenantId);
       
-      if (tenantUser && tenantUser.gender) {
+      if (!tenantUser) {
+        console.warn(`⚠️ Tenant user not found for booking ${booking.id}, tenantId: ${booking.tenantId}`);
+        genderCounts.unknown++;
+        continue;
+      }
+      
+      // Count gender for analytics - check user record first, then tenant profile as fallback
+      let tenantGender = tenantUser.gender;
+      
+      // Fallback: If gender not in user record, check tenant profile
+      if (!tenantGender) {
+        try {
+          const tenantProfile = await db.get('tenants', booking.tenantId);
+          if (tenantProfile && tenantProfile.gender) {
+            tenantGender = tenantProfile.gender;
+            console.log(`⚠️ Gender found in tenant profile (fallback) for ${tenantUser.name}`);
+            
+            // Update user record with gender from tenant profile for consistency
+            const updatedUser = {
+              ...tenantUser,
+              gender: tenantProfile.gender,
+              updatedAt: new Date().toISOString()
+            };
+            await db.upsert('users', booking.tenantId, updatedUser);
+            console.log(`✅ Updated user record with gender from tenant profile`);
+          }
+        } catch (profileError) {
+          console.warn(`⚠️ Could not fetch tenant profile for ${booking.tenantId}:`, profileError);
+        }
+      }
+      
+      // Count gender for analytics
+      if (tenantGender) {
         genderCounts.total++;
-        if (tenantUser.gender === 'male') {
+        if (tenantGender === 'male') {
           genderCounts.male++;
-        } else if (tenantUser.gender === 'female') {
+        } else if (tenantGender === 'female') {
           genderCounts.female++;
         }
+        console.log(`✅ Tenant ${tenantUser.name} (${booking.tenantId}): Gender = ${tenantGender}`);
       } else {
+        console.warn(`⚠️ Tenant ${tenantUser.name} (${booking.tenantId}) has no gender data - cannot include in analytics`);
         genderCounts.unknown++;
       }
     }
@@ -252,6 +293,12 @@ export async function getTenantGenderAnalytics(barangay: string): Promise<Gender
  * Get comprehensive analytics for a barangay including tenants, owners, and relationships
  */
 export async function getComprehensiveAnalytics(barangay: string): Promise<ComprehensiveAnalytics> {
+  // Validate barangay input
+  if (!barangay || !barangay.trim()) {
+    console.warn('⚠️ Empty barangay provided to getComprehensiveAnalytics');
+    barangay = '';
+  }
+  
   try {
     console.log('📊 Getting comprehensive analytics for barangay:', barangay);
     console.log('📊 Barangay trimmed:', barangay.trim());
@@ -271,7 +318,7 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     console.log('📊 Total listings:', allListings.length);
     console.log('📊 Total users:', allUsers.length);
     
-    // Filter listings by barangay (match dashboard logic exactly)
+    // Filter listings by barangay (include all listings for analytics, not just available)
     const barangayListings = allListings.filter(listing => {
       // Check barangay match
       let isInBarangay = false;
@@ -292,7 +339,8 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       return isInBarangay;
     });
     
-    console.log('📊 Found barangay listings:', barangayListings.length);
+    console.log('📊 Total listings before filtering:', allListings.length);
+    console.log('📊 Barangay listings found:', barangayListings.length);
     console.log('📊 Barangay listings:', barangayListings.map(l => ({ id: l.id, barangay: l.barangay, title: l.title })));
     
     const barangayPropertyIds = barangayListings.map(listing => listing.id);
@@ -305,12 +353,34 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     
     console.log('📊 Found barangay bookings:', barangayBookings.length);
     
-    // Get unique owners and tenants in this barangay
-    const barangayOwnerIds = [...new Set(barangayListings.map(listing => listing.userId))];
-    const barangayTenantIds = [...new Set(barangayBookings.map(booking => booking.tenantId))];
+    // Filter bookings to only include those with paid payment status for tenant counting
+    // Only count tenants with completed payments as residents
+    const paidBarangayBookings = barangayBookings.filter(
+      booking => booking.status === 'approved' && booking.paymentStatus === 'paid'
+    );
     
-    const barangayOwners = allUsers.filter(user => barangayOwnerIds.includes(user.id));
+    // Get unique tenants in this barangay (from paid bookings)
+    const barangayTenantIds = [...new Set(paidBarangayBookings.map(booking => booking.tenantId))];
     const barangayTenants = allUsers.filter(user => barangayTenantIds.includes(user.id));
+    
+    // Get approved owners from owner_applications table (same as dashboard)
+    // This ensures we only count owners who have been officially approved
+    const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+    const approvedApplicationsInBarangay = allApplications.filter(
+      app => app.status === 'approved' && app.barangay?.toUpperCase() === barangay.toUpperCase()
+    );
+    
+    // Get unique approved owner IDs from applications
+    const approvedOwnerIds = [...new Set(approvedApplicationsInBarangay.map(app => app.userId))];
+    const barangayOwners = allUsers.filter(user => approvedOwnerIds.includes(user.id));
+    
+    console.log('📊 Approved owners count (analytics):', {
+      barangay,
+      totalApprovedOwners: approvedOwnerIds.length,
+      approvedApplications: approvedApplicationsInBarangay.length,
+      approvedOwnerIds: approvedOwnerIds.length,
+      barangayOwnersFound: barangayOwners.length
+    });
     
     // Owner Analytics
     const ownerGenderCounts = {
@@ -337,8 +407,8 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       ? Math.round((ownerGenderCounts.female / ownerGenderCounts.total) * 100) 
       : 0;
     
-    // Calculate properties per owner and top owners
-    const ownerStats = barangayOwnerIds.map(ownerId => {
+    // Calculate properties per owner and top owners (using approved owners)
+    const ownerStats = approvedOwnerIds.map(ownerId => {
       const owner = allUsers.find(u => u.id === ownerId);
       const ownerProperties = barangayListings.filter(l => l.userId === ownerId);
       const ownerBookings = barangayBookings.filter(b => b.ownerId === ownerId);
@@ -421,11 +491,27 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     
     // Activity Analytics
     const totalInquiries = barangayBookings.length; // Using bookings as proxy for inquiries
-    const totalViews = barangayListings.reduce((sum, listing) => sum + (listing.viewCount || 0), 0);
+    // Get total views - check both 'views' and 'viewCount' for compatibility
+    const totalViews = barangayListings.reduce((sum, listing) => {
+      const views = (listing as any).views || (listing as any).viewCount || 0;
+      return sum + views;
+    }, 0);
     const averageViewsPerProperty = totalProperties > 0 ? totalViews / totalProperties : 0;
+    
+    console.log('📊 Total Views Calculation:', {
+      totalProperties,
+      totalViews,
+      averageViewsPerProperty: averageViewsPerProperty.toFixed(2),
+      sampleListingViews: barangayListings.slice(0, 3).map(l => ({
+        id: l.id,
+        title: l.title,
+        views: (l as any).views || (l as any).viewCount || 0
+      }))
+    });
     
     // Recent Activity (last 7 days)
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
     const recentBookings = barangayBookings.filter(b => 
       new Date(b.createdAt) >= sevenDaysAgo
     ).length;
@@ -434,13 +520,53 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       new Date(l.publishedAt || l.createdAt) >= sevenDaysAgo
     ).length;
     
-    const recentOwners = barangayOwners.filter(o => 
-      new Date(o.createdAt) >= sevenDaysAgo
+    // Count recently approved owners (based on approval date, not account creation)
+    const recentOwners = approvedApplicationsInBarangay.filter(app => {
+      const approvalDate = app.reviewedAt || app.createdAt;
+      return new Date(approvalDate) >= sevenDaysAgo;
+    }).length;
+    
+    // Recent tenants should only count those with paid bookings
+    const recentTenants = paidBarangayBookings.filter(b => 
+      new Date(b.createdAt) >= sevenDaysAgo
     ).length;
     
-    const recentTenants = barangayTenants.filter(t => 
-      new Date(t.createdAt) >= sevenDaysAgo
-    ).length;
+    // Count recent inquiries from listing_inquiries table
+    let recentInquiries = 0;
+    try {
+      const allInquiries = await db.list('listing_inquiries');
+      const barangayInquiryIds = barangayPropertyIds;
+      const barangayInquiries = allInquiries.filter(inquiry => 
+        inquiry?.listingId && barangayInquiryIds.includes(inquiry.listingId)
+      );
+      recentInquiries = barangayInquiries.filter(inquiry => {
+        const inquiryDate = inquiry?.createdAt || inquiry?.timestamp;
+        if (!inquiryDate) return false;
+        try {
+          return new Date(inquiryDate) >= sevenDaysAgo;
+        } catch (dateError) {
+          console.warn('⚠️ Invalid inquiry date:', inquiryDate);
+          return false;
+        }
+      }).length;
+    } catch (error) {
+      console.warn('⚠️ Could not fetch inquiries, using bookings as fallback:', error);
+      // Fallback: use recent bookings as proxy for inquiries
+      recentInquiries = recentBookings;
+    }
+    
+    // Enhanced logging for Last 7 Days
+    console.log('📅 Last 7 Days Activity Summary:', {
+      dateRange: {
+        from: sevenDaysAgo.toISOString().split('T')[0],
+        to: now.toISOString().split('T')[0]
+      },
+      newBookings: recentBookings,
+      newProperties: recentProperties,
+      newOwners: recentOwners,
+      newTenants: recentTenants,
+      newInquiries: recentInquiries
+    });
     
     // Tenant-Owner Relationship Analytics
     const averageBookingsPerOwner = barangayOwners.length > 0 
@@ -557,7 +683,7 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       recentActivity: {
         newBookings: recentBookings,
         newProperties: recentProperties,
-        newInquiries: recentBookings,
+        newInquiries: recentInquiries,
         newOwners: recentOwners,
         newTenants: recentTenants,
       },
@@ -577,13 +703,21 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     };
     
     console.log('📊 Comprehensive Analytics:', analytics);
+    
+    // Ensure we never return null/undefined
+    if (!analytics) {
+      console.error('❌ Analytics object is null/undefined, creating empty analytics');
+      throw new Error('Analytics object creation failed');
+    }
+    
     return analytics;
     
   } catch (error) {
     console.error('❌ Error getting comprehensive analytics:', error);
+    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     
-    // Return empty analytics on error
-    return {
+    // ALWAYS return empty analytics on error (never null/undefined)
+    const emptyAnalytics: ComprehensiveAnalytics = {
       genderAnalytics: {
         total: 0,
         male: 0,
@@ -646,6 +780,10 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
         popularPropertyTypes: [],
       },
     };
+    
+    // Double-check: ensure we never return null
+    console.log('✅ Returning empty analytics (guaranteed non-null)');
+    return emptyAnalytics;
   }
 }
 
@@ -667,6 +805,12 @@ export async function getTenantDetailsByBarangay(barangay: string): Promise<Arra
     const allBookings = await db.list<BookingRecord>('bookings');
     const approvedBookings = allBookings.filter(
       booking => booking.status === 'approved'
+    );
+    
+    // Filter to only include bookings with paid payment status
+    // Only count tenants with completed payments as residents
+    const paidApprovedBookings = approvedBookings.filter(
+      booking => booking.paymentStatus === 'paid'
     );
     
     // Get all published listings in this barangay (match dashboard logic)
@@ -696,8 +840,8 @@ export async function getTenantDetailsByBarangay(barangay: string): Promise<Arra
     // Get property IDs for this barangay
     const barangayPropertyIds = barangayListings.map(listing => listing.id);
     
-    // Filter bookings for properties in this barangay
-    const barangayBookings = approvedBookings.filter(
+    // Filter bookings for properties in this barangay with paid payment status
+    const barangayBookings = paidApprovedBookings.filter(
       booking => barangayPropertyIds.includes(booking.propertyId)
     );
     

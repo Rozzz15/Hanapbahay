@@ -90,6 +90,8 @@ const ProfileScreen = memo(function ProfileScreen() {
         address: '',
         gender: undefined as 'male' | 'female' | undefined,
         familyType: undefined as 'individual' | 'family' | undefined,
+        emergencyContactPerson: '',
+        emergencyContactNumber: '',
         profilePhoto: null as string | null
     });
     
@@ -102,6 +104,8 @@ const ProfileScreen = memo(function ProfileScreen() {
         address: '',
         gender: undefined as 'male' | 'female' | undefined,
         familyType: undefined as 'individual' | 'family' | undefined,
+        emergencyContactPerson: '',
+        emergencyContactNumber: '',
         profilePhoto: null as string | null
     });
     
@@ -215,8 +219,22 @@ const ProfileScreen = memo(function ProfileScreen() {
                 address: '',
                 gender: undefined as 'male' | 'female' | undefined,
                 familyType: undefined as 'individual' | 'family' | undefined,
+                emergencyContactPerson: '',
+                emergencyContactNumber: '',
                 profilePhoto: null as string | null
             };
+            
+            // Also load from database (tenants table) for emergency contact
+            try {
+                const { db } = await import('../../utils/db');
+                const tenantProfile = await db.get('tenants', user.id);
+                if (tenantProfile) {
+                    details.emergencyContactPerson = (tenantProfile as any).emergencyContactPerson || '';
+                    details.emergencyContactNumber = (tenantProfile as any).emergencyContactNumber || '';
+                }
+            } catch (error) {
+                console.log('⚠️ Could not load emergency contact from database:', error);
+            }
             
             if (stored) {
                 const parsedData = JSON.parse(stored);
@@ -254,6 +272,8 @@ const ProfileScreen = memo(function ProfileScreen() {
                 address: '',
                 gender: undefined,
                 familyType: undefined,
+                emergencyContactPerson: '',
+                emergencyContactNumber: '',
                 profilePhoto: null
             };
             setPersonalDetails(fallbackDetails);
@@ -281,7 +301,9 @@ const ProfileScreen = memo(function ProfileScreen() {
                 phone: data.phone,
                 address: data.address,
                 gender: data.gender,
-                familyType: data.familyType
+                familyType: data.familyType,
+                emergencyContactPerson: data.emergencyContactPerson,
+                emergencyContactNumber: data.emergencyContactNumber
             });
             
             if (!user?.id) {
@@ -320,7 +342,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                         familyType: updatedUser.familyType
                     });
                     
-                    // ALSO update the tenants table with gender and familyType for owner visibility
+                    // ALSO update the tenants table with gender, familyType, and emergency contact for owner visibility
                     try {
                         const tenantProfile = await db.get('tenants', user.id);
                         if (tenantProfile) {
@@ -330,7 +352,9 @@ const ProfileScreen = memo(function ProfileScreen() {
                                 email: data.email,
                                 address: data.address,
                                 gender: data.gender,
-                                familyType: data.familyType
+                                familyType: data.familyType,
+                                emergencyContactPerson: data.emergencyContactPerson,
+                                emergencyContactNumber: data.emergencyContactNumber
                             };
                             await db.upsert('tenants', user.id, updatedTenantProfile);
                             console.log('✅ Updated tenants table with personal details:', {
@@ -338,7 +362,9 @@ const ProfileScreen = memo(function ProfileScreen() {
                                 email: updatedTenantProfile.email,
                                 address: updatedTenantProfile.address,
                                 gender: updatedTenantProfile.gender,
-                                familyType: updatedTenantProfile.familyType
+                                familyType: updatedTenantProfile.familyType,
+                                emergencyContactPerson: updatedTenantProfile.emergencyContactPerson,
+                                emergencyContactNumber: updatedTenantProfile.emergencyContactNumber
                             });
                         }
                     } catch (tenantError) {
@@ -896,6 +922,28 @@ const ProfileScreen = memo(function ProfileScreen() {
                                             ]}>Family</Text>
                                         </TouchableOpacity>
                                     </View>
+                                </View>
+
+                                {/* Emergency Contact Fields */}
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Contact Person In case of Emergency (Optional)</Text>
+                                    <TextInput
+                                        style={styles.textInput}
+                                        value={formData.emergencyContactPerson}
+                                        onChangeText={(text) => setFormData({...formData, emergencyContactPerson: text})}
+                                        placeholder="Enter contact person name"
+                                    />
+                                </View>
+                                
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Contact Number In case of Emergency (Optional)</Text>
+                                    <TextInput
+                                        style={styles.textInput}
+                                        value={formData.emergencyContactNumber}
+                                        onChangeText={(text) => setFormData({...formData, emergencyContactNumber: text})}
+                                        placeholder="Enter contact number"
+                                        keyboardType="phone-pad"
+                                    />
                                 </View>
                             </View>
                         </View>

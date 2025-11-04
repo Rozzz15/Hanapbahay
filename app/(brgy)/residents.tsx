@@ -64,9 +64,13 @@ export default function ResidentsPage() {
         return userBarangay && userBarangay.trim().toUpperCase() === barangay.trim().toUpperCase() && b.status === 'approved';
       });
 
+      // Filter bookings to only include those with paid payment status
+      // Only count tenants with completed payments as residents
+      const paidBookingsInBarangay = approvedBookingsInBarangay.filter(b => b.paymentStatus === 'paid');
+
       // Get unique tenant IDs with their booking counts and bookings
       const tenantMap = new Map<string, BookingRecord[]>();
-      approvedBookingsInBarangay.forEach(booking => {
+      paidBookingsInBarangay.forEach(booking => {
         const bookings = tenantMap.get(booking.tenantId) || [];
         bookings.push(booking);
         tenantMap.set(booking.tenantId, bookings);
@@ -149,7 +153,7 @@ export default function ResidentsPage() {
               fontSize: 14,
               color: '#6B7280',
             }}>
-              {residents.length} {residents.length === 1 ? 'resident' : 'residents'} • Approved bookings only
+              {residents.length} {residents.length === 1 ? 'resident' : 'residents'} • With completed payments
             </Text>
           </View>
           <View style={{

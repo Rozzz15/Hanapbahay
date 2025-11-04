@@ -88,6 +88,8 @@ export interface TenantProfileRecord {
   address: string;
   gender?: 'male' | 'female';
   familyType?: 'individual' | 'family';
+  emergencyContactPerson?: string;
+  emergencyContactNumber?: string;
   preferences?: {
     budget?: {
       min: number;
@@ -114,6 +116,13 @@ export interface OwnerVerificationRecord {
   createdAt: string;
 }
 
+export interface OwnerApplicationDocument {
+  id: string;
+  name: string; // Document name/type (e.g., "Government ID", "Business Permit", "Barangay Clearance")
+  uri: string; // Document URI
+  uploadedAt: string;
+}
+
 export interface OwnerApplicationRecord {
   id: string;
   userId: string;
@@ -123,7 +132,8 @@ export interface OwnerApplicationRecord {
   houseNumber: string;
   street: string;
   barangay: string;
-  govIdUri: string | null;
+  govIdUri: string | null; // Deprecated - kept for backward compatibility
+  documents?: OwnerApplicationDocument[]; // New field for multiple documents (optional for backward compatibility)
   status: 'pending' | 'approved' | 'rejected';
   reason?: string; // Rejection reason
   createdBy: string; // User ID who created the application

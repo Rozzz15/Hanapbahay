@@ -18,7 +18,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { createBooking } from '@/utils/booking';
 import { useToast } from '@/components/ui/toast';
-import { ArrowLeft, Calendar, Clock, CheckCircle } from 'lucide-react-native';
+import { ArrowLeft, Calendar, Clock, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react-native';
 
 // Peso icon component
 const PesoIcon = ({ size = 20, color = "#FFFFFF" }) => (
@@ -36,12 +36,28 @@ const CustomCalendar = ({
   onClose: () => void; 
 }) => {
   const today = new Date();
-  const currentMonth = selectedDate.getMonth();
-  const currentYear = selectedDate.getFullYear();
+  today.setHours(0, 0, 0, 0);
+  
+  // State for currently viewed month/year (for navigation)
+  const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
+  const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
+  const [showYearPicker, setShowYearPicker] = useState(false);
+  
+  // Update view when selectedDate changes externally
+  useEffect(() => {
+    setViewMonth(selectedDate.getMonth());
+    setViewYear(selectedDate.getFullYear());
+  }, [selectedDate]);
+  
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
   
   // Get first day of month and number of days
-  const firstDay = new Date(currentYear, currentMonth, 1);
-  const lastDay = new Date(currentYear, currentMonth + 1, 0);
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay = new Date(viewYear, viewMonth + 1, 0);
   const daysInMonth = lastDay.getDate();
   const startingDayOfWeek = firstDay.getDay();
   
@@ -55,42 +71,145 @@ const CustomCalendar = ({
   
   // Add days of the month
   for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(currentYear, currentMonth, day);
+    const date = new Date(viewYear, viewMonth, day);
     calendarDays.push(date);
   }
   
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+  // Navigation functions
+  const goToPreviousMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear(viewYear - 1);
+    } else {
+      setViewMonth(viewMonth - 1);
+    }
+  };
+  
+  const goToNextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear(viewYear + 1);
+    } else {
+      setViewMonth(viewMonth + 1);
+    }
+  };
+  
+  const goToToday = () => {
+    const now = new Date();
+    setViewMonth(now.getMonth());
+    setViewYear(now.getFullYear());
+  };
+  
+  // Generate year options (current year ± 10 years)
+  const currentYear = new Date().getFullYear();
+  const yearOptions = [];
+  for (let year = currentYear - 1; year <= currentYear + 10; year++) {
+    yearOptions.push(year);
+  }
+  
+  const handleYearSelect = (year: number) => {
+    setViewYear(year);
+    setShowYearPicker(false);
+  };
+  
+  // Check if we can navigate to previous month (not before today's month)
+  const canGoPrevious = () => {
+    const todayMonth = today.getMonth();
+    const todayYear = today.getFullYear();
+    return !(viewYear === todayYear && viewMonth === todayMonth);
+  };
   
   return (
     <View style={styles.calendarContainer}>
+      {/* Header with navigation */}
       <View style={styles.calendarHeader}>
-        <Text style={styles.calendarTitle}>
-          {months[currentMonth]} {currentYear}
-        </Text>
         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
           <Text style={styles.closeButtonText}>✕</Text>
         </TouchableOpacity>
+        
+        <View style={styles.calendarTitleContainer}>
+          <TouchableOpacity 
+            style={styles.monthYearButton}
+            onPress={() => setShowYearPicker(!showYearPicker)}
+          >
+            <Text style={styles.calendarTitle}>
+              {months[viewMonth]} {viewYear}
+            </Text>
+          </TouchableOpacity>
+          
+          {showYearPicker && (
+            <View style={styles.yearPickerContainer}>
+              <View style={styles.yearPickerBox}>
+                <ScrollView style={styles.yearPickerScroll} showsVerticalScrollIndicator={false}>
+                  {yearOptions.map((year) => (
+                    <TouchableOpacity
+                      key={year}
+                      style={[
+                        styles.yearOption,
+                        viewYear === year && styles.yearOptionSelected
+                      ]}
+                      onPress={() => handleYearSelect(year)}
+                    >
+                      <Text style={[
+                        styles.yearOptionText,
+                        viewYear === year && styles.yearOptionTextSelected
+                      ]}>
+                        {year}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          )}
+        </View>
       </View>
       
+      {/* Navigation controls */}
+      <View style={styles.calendarNavigation}>
+        <TouchableOpacity 
+          style={[styles.navButton, !canGoPrevious() && styles.navButtonDisabled]}
+          onPress={goToPreviousMonth}
+          disabled={!canGoPrevious()}
+        >
+          <ChevronLeft size={20} color={canGoPrevious() ? "#374151" : "#D1D5DB"} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.todayButton}
+          onPress={goToToday}
+        >
+          <Text style={styles.todayButtonText}>Today</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.navButton}
+          onPress={goToNextMonth}
+        >
+          <ChevronRight size={20} color="#374151" />
+        </TouchableOpacity>
+      </View>
+      
+      {/* Week day headers */}
       <View style={styles.weekDaysContainer}>
         {weekDays.map((day) => (
           <Text key={day} style={styles.weekDayText}>{day}</Text>
         ))}
       </View>
       
+      {/* Calendar grid */}
       <View style={styles.calendarGrid}>
         {calendarDays.map((date, index) => {
           if (!date) {
             return <View key={index} style={styles.calendarDay} />;
           }
           
-          const isToday = date.toDateString() === today.toDateString();
-          const isSelected = date.toDateString() === selectedDate.toDateString();
-          const isPast = date < today && !isToday;
+          const dateOnly = new Date(date);
+          dateOnly.setHours(0, 0, 0, 0);
+          
+          const isToday = dateOnly.getTime() === today.getTime();
+          const isSelected = dateOnly.toDateString() === selectedDate.toDateString();
+          const isPast = dateOnly < today;
           
           return (
             <TouchableOpacity
@@ -893,8 +1012,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     margin: 20,
-    maxWidth: 350,
+    maxWidth: 400,
     width: '90%',
+    maxHeight: '85%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
@@ -908,12 +1028,94 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
+    position: 'relative',
+  },
+  calendarTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  monthYearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
   calendarTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#111827',
+  },
+  yearPickerContainer: {
+    position: 'absolute',
+    top: 45,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  yearPickerBox: {
+    width: 140,
+    maxHeight: 220,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  yearPickerScroll: {
+    maxHeight: 220,
+  },
+  yearOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  yearOptionSelected: {
+    backgroundColor: '#EFF6FF',
+  },
+  yearOptionText: {
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
+  },
+  yearOptionTextSelected: {
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  calendarNavigation: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 8,
+  },
+  navButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  navButtonDisabled: {
+    opacity: 0.5,
+  },
+  todayButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#3B82F6',
+  },
+  todayButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   closeButton: {
     width: 32,

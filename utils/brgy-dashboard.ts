@@ -61,8 +61,12 @@ export async function getBrgyDashboardStats(
       return userBarangay && userBarangay.trim().toUpperCase() === barangayName.trim().toUpperCase() && booking.status === 'approved';
     });
     
-    // Count unique tenants (residents) with approved bookings in this barangay
-    const uniqueTenantIds = new Set(approvedBookingsInBarangay.map(booking => booking.tenantId));
+    // Filter bookings to only include those with paid payment status
+    // Only count tenants with completed payments as residents
+    const paidBookingsInBarangay = approvedBookingsInBarangay.filter(booking => booking.paymentStatus === 'paid');
+    
+    // Count unique tenants (residents) with paid approved bookings in this barangay
+    const uniqueTenantIds = new Set(paidBookingsInBarangay.map(booking => booking.tenantId));
     const totalResidents = uniqueTenantIds.size;
     
     // Count approved owners in this barangay by checking owner_applications table
@@ -88,7 +92,7 @@ export async function getBrgyDashboardStats(
       totalResidents,
       totalProperties: listingsInBarangay.length,
       totalListings: listingsInBarangay.length,
-      activeBookings: approvedBookingsInBarangay.length,
+      activeBookings: paidBookingsInBarangay.length,
       totalApprovedOwners
     };
   } catch (error) {

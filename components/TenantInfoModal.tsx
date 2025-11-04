@@ -29,6 +29,8 @@ interface TenantProfile {
   address?: string;
   gender?: 'male' | 'female';
   familyType?: 'individual' | 'family';
+  emergencyContactPerson?: string;
+  emergencyContactNumber?: string;
   role: string;
   createdAt: string;
 }
@@ -100,6 +102,8 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
         let tenantPhoneFromProfile = '';
         let gender: 'male' | 'female' | undefined;
         let familyType: 'individual' | 'family' | undefined;
+        let emergencyContactPerson: string | undefined;
+        let emergencyContactNumber: string | undefined;
         
         try {
           const tenantProfile = await db.get('tenants', tenantId);
@@ -108,6 +112,8 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
             tenantPhoneFromProfile = (tenantProfile as any).contactNumber || '';
             gender = (tenantProfile as any).gender;
             familyType = (tenantProfile as any).familyType;
+            emergencyContactPerson = (tenantProfile as any).emergencyContactPerson;
+            emergencyContactNumber = (tenantProfile as any).emergencyContactNumber;
           }
         } catch (error) {
           console.log('⚠️ Could not load tenant profile:', error);
@@ -125,6 +131,8 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
           address: tenantAddress,
           gender,
           familyType,
+          emergencyContactPerson,
+          emergencyContactNumber,
           role: (user as any).role || 'tenant',
           createdAt: (user as any).createdAt || ''
         });
@@ -294,6 +302,34 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
                   </Text>
                 </View>
               </View>
+
+              {(tenantProfile.emergencyContactPerson || tenantProfile.emergencyContactNumber) && (
+                <>
+                  {tenantProfile.emergencyContactPerson && (
+                    <View style={styles.infoRow}>
+                      <View style={styles.iconContainer}>
+                        <Ionicons name="person" size={20} color="#EF4444" />
+                      </View>
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Emergency Contact Person</Text>
+                        <Text style={styles.infoValue}>{tenantProfile.emergencyContactPerson}</Text>
+                      </View>
+                    </View>
+                  )}
+                  
+                  {tenantProfile.emergencyContactNumber && (
+                    <View style={styles.infoRow}>
+                      <View style={styles.iconContainer}>
+                        <Ionicons name="call" size={20} color="#EF4444" />
+                      </View>
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Emergency Contact Number</Text>
+                        <Text style={styles.infoValue}>{tenantProfile.emergencyContactNumber}</Text>
+                      </View>
+                    </View>
+                  )}
+                </>
+              )}
             </View>
 
             {/* Account Information */}

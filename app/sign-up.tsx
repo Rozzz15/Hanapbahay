@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { notifications, createNotification } from "@/utils";
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { OwnerApplicationDocument } from '@/types';
 
 export default function SignUpScreen() {
     const router = useRouter();
@@ -27,13 +28,25 @@ export default function SignUpScreen() {
     const { width } = useWindowDimensions();
 
     // Owner-specific state
-    const [govIdUri, setGovIdUri] = useState<string | null>(null);
+    const [ownerDocuments, setOwnerDocuments] = useState<OwnerApplicationDocument[]>([]);
+    const [showDocumentTypeModal, setShowDocumentTypeModal] = useState(false);
     const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
     const [ownerAddress, setOwnerAddress] = useState({
         houseNumber: '',
         street: '',
         barangay: '' as 'RIZAL' | 'TALOLONG' | 'GOMEZ' | 'MAGSAYSAY' | ''
     });
+    
+    // Predefined document types for business requirements
+    const documentTypes = [
+        'Government ID',
+        'Business Permit',
+        'Barangay Clearance',
+        'Mayor\'s Permit',
+        'Tax Identification Number (TIN)',
+        'Business Registration',
+        'Other'
+    ];
 
     // Form state management with React useState
     const [formData, setFormData] = useState({
@@ -44,7 +57,9 @@ export default function SignUpScreen() {
         password: '',
         confirmPassword: '',
         gender: '' as 'male' | 'female' | '',
-        familyType: '' as 'individual' | 'family' | ''
+        familyType: '' as 'individual' | 'family' | '',
+        emergencyContactPerson: '',
+        emergencyContactNumber: ''
     });
     const [errors, setErrors] = useState({
         name: '',
@@ -61,19 +76,35 @@ export default function SignUpScreen() {
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const pickGovId = async () => {
+    const pickDocument = async (documentName: string) => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-            Alert.alert('Permission required', 'Please allow photo library access to upload your ID.');
+            Alert.alert('Permission required', 'Please allow photo library access to upload documents.');
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             quality: 0.8,
+            allowsMultipleSelection: false,
         });
         if (!result.canceled && result.assets?.length) {
-            setGovIdUri(result.assets[0].uri);
+            const newDocument: OwnerApplicationDocument = {
+                id: `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                name: documentName,
+                uri: result.assets[0].uri,
+                uploadedAt: new Date().toISOString(),
+            };
+            setOwnerDocuments(prev => [...prev, newDocument]);
+            setShowDocumentTypeModal(false);
         }
+    };
+
+    const removeDocument = (documentId: string) => {
+        setOwnerDocuments(prev => prev.filter(doc => doc.id !== documentId));
+    };
+
+    const openDocumentPicker = () => {
+        setShowDocumentTypeModal(true);
     };
 
 
@@ -181,21 +212,21 @@ export default function SignUpScreen() {
         setIsSubmitting(true);
 
         try {
-            // Owner flow: Make government ID optional; warn but do not block submission
+            // Owner flow: Save documents for verification
             if (selectedRole === 'owner') {
-                if (!govIdUri) {
-                    Alert.alert('Owner Verification', 'You can upload your government ID later to verify your account.');
+                if (ownerDocuments.length === 0) {
+                    Alert.alert('Owner Verification', 'You can upload business documents later to verify your account.');
                 }
 
-                // Persist owner extras for later flows (only if provided)
-                if (govIdUri) {
-                console.log('💾 Saving owner verification data:', govIdUri);
-                    const ownerVerification = { govIdUri };
+                // Persist owner documents for later flows
+                if (ownerDocuments.length > 0) {
+                    console.log('💾 Saving owner verification documents:', ownerDocuments);
+                    const ownerVerification = { documents: ownerDocuments };
                     await AsyncStorage.setItem('owner_verification', JSON.stringify(ownerVerification));
-                console.log('✅ Owner verification data saved');
-            } else {
-                console.log('ℹ️ No government ID provided, skipping verification storage');
-            }
+                    console.log('✅ Owner verification documents saved');
+                } else {
+                    console.log('ℹ️ No documents provided, skipping verification storage');
+                }
             }
 
             // Prepare data for submission - convert empty strings to undefined for optional fields
@@ -207,6 +238,9 @@ export default function SignUpScreen() {
                 familyType: formData.familyType === '' ? undefined : formData.familyType,
                 // Ensure address is handled properly
                 address: formData.address === '' ? undefined : formData.address,
+                // Handle emergency contact fields
+                emergencyContactPerson: formData.emergencyContactPerson === '' ? undefined : formData.emergencyContactPerson,
+                emergencyContactNumber: formData.emergencyContactNumber === '' ? undefined : formData.emergencyContactNumber,
                 // Add owner-specific fields
                 ...(selectedRole === 'owner' ? {
                     houseNumber: ownerAddress.houseNumber,
@@ -451,7 +485,7 @@ export default function SignUpScreen() {
                         {/* Address Field (for tenants only) */}
                         {selectedRole === 'tenant' && (
                             <View style={styles.inputContainer}>
-                                <Text style={styles.inputLabel}>Current Address (Optional)</Text>
+                                <Text style={styles.inputLabel}>Current Address</Text>
                                 <View style={[styles.inputWrapper, errors.address && styles.inputError]}>
                                     <Ionicons name="location" size={20} color="#10B981" style={styles.inputIcon} />
                                     <TextInput
@@ -564,6 +598,40 @@ export default function SignUpScreen() {
                             </View>
                         )}
 
+                        {/* Emergency Contact Fields (for tenants only) */}
+                        {selectedRole === 'tenant' && (
+                            <>
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Contact Person In case of Emergency (Optional)</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="person" size={20} color="#10B981" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.textInput}
+                                            placeholder="Enter contact person name"
+                                            placeholderTextColor="#9CA3AF"
+                                            value={formData.emergencyContactPerson}
+                                            onChangeText={(text) => setFormData(prev => ({ ...prev, emergencyContactPerson: text }))}
+                                        />
+                                    </View>
+                                </View>
+                                
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Contact Number In case of Emergency (Optional)</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="call" size={20} color="#10B981" style={styles.inputIcon} />
+                                        <TextInput
+                                            style={styles.textInput}
+                                            placeholder="Enter contact number"
+                                            placeholderTextColor="#9CA3AF"
+                                            value={formData.emergencyContactNumber}
+                                            onChangeText={(text) => setFormData(prev => ({ ...prev, emergencyContactNumber: text }))}
+                                            keyboardType="phone-pad"
+                                        />
+                                    </View>
+                                </View>
+                            </>
+                        )}
+
                         {/* Owner Address Section */}
                         {selectedRole === 'owner' && (
                             <View style={styles.inputContainer}>
@@ -609,9 +677,9 @@ export default function SignUpScreen() {
                                 </View>
 
                                 {/* Barangay Selection */}
-                                <View style={styles.inputContainer}>
+                                <View style={[styles.inputContainer, { marginBottom: showBarangayDropdown ? 200 : 20, zIndex: 10 }]}>
                                     <Text style={styles.inputLabel}>Barangay *</Text>
-                                    <View style={{ position: 'relative' }}>
+                                    <View style={styles.dropdownContainer}>
                                         <TouchableOpacity 
                                             style={[styles.inputWrapper, errors.barangay && styles.inputError]}
                                             onPress={() => setShowBarangayDropdown(!showBarangayDropdown)}
@@ -673,31 +741,58 @@ export default function SignUpScreen() {
                         {/* Owner Verification Section */}
                         {selectedRole === 'owner' && (
                             <View style={styles.verificationSection}>
-                                <Text style={styles.sectionTitle}>Owner Verification</Text>
+                                <Text style={styles.sectionTitle}>Business Documents & Requirements</Text>
                                 <Text style={styles.verificationSubtext}>
-                                    Government ID (Driver's License, Passport, National ID)
+                                    Upload documents required to run a business in your Barangay (e.g., Government ID, Business Permit, Barangay Clearance, etc.)
                                 </Text>
-                                {govIdUri ? (
-                                    <View style={styles.idPreviewContainer}>
-                                        <Image 
-                                            source={{ uri: govIdUri }} 
-                                            style={styles.idPreview} 
-                                        />
-                                        <TouchableOpacity 
-                                            style={styles.removeIdButton}
-                                            onPress={() => setGovIdUri(null)}
-                                        >
-                                            <Text style={styles.removeIdText}>Remove ID</Text>
-                                        </TouchableOpacity>
+                                
+                                {/* Uploaded Documents List */}
+                                {ownerDocuments.length > 0 && (
+                                    <View style={styles.documentsList}>
+                                        {ownerDocuments.map((doc) => (
+                                            <View key={doc.id} style={styles.documentItem}>
+                                                <View style={styles.documentPreview}>
+                                                    <Image 
+                                                        source={{ uri: doc.uri }} 
+                                                        style={styles.documentThumbnail} 
+                                                    />
+                                                    <View style={styles.documentInfo}>
+                                                        <Text style={styles.documentName} numberOfLines={1}>
+                                                            {doc.name}
+                                                        </Text>
+                                                        <Text style={styles.documentDate}>
+                                                            {new Date(doc.uploadedAt).toLocaleDateString()}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <TouchableOpacity 
+                                                    style={styles.removeDocumentButton}
+                                                    onPress={() => removeDocument(doc.id)}
+                                                >
+                                                    <Ionicons name="close-circle" size={24} color="#EF4444" />
+                                                </TouchableOpacity>
+                                            </View>
+                                        ))}
                                     </View>
-                                ) : (
-                                    <TouchableOpacity 
-                                        style={styles.uploadIdButton}
-                                        onPress={pickGovId}
-                                    >
-                                        <Ionicons name="cloud-upload" size={24} color="#10B981" />
-                                        <Text style={styles.uploadIdText}>Upload Government ID</Text>
-                                    </TouchableOpacity>
+                                )}
+                                
+                                {/* Upload Button */}
+                                <TouchableOpacity 
+                                    style={styles.uploadIdButton}
+                                    onPress={openDocumentPicker}
+                                >
+                                    <Ionicons name="add-circle" size={24} color="#10B981" />
+                                    <Text style={styles.uploadIdText}>
+                                        {ownerDocuments.length === 0 
+                                            ? 'Upload Business Documents' 
+                                            : 'Add Another Document'}
+                                    </Text>
+                                </TouchableOpacity>
+                                
+                                {ownerDocuments.length > 0 && (
+                                    <Text style={styles.documentsHint}>
+                                        {ownerDocuments.length} document{ownerDocuments.length !== 1 ? 's' : ''} uploaded. Barangay officials will review these documents.
+                                    </Text>
                                 )}
                             </View>
                         )}
@@ -1183,6 +1278,38 @@ export default function SignUpScreen() {
                     </View>
                 </View>
             </Modal>
+
+            {/* Document Type Selection Modal */}
+            <Modal
+                visible={showDocumentTypeModal}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={() => setShowDocumentTypeModal(false)}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Select Document Type</Text>
+                        <TouchableOpacity
+                            onPress={() => setShowDocumentTypeModal(false)}
+                            style={styles.modalCloseButton}
+                        >
+                            <Text style={styles.modalCloseText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.modalContent}>
+                        {documentTypes.map((docType) => (
+                            <TouchableOpacity
+                                key={docType}
+                                style={styles.documentTypeOption}
+                                onPress={() => pickDocument(docType)}
+                            >
+                                <Text style={styles.documentTypeText}>{docType}</Text>
+                                <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            </Modal>
             </SafeAreaView>
     );
 }
@@ -1252,6 +1379,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05,
         shadowRadius: 8,
         elevation: 2,
+        ...(Platform.OS === 'web' && { overflow: 'visible' }),
     },
     roleSection: {
         marginBottom: 24,
@@ -1301,6 +1429,7 @@ const styles = StyleSheet.create({
     },
     formSection: {
         marginBottom: 24,
+        ...(Platform.OS === 'web' && { overflow: 'visible' }),
     },
     inputContainer: {
         marginBottom: 20,
@@ -1651,6 +1780,7 @@ const styles = StyleSheet.create({
     },
     dropdownContainer: {
         position: 'relative',
+        zIndex: 10,
     },
     dropdownOptions: {
         position: 'absolute',
@@ -1668,6 +1798,7 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 4,
         zIndex: 1000,
+        maxHeight: 200,
     },
     dropdownOption: {
         paddingVertical: 12,
@@ -1678,5 +1809,71 @@ const styles = StyleSheet.create({
     dropdownOptionText: {
         fontSize: 16,
         color: '#1F2937',
+    },
+    documentsList: {
+        marginBottom: 16,
+        gap: 12,
+    },
+    documentItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    documentPreview: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        marginRight: 12,
+    },
+    documentThumbnail: {
+        width: 60,
+        height: 60,
+        borderRadius: 8,
+        marginRight: 12,
+        backgroundColor: '#F3F4F6',
+    },
+    documentInfo: {
+        flex: 1,
+    },
+    documentName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 4,
+    },
+    documentDate: {
+        fontSize: 12,
+        color: '#6B7280',
+    },
+    removeDocumentButton: {
+        padding: 4,
+    },
+    documentsHint: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 8,
+        textAlign: 'center',
+        fontStyle: 'italic',
+    },
+    documentTypeOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    documentTypeText: {
+        fontSize: 16,
+        color: '#1F2937',
+        fontWeight: '500',
     },
 });

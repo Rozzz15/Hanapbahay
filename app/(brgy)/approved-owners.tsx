@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Modal } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../utils/db';
@@ -13,7 +13,8 @@ import {
   MapPin, 
   Home,
   Users,
-  Building
+  Building,
+  X
 } from 'lucide-react-native';
 
 interface ApprovedOwner {
@@ -25,6 +26,9 @@ interface ApprovedOwner {
   createdAt: string;
   propertyCount: number;
   approvedDate: string;
+  applicationId?: string;
+  reviewedBy?: string;
+  address?: string;
 }
 
 export default function ApprovedOwners() {
@@ -37,6 +41,10 @@ export default function ApprovedOwners() {
     totalOwners: 0,
     totalProperties: 0,
   });
+  const [selectedOwner, setSelectedOwner] = useState<ApprovedOwner | null>(null);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
+  const [ownerListings, setOwnerListings] = useState<PublishedListingRecord[]>([]);
+  const [loadingListings, setLoadingListings] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user?.id) return;
@@ -88,6 +96,9 @@ export default function ApprovedOwners() {
           createdAt: owner.createdAt || application.createdAt || new Date().toISOString(),
           propertyCount: ownerProperties.length,
           approvedDate: approvalDate,
+          applicationId: application.id,
+          reviewedBy: application.reviewedBy,
+          address: `${application.houseNumber || ''} ${application.street || ''}`.trim() || owner.address || '',
         });
       }
 
@@ -120,10 +131,30 @@ export default function ApprovedOwners() {
     }, [loadData])
   );
 
+  const handleViewOwner = async (owner: ApprovedOwner) => {
+    setSelectedOwner(owner);
+    setShowOwnerModal(true);
+    setLoadingListings(true);
+    
+    try {
+      // Load owner's listings
+      const listings = await db.list<PublishedListingRecord>('published_listings');
+      const ownerListings = listings.filter(l => l.userId === owner.id);
+      setOwnerListings(ownerListings);
+    } catch (error) {
+      console.error('Error loading owner listings:', error);
+      Alert.alert('Error', 'Failed to load owner listings');
+    } finally {
+      setLoadingListings(false);
+    }
+  };
+
   const renderOwner = (owner: ApprovedOwner, index: number) => (
     <TouchableOpacity
       key={owner.id}
       style={[sharedStyles.listItem, { marginBottom: 16 }]}
+      onPress={() => handleViewOwner(owner)}
+      activeOpacity={0.7}
     >
       <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
         <CheckCircle size={20} color="#10B981" />
@@ -242,6 +273,184 @@ export default function ApprovedOwners() {
           )}
         </View>
       </ScrollView>
+
+      {/* Owner Details Modal */}
+      <Modal
+        visible={showOwnerModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowOwnerModal(false)}
+      >
+        {selectedOwner && (
+          <ScrollView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+            <View style={{ padding: 24 }}>
+              {/* Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: 24 
+              }}>
+                <Text style={sharedStyles.pageTitle}>Owner Details</Text>
+                <TouchableOpacity onPress={() => setShowOwnerModal(false)}>
+                  <X size={24} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Approval Status */}
+              <View style={[sharedStyles.card, { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <CheckCircle size={20} color="#10B981" />
+                  <Text style={[sharedStyles.statLabel, { color: '#10B981' }]}>
+                    Approved Owner Account
+                  </Text>
+                </View>
+                <Text style={[sharedStyles.statSubtitle, { marginTop: 8, fontSize: 12 }]}>
+                  Approved on {new Date(selectedOwner.approvedDate).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </Text>
+              </View>
+
+              {/* Personal Information */}
+              <View style={[sharedStyles.card, { marginTop: 16 }]}>
+                <Text style={sharedStyles.sectionTitle}>Personal Information</Text>
+                <View style={{ gap: 16, marginTop: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <User size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Name</Text>
+                      <Text style={sharedStyles.statLabel}>{selectedOwner.name}</Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Mail size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Email</Text>
+                      <Text style={sharedStyles.statLabel}>{selectedOwner.email}</Text>
+                    </View>
+                  </View>
+                  {selectedOwner.phone && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Phone size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Contact Number</Text>
+                        <Text style={sharedStyles.statLabel}>{selectedOwner.phone}</Text>
+                      </View>
+                    </View>
+                  )}
+                  {selectedOwner.address && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Home size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Address</Text>
+                        <Text style={sharedStyles.statLabel}>{selectedOwner.address}</Text>
+                      </View>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MapPin size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Barangay</Text>
+                      <Text style={sharedStyles.statLabel}>{selectedOwner.barangay}</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Properties List */}
+              <View style={[sharedStyles.card, { marginTop: 16 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={sharedStyles.sectionTitle}>Properties</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Building size={16} color="#10B981" />
+                    <Text style={[sharedStyles.statSubtitle, { color: '#10B981', fontWeight: '600' }]}>
+                      {selectedOwner.propertyCount}
+                    </Text>
+                  </View>
+                </View>
+                
+                {loadingListings ? (
+                  <Text style={sharedStyles.statSubtitle}>Loading properties...</Text>
+                ) : ownerListings.length === 0 ? (
+                  <View style={{ padding: 16, alignItems: 'center' }}>
+                    <Building size={32} color="#9CA3AF" />
+                    <Text style={[sharedStyles.statSubtitle, { marginTop: 8 }]}>
+                      No properties listed yet
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {ownerListings.map((listing) => (
+                      <View 
+                        key={listing.id} 
+                        style={{ 
+                          padding: 12, 
+                          backgroundColor: '#F9FAFB', 
+                          borderRadius: 8,
+                          borderLeftWidth: 3,
+                          borderLeftColor: '#10B981'
+                        }}
+                      >
+                        <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
+                          {listing.propertyType || 'Property'}
+                        </Text>
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 12, marginBottom: 4 }]}>
+                          {listing.address || 'No address'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+                          <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
+                            ₱{listing.monthlyRent?.toLocaleString() || '0'}/month
+                          </Text>
+                          {listing.bedrooms && (
+                            <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
+                              {listing.bedrooms} bed{listing.bedrooms > 1 ? 's' : ''}
+                            </Text>
+                          )}
+                          {listing.bathrooms && (
+                            <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
+                              {listing.bathrooms} bath{listing.bathrooms > 1 ? 's' : ''}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              {/* Account Information */}
+              <View style={[sharedStyles.card, { marginTop: 16 }]}>
+                <Text style={sharedStyles.sectionTitle}>Account Information</Text>
+                <View style={{ gap: 12, marginTop: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>Account Created</Text>
+                    <Text style={[sharedStyles.statLabel, { fontSize: 12 }]}>
+                      {new Date(selectedOwner.createdAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>Approved Date</Text>
+                    <Text style={[sharedStyles.statLabel, { fontSize: 12 }]}>
+                      {new Date(selectedOwner.approvedDate).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  {selectedOwner.reviewedBy && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>Reviewed By</Text>
+                      <Text style={[sharedStyles.statLabel, { fontSize: 12 }]}>
+                        Barangay Official
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        )}
+      </Modal>
     </View>
   );
 }
