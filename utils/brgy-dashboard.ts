@@ -1,11 +1,13 @@
 import { db } from './db';
-import { DbUserRecord, PublishedListingRecord, BookingRecord } from '../types';
+import { DbUserRecord, PublishedListingRecord, BookingRecord, OwnerApplicationRecord } from '../types';
+import { verifyApprovedOwnersDatabase, getApprovedOwnersForBarangay } from './database-verification';
 
 export interface BrgyDashboardStats {
   totalResidents: number;
   totalProperties: number;
   totalListings: number;
   activeBookings: number;
+  totalApprovedOwners: number;
 }
 
 export async function getBrgyDashboardStats(
@@ -63,11 +65,31 @@ export async function getBrgyDashboardStats(
     const uniqueTenantIds = new Set(approvedBookingsInBarangay.map(booking => booking.tenantId));
     const totalResidents = uniqueTenantIds.size;
     
+    // Count approved owners in this barangay by checking owner_applications table
+    // This ensures accuracy by only counting owners who have been officially approved
+    const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+    const approvedApplicationsInBarangay = allApplications.filter(
+      app => app.status === 'approved' && app.barangay?.toUpperCase() === barangayName.toUpperCase()
+    );
+    const totalApprovedOwners = approvedApplicationsInBarangay.length;
+    
+    console.log('📊 Approved owners count (utility):', {
+      barangay: barangayName,
+      totalApprovedOwners,
+      approvedApplications: approvedApplicationsInBarangay.map(app => ({
+        userId: app.userId,
+        name: app.name,
+        status: app.status,
+        reviewedAt: app.reviewedAt
+      }))
+    });
+    
     return {
       totalResidents,
       totalProperties: listingsInBarangay.length,
       totalListings: listingsInBarangay.length,
-      activeBookings: approvedBookingsInBarangay.length
+      activeBookings: approvedBookingsInBarangay.length,
+      totalApprovedOwners
     };
   } catch (error) {
     console.error('Error getting barangay stats:', error);
@@ -75,7 +97,8 @@ export async function getBrgyDashboardStats(
       totalResidents: 0,
       totalProperties: 0,
       totalListings: 0,
-      activeBookings: 0
+      activeBookings: 0,
+      totalApprovedOwners: 0
     };
   }
 }
@@ -123,6 +146,82 @@ export async function getBrgyListings(barangayName: string): Promise<PublishedLi
   } catch (error) {
     console.error('Error getting barangay listings:', error);
     return [];
+  }
+}
+
+/**
+ * Comprehensive database verification for approved owners
+ * This function ensures all approved owners are properly stored and accessible
+ */
+export async function verifyApprovedOwnersDatabaseIntegrity(): Promise<{
+  success: boolean;
+  verification: any;
+  message: string;
+}> {
+  try {
+    console.log('🔍 Verifying approved owners database integrity...');
+    
+    const verification = await verifyApprovedOwnersDatabase();
+    
+    if (verification.success) {
+      console.log('✅ Database verification successful:', {
+        totalUsers: verification.totalUsers,
+        approvedOwners: verification.approvedOwners,
+        approvedApplications: verification.approvedApplications,
+        barangayBreakdown: Object.keys(verification.barangayBreakdown).length
+      });
+    } else {
+      console.warn('⚠️ Database verification found issues:', verification.message);
+    }
+    
+    return {
+      success: verification.success,
+      verification,
+      message: verification.message
+    };
+    
+  } catch (error) {
+    console.error('❌ Database verification failed:', error);
+    return {
+      success: false,
+      verification: null,
+      message: `Database verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
+/**
+ * Get detailed approved owners data for a specific barangay
+ */
+export async function getDetailedApprovedOwnersData(barangay: string): Promise<{
+  success: boolean;
+  data: any;
+  message: string;
+}> {
+  try {
+    console.log(`🔍 Getting detailed approved owners data for ${barangay}...`);
+    
+    const result = await getApprovedOwnersForBarangay(barangay);
+    
+    if (result.success) {
+      console.log(`✅ Retrieved ${result.count} approved owners for ${barangay}`);
+    } else {
+      console.warn(`⚠️ Failed to get approved owners for ${barangay}:`, result.message);
+    }
+    
+    return {
+      success: result.success,
+      data: result,
+      message: result.message
+    };
+    
+  } catch (error) {
+    console.error(`❌ Failed to get detailed approved owners data for ${barangay}:`, error);
+    return {
+      success: false,
+      data: null,
+      message: `Failed to get detailed data: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
   }
 }
 

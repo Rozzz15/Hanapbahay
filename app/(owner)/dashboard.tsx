@@ -28,6 +28,7 @@ import { showAlert } from '../../utils/alert';
 import { Image } from '../../components/ui/image';
 import TenantInfoModal from '../../components/TenantInfoModal';
 import ApprovedBookingsPayment from '../../components/ApprovedBookingsPayment';
+import { isOwnerApproved, hasPendingOwnerApplication } from '../../utils/owner-approval';
 
 // Types are now imported from owner-dashboard.ts
 
@@ -55,20 +56,76 @@ export default function OwnerDashboard() {
     phone?: string;
   } | null>(null);
 
-  // Check authentication
+  // Check authentication and approval status
   useEffect(() => {
-    if (!user) {
-      router.replace('/login');
-      return;
-    }
+    const checkAccess = async () => {
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
 
-    if (!user.roles?.includes('owner')) {
-      showAlert('Access Denied', 'This dashboard is for property owners only.');
-      router.replace('/(tabs)');
-      return;
-    }
+      if (!user.roles?.includes('owner')) {
+        showAlert('Access Denied', 'This dashboard is for property owners only.');
+        router.replace('/(tabs)');
+        return;
+      }
 
-    loadDashboardData();
+      // Check if owner application is approved
+      try {
+        const isApproved = await isOwnerApproved(user.id);
+        const hasPending = await hasPendingOwnerApplication(user.id);
+        
+        if (!isApproved) {
+          if (hasPending) {
+            showAlert(
+              'Application Pending',
+              'Your owner application is still under review by your Barangay official. You will be notified once it is approved.',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    router.replace('/login');
+                  }
+                }
+              ]
+            );
+          } else {
+            showAlert(
+              'Access Denied',
+              'Your owner application has not been approved yet. Please contact your Barangay official for assistance.',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    router.replace('/login');
+                  }
+                }
+              ]
+            );
+          }
+          return;
+        }
+        
+        // If approved, load dashboard data
+        loadDashboardData();
+      } catch (error) {
+        console.error('❌ Error checking owner approval:', error);
+        showAlert(
+          'Error',
+          'Unable to verify your owner status. Please try again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                router.replace('/login');
+              }
+            }
+          ]
+        );
+      }
+    };
+
+    checkAccess();
   }, [user]);
 
   // Listen for listing changes to auto-refresh dashboard

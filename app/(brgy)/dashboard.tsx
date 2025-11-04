@@ -29,7 +29,8 @@ export default function BrgyDashboard() {
     totalResidents: 0,
     totalProperties: 0,
     totalListings: 0,
-    activeBookings: 0
+    activeBookings: 0,
+    totalApprovedOwners: 0
   });
   const [loading, setLoading] = useState(true);
   const [barangayName, setBarangayName] = useState<string>('');
@@ -102,15 +103,34 @@ export default function BrgyDashboard() {
       const uniqueTenantIds = new Set(approvedBookingsInBarangay.map(booking => booking.tenantId));
       const totalResidents = uniqueTenantIds.size;
       
+      // Count approved owners in this barangay by checking owner_applications table
+      // This ensures accuracy by only counting owners who have been officially approved
+      const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+      const approvedApplicationsInBarangay = allApplications.filter(
+        app => app.status === 'approved' && app.barangay?.toUpperCase() === barangay.toUpperCase()
+      );
+      const totalApprovedOwners = approvedApplicationsInBarangay.length;
+      
+      console.log('📊 Approved owners count:', {
+        barangay,
+        totalApprovedOwners,
+        approvedApplications: approvedApplicationsInBarangay.map(app => ({
+          userId: app.userId,
+          name: app.name,
+          status: app.status,
+          reviewedAt: app.reviewedAt
+        }))
+      });
+      
       setStats({
         totalResidents,
         totalProperties: listingsInBarangay.length,
         totalListings: listingsInBarangay.length,
-        activeBookings: approvedBookingsInBarangay.length
+        activeBookings: approvedBookingsInBarangay.length,
+        totalApprovedOwners
       });
 
-      // Get pending owner applications count
-      const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+      // Get pending owner applications count (reusing allApplications)
       const pendingApps = allApplications.filter(
         app => app.status === 'pending' && app.barangay.toUpperCase() === barangay.toUpperCase()
       );
@@ -308,6 +328,19 @@ export default function BrgyDashboard() {
                 <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Active Bookings</Text>
                 <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.activeBookings}</Text>
                 <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>On-going rentals</Text>
+              </View>
+            </View>
+
+            <View style={sharedStyles.gridItem}>
+              <View style={[sharedStyles.statCard, { minHeight: 90 }]}>
+                <View style={sharedStyles.statIconContainer}>
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.teal, { width: 32, height: 32, borderRadius: 16 }]}>
+                    <CheckSquare size={18} color="#14B8A6" />
+                  </View>
+                </View>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Approved Owners</Text>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl }]}>{stats.totalApprovedOwners}</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Registered property owners</Text>
               </View>
             </View>
           </View>

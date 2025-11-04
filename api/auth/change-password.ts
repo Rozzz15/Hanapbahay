@@ -3,6 +3,21 @@ import { z } from 'zod';
 
 const MOCK_USERS_KEY = 'mock_users_database';
 
+// Define the user type structure to match mock-auth.ts
+interface MockUser {
+    email: string;
+    password: string;
+    id: string;
+    roles: string[];
+    role?: string;
+    barangay?: string;
+    createdAt: string;
+    updatedAt?: string;
+    name?: string;
+    phone?: string;
+    address?: string;
+}
+
 // Schema for password change
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -37,10 +52,10 @@ export async function changePassword(
     }
     
     const usersData = JSON.parse(storedUsers);
-    const mockUsers = new Map(Object.entries(usersData));
+    const mockUsers = new Map<string, MockUser>(Object.entries(usersData));
     
     // Find the user by ID
-    let foundUser = null;
+    let foundUser: MockUser | null = null;
     let userEmail = '';
     
     for (const [email, userData] of mockUsers.entries()) {

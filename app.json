@@ -60,9 +60,6 @@
     "extra": {
       "router": {
         "origin": false
-      },
-      "eas": {
-        "projectId": "hanapbahay-project"
       }
     }
   }

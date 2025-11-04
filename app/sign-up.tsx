@@ -640,7 +640,7 @@ export default function SignUpScreen() {
                                                         setShowBarangayDropdown(false);
                                                     }}
                                                 >
-                                                    <Text style={styles.dropdownOptionText}>Talongon</Text>
+                                                    <Text style={styles.dropdownOptionText}>Talolong</Text>
                                                 </TouchableOpacity>
                                                 <TouchableOpacity 
                                                     style={styles.dropdownOption}

@@ -2,6 +2,21 @@ import { z } from "zod";
 import { mockSignIn } from '../../utils/mock-auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Define the user type structure to match mock-auth.ts
+interface MockUser {
+    email: string;
+    password: string;
+    id: string;
+    roles: string[];
+    role?: string;
+    barangay?: string;
+    createdAt: string;
+    updatedAt?: string;
+    name?: string;
+    phone?: string;
+    address?: string;
+}
+
 // Schema for forgot password request
 export const forgotPasswordSchema = z.object({
     email: z.string().email("Invalid email address"),
@@ -23,7 +38,7 @@ const checkEmailExists = async (email: string): Promise<boolean> => {
         }
         
         const usersData = JSON.parse(storedUsers);
-        const mockUsers = new Map(Object.entries(usersData));
+        const mockUsers = new Map<string, MockUser>(Object.entries(usersData));
         
         return mockUsers.has(normalizedEmail);
     } catch (error) {
@@ -192,7 +207,7 @@ export async function resetPasswordWithToken(email: string, token: string, newPa
         }
         
         const usersData = JSON.parse(storedUsers);
-        const mockUsers = new Map(Object.entries(usersData));
+        const mockUsers = new Map<string, MockUser>(Object.entries(usersData));
         const normalizedEmail = email.trim().toLowerCase();
         
         const user = mockUsers.get(normalizedEmail);

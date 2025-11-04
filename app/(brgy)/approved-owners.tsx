@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../utils/db';
-import { DbUserRecord, PublishedListingRecord } from '../../types';
+import { DbUserRecord, PublishedListingRecord, OwnerApplicationRecord } from '../../types';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { 
   CheckCircle, 
@@ -49,44 +49,43 @@ export default function ApprovedOwners() {
       const userBarangay = userRecord?.barangay || '';
       setBarangay(userBarangay);
 
-      // Get all users
+      // Get all users and applications
       const allUsers = await db.list<DbUserRecord>('users');
-      
-      // Filter users with owner role in this barangay
-      const ownersInBarangay = allUsers.filter(
-        u => u.role === 'owner' && u.barangay?.toUpperCase() === userBarangay.toUpperCase()
-      );
-
-      // Get all listings to count properties
       const allListings = await db.list<PublishedListingRecord>('published_listings');
       
-      // Build approved owners list with property counts
+      // Get approved applications in this barangay - this is the source of truth
+      const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+      const approvedApplicationsInBarangay = allApplications.filter(
+        app => app.status === 'approved' && app.barangay?.toUpperCase() === userBarangay.toUpperCase()
+      );
+      
+      // Build approved owners list from approved applications
       const approvedOwners: ApprovedOwner[] = [];
       
-      // Get all owner applications to find approval details
-      const applications = await db.list<any>('owner_applications');
-      
-      for (const owner of ownersInBarangay) {
+      for (const application of approvedApplicationsInBarangay) {
+        // Find the user record for this application
+        const owner = allUsers.find(u => u.id === application.userId);
+        
+        if (!owner) {
+          console.warn(`⚠️ Owner user not found for application ${application.id}, userId: ${application.userId}`);
+          continue;
+        }
+        
         // Count properties for this owner
         const ownerProperties = allListings.filter(
           l => l.userId === owner.id
         );
         
-        // Get approval date from owner_applications if available
-        const ownerApp = applications.find(
-          app => app.userId === owner.id && app.status === 'approved'
-        );
-        
         // Use reviewedAt as the official approval date (when barangay reviewed it)
-        const approvalDate = ownerApp?.reviewedAt || ownerApp?.updatedAt || owner.createdAt || new Date().toISOString();
+        const approvalDate = application.reviewedAt || application.createdAt || new Date().toISOString();
         
         approvedOwners.push({
           id: owner.id,
-          name: owner.name || 'Unknown',
-          email: owner.email || '',
-          phone: owner.phone || '',
-          barangay: owner.barangay || '',
-          createdAt: owner.createdAt || new Date().toISOString(),
+          name: application.name || owner.name || 'Unknown',
+          email: application.email || owner.email || '',
+          phone: application.contactNumber || owner.phone || '',
+          barangay: application.barangay || owner.barangay || '',
+          createdAt: owner.createdAt || application.createdAt || new Date().toISOString(),
           propertyCount: ownerProperties.length,
           approvedDate: approvalDate,
         });

@@ -12,6 +12,7 @@ import { notifications } from "@/utils";
 import { showSimpleAlert } from "@/utils/alert";
 import { Ionicons } from '@expo/vector-icons';
 import { TextInput } from 'react-native';
+import { isOwnerApproved, hasPendingOwnerApplication } from '@/utils/owner-approval';
 
 const { width, height } = Dimensions.get('window');
 
@@ -118,11 +119,64 @@ export default function LoginScreen() {
                 const roles = (result as any).roles || (result as any).user?.roles || [];
                 
                 // Small delay before redirect to ensure state is settled
-                setTimeout(() => {
+                setTimeout(async () => {
                     if (Array.isArray(roles) && roles.includes('owner')) {
-                        // Use the AuthContext function to handle owner redirect
-                        const ownerId = (result as any).user?.id || (result as any).id;
-                        redirectOwnerBasedOnListings(ownerId);
+                        // Get userId from multiple sources to be safe
+                        // First try from auth context (most reliable)
+                        let ownerId = (result as any).user?.id || (result as any).id;
+                        
+                        // Also try to get it from the auth context after refresh
+                        try {
+                            const { getAuthUser } = await import('@/utils/auth-user');
+                            const authUser = await getAuthUser();
+                            if (authUser?.id) {
+                                ownerId = authUser.id;
+                                console.log('✅ Got userId from auth context:', ownerId);
+                            }
+                        } catch (authError) {
+                            console.warn('⚠️ Could not get userId from auth context:', authError);
+                        }
+                        
+                        if (!ownerId) {
+                            console.error('❌ No userId found for owner login check');
+                            showSimpleAlert(
+                                'Error',
+                                'Unable to verify your owner status. Please try again.'
+                            );
+                            return;
+                        }
+                        
+                        console.log('🔍 Checking owner approval for userId:', ownerId);
+                        console.log('📝 UserId type:', typeof ownerId, 'Value:', JSON.stringify(ownerId));
+                        
+                        try {
+                            const isApproved = await isOwnerApproved(ownerId);
+                            const hasPending = await hasPendingOwnerApplication(ownerId);
+                            
+                            if (!isApproved) {
+                                if (hasPending) {
+                                    showSimpleAlert(
+                                        'Application Pending',
+                                        'Your owner application is still under review by your Barangay official. You will be notified once it is approved.'
+                                    );
+                                } else {
+                                    showSimpleAlert(
+                                        'Access Denied',
+                                        'Your owner application has not been approved yet. Please contact your Barangay official for assistance.'
+                                    );
+                                }
+                                return;
+                            }
+                            
+                            // If approved, redirect to owner dashboard
+                            redirectOwnerBasedOnListings(ownerId);
+                        } catch (error) {
+                            console.error('❌ Error checking owner approval during login:', error);
+                            showSimpleAlert(
+                                'Error',
+                                'Unable to verify your owner status. Please try again.'
+                            );
+                        }
                     } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
                         // Redirect barangay official to barangay dashboard
                         redirectBrgyOfficial();

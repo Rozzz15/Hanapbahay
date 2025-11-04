@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dispatchCustomEvent } from '../utils/custom-events';
 import { db } from '../utils/db';
+import { isOwnerApproved } from '../utils/owner-approval';
 
 interface AuthUser {
   id: string;
@@ -12,6 +13,7 @@ interface AuthUser {
   permissions: string[];
   name?: string;
   email?: string;
+  isOwnerApproved?: boolean;
 }
 
 interface AuthContextType {
@@ -45,7 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           roles: authUser.roles || ['tenant'],
           permissions: authUser.permissions || [],
           name: authUser.name,
-          email: authUser.email
+          email: authUser.email,
+          isOwnerApproved: authUser.isOwnerApproved
         };
         
         console.log('🔍 Auth user ID debug:', {
