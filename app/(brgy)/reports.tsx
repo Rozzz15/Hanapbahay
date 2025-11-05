@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Pressable, Platform, Alert, Share } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import { sharedStyles, designTokens } from '../../styles/owner-dashboard-styles';
 import { getComprehensiveAnalytics, ComprehensiveAnalytics, exportBarangayAnalytics } from '../../utils/brgy-analytics';
 import PieChart from '../../components/ui/PieChart';
+import * as FileSystem from 'expo-file-system';
+import type { BookingRecord, PublishedListingRecord, OwnerApplicationRecord, DbUserRecord } from '../../types';
 import { 
   Users, 
   TrendingUp, 
   Home, 
-  DollarSign, 
   Eye, 
   MessageSquare,
   BarChart3,
@@ -27,7 +28,9 @@ import {
   Percent,
   ArrowUp,
   ArrowDown,
-  Minus
+  Minus,
+  Printer,
+  FileDown
 } from 'lucide-react-native';
 
 // Helper component for progress bars
@@ -104,6 +107,8 @@ export default function ReportsPage() {
   const [analytics, setAnalytics] = useState<ComprehensiveAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [userBarangay, setUserBarangay] = useState<string | null>(null);
   const [dayByDayData, setDayByDayData] = useState<Array<{
     date: string;
     dayName: string;
@@ -141,8 +146,8 @@ export default function ReportsPage() {
       const loadUserBarangay = async () => {
         try {
           const { db } = await import('../../utils/db');
-          const userRecord = await db.get('users', user.id);
-          const actualBarangay = userRecord?.barangay || user?.barangay;
+          const userRecord = await db.get<DbUserRecord>('users', user.id);
+          const actualBarangay = (userRecord as DbUserRecord)?.barangay;
           if (actualBarangay) {
             await calculateActivityForPeriod(actualBarangay, timePeriod);
             await calculateDayByDayHistory(actualBarangay);
@@ -185,13 +190,12 @@ export default function ReportsPage() {
   const calculateActivityForPeriod = async (barangay: string, period: 'daily' | 'weekly' | 'monthly' | 'yearly') => {
     try {
       const { db } = await import('../../utils/db');
-      const { BookingRecord, PublishedListingRecord, OwnerApplicationRecord } = await import('../../types');
       
       const { startDate, endDate } = getDateRange(period);
       const allBookings = await db.list<BookingRecord>('bookings');
       const allListings = await db.list<PublishedListingRecord>('published_listings');
       const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
-      const allUsers = await db.list('users');
+      const allUsers = await db.list<DbUserRecord>('users');
       const allInquiries = await db.list('listing_inquiries');
       
       // Filter by barangay
@@ -214,7 +218,7 @@ export default function ReportsPage() {
         app.barangay?.toUpperCase() === barangay.toUpperCase()
       );
       
-      const barangayInquiries = allInquiries.filter(inquiry => 
+      const barangayInquiries = allInquiries.filter((inquiry: any) => 
         inquiry?.listingId && barangayPropertyIds.includes(inquiry.listingId)
       );
       
@@ -225,7 +229,7 @@ export default function ReportsPage() {
       }).length;
       
       const newProperties = barangayListings.filter(l => {
-        const propertyDate = new Date(l.publishedAt || l.createdAt);
+        const propertyDate = new Date(l.publishedAt);
         return propertyDate >= startDate && propertyDate <= endDate;
       }).length;
       
@@ -239,7 +243,7 @@ export default function ReportsPage() {
         return bookingDate >= startDate && bookingDate <= endDate;
       }).length;
       
-      const newInquiries = barangayInquiries.filter(inquiry => {
+      const newInquiries = barangayInquiries.filter((inquiry: any) => {
         const inquiryDateStr = inquiry?.createdAt || inquiry?.timestamp;
         if (!inquiryDateStr) return false;
         try {
@@ -273,13 +277,12 @@ export default function ReportsPage() {
   const calculateDayByDayHistory = async (barangay: string) => {
     try {
       const { db } = await import('../../utils/db');
-      const { BookingRecord, PublishedListingRecord, OwnerApplicationRecord } = await import('../../types');
       
       const now = new Date();
       const allBookings = await db.list<BookingRecord>('bookings');
       const allListings = await db.list<PublishedListingRecord>('published_listings');
       const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
-      const allUsers = await db.list('users');
+      const allUsers = await db.list<DbUserRecord>('users');
       const allInquiries = await db.list('listing_inquiries');
       
       // Filter by barangay
@@ -302,7 +305,7 @@ export default function ReportsPage() {
         app.barangay?.toUpperCase() === barangay.toUpperCase()
       );
       
-      const barangayInquiries = allInquiries.filter(inquiry => 
+      const barangayInquiries = allInquiries.filter((inquiry: any) => 
         inquiry?.listingId && barangayPropertyIds.includes(inquiry.listingId)
       );
       
@@ -323,7 +326,7 @@ export default function ReportsPage() {
         }).length;
         
         const dayProperties = barangayListings.filter(l => {
-          const propertyDate = new Date(l.publishedAt || l.createdAt);
+          const propertyDate = new Date(l.publishedAt);
           return propertyDate >= dayStart && propertyDate <= dayEnd;
         }).length;
         
@@ -337,7 +340,7 @@ export default function ReportsPage() {
           return bookingDate >= dayStart && bookingDate <= dayEnd;
         }).length;
         
-        const dayInquiries = barangayInquiries.filter(inquiry => {
+        const dayInquiries = barangayInquiries.filter((inquiry: any) => {
           const inquiryDateStr = inquiry?.createdAt || inquiry?.timestamp;
           if (!inquiryDateStr) return false;
           try {
@@ -373,7 +376,7 @@ export default function ReportsPage() {
           }).length;
           
           const dayProperties = barangayListings.filter(l => {
-            const propertyDate = new Date(l.publishedAt || l.createdAt);
+            const propertyDate = new Date(l.publishedAt);
             return propertyDate >= dayStart && propertyDate <= dayEnd;
           }).length;
           
@@ -387,7 +390,7 @@ export default function ReportsPage() {
             return bookingDate >= dayStart && bookingDate <= dayEnd;
           }).length;
           
-          const dayInquiries = barangayInquiries.filter(inquiry => {
+          const dayInquiries = barangayInquiries.filter((inquiry: any) => {
             const inquiryDateStr = inquiry?.createdAt || inquiry?.timestamp;
             if (!inquiryDateStr) return false;
             try {
@@ -438,7 +441,7 @@ export default function ReportsPage() {
           }).length;
           
           weeks[weekKey].properties += barangayListings.filter(l => {
-            const propertyDate = new Date(l.publishedAt || l.createdAt);
+            const propertyDate = new Date(l.publishedAt);
             return propertyDate >= dayStart && propertyDate <= dayEnd;
           }).length;
           
@@ -452,7 +455,7 @@ export default function ReportsPage() {
             return bookingDate >= dayStart && bookingDate <= dayEnd;
           }).length;
           
-          weeks[weekKey].inquiries += barangayInquiries.filter(inquiry => {
+          weeks[weekKey].inquiries += barangayInquiries.filter((inquiry: any) => {
             const inquiryDateStr = inquiry?.createdAt || inquiry?.timestamp;
             if (!inquiryDateStr) return false;
             try {
@@ -493,7 +496,7 @@ export default function ReportsPage() {
           }).length;
           
           const monthProperties = barangayListings.filter(l => {
-            const propertyDate = new Date(l.publishedAt || l.createdAt);
+            const propertyDate = new Date(l.publishedAt);
             return propertyDate >= monthStart && propertyDate <= monthEnd;
           }).length;
           
@@ -507,7 +510,7 @@ export default function ReportsPage() {
             return bookingDate >= monthStart && bookingDate <= monthEnd;
           }).length;
           
-          const monthInquiries = barangayInquiries.filter(inquiry => {
+          const monthInquiries = barangayInquiries.filter((inquiry: any) => {
             const inquiryDateStr = inquiry?.createdAt || inquiry?.timestamp;
             if (!inquiryDateStr) return false;
             try {
@@ -559,14 +562,17 @@ export default function ReportsPage() {
         return;
       }
       
-      const actualBarangay = userRecord?.barangay || user?.barangay;
+      const actualBarangay = (userRecord as DbUserRecord)?.barangay;
       
       if (!actualBarangay) {
-        console.error('❌ No barangay found in user record or user object');
+        console.error('❌ No barangay found in user record');
         setAnalytics(null);
         setLoading(false);
         return;
       }
+      
+      // Store barangay in state for use in other functions
+      setUserBarangay(actualBarangay);
       
       console.log('📊 Loading analytics for barangay:', actualBarangay);
       console.log('📊 Using barangay name:', actualBarangay);
@@ -613,8 +619,13 @@ export default function ReportsPage() {
       
       // Even on error, try to get empty analytics data (function always returns data)
       try {
-        const fallbackBarangay = user?.barangay || '';
+        const { db } = await import('../../utils/db');
+        const fallbackUserRecord = await db.get<DbUserRecord>('users', user?.id || '');
+        const fallbackBarangay = (fallbackUserRecord as DbUserRecord)?.barangay || '';
         console.log('🔄 Attempting fallback with barangay:', fallbackBarangay);
+        if (fallbackBarangay) {
+          setUserBarangay(fallbackBarangay);
+        }
         const emptyData = await getComprehensiveAnalytics(fallbackBarangay);
         if (emptyData) {
           console.log('✅ Fallback analytics loaded');
@@ -633,51 +644,561 @@ export default function ReportsPage() {
     }
   };
 
-  const handleExport = async () => {
-    if (!user?.barangay) return;
+  const handlePrint = async () => {
+    if (!userBarangay || !analytics) return;
+
+    try {
+      const exportData = await exportBarangayAnalytics(userBarangay);
+
+      // Web platform: Use browser print
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        // Create a print-friendly HTML page
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+          Alert.alert('Print Error', 'Please allow popups to print the report.');
+          return;
+        }
+
+        const printContent = generatePrintHTML(exportData, userBarangay, analytics);
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+        
+        // Wait for content to load, then print
+        printWindow.onload = () => {
+          setTimeout(() => {
+            printWindow.print();
+          }, 250);
+        };
+        return;
+      }
+
+      // Mobile platform: Share the report as text
+      const printText = `BARANGAY ANALYTICS REPORT\n${'='.repeat(50)}\nBarangay: ${userBarangay}\nGenerated: ${new Date().toLocaleString()}\n\n${exportData.summary}`;
+      
+      try {
+        await Share.share({
+          message: printText,
+          title: `Analytics Report - ${userBarangay}`,
+        });
+      } catch (shareError) {
+        console.error('Share error:', shareError);
+        // Fallback: Try to save as file and share
+        await handleMobileShare(exportData.summary, `${userBarangay}_analytics_report.txt`, 'text/plain');
+      }
+      
+    } catch (error) {
+      console.error('Error printing analytics:', error);
+      Alert.alert('Print Error', 'Failed to print analytics. Please try again.');
+    }
+  };
+
+  const generatePrintHTML = (exportData: any, barangay: string, analytics: ComprehensiveAnalytics) => {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Barangay Analytics Report - ${barangay}</title>
+  <style>
+    @media print {
+      @page {
+        margin: 1cm;
+        size: A4;
+      }
+      body { margin: 0; }
+      .no-print { display: none; }
+    }
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #1F2937;
+      border-bottom: 3px solid #3B82F6;
+      padding-bottom: 10px;
+      margin-bottom: 30px;
+    }
+    h2 {
+      color: #3B82F6;
+      margin-top: 30px;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #E5E7EB;
+      padding-bottom: 5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    th, td {
+      border: 1px solid #E5E7EB;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background-color: #F3F4F6;
+      font-weight: bold;
+      color: #1F2937;
+    }
+    tr:nth-child(even) {
+      background-color: #F9FAFB;
+    }
+    .stat-box {
+      display: inline-block;
+      margin: 10px 15px 10px 0;
+      padding: 15px;
+      background-color: #F3F4F6;
+      border-left: 4px solid #3B82F6;
+      min-width: 200px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #6B7280;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #1F2937;
+    }
+    .footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 2px solid #E5E7EB;
+      text-align: center;
+      color: #6B7280;
+      font-size: 12px;
+    }
+    .button-container {
+      margin: 20px 0;
+      text-align: center;
+    }
+    button {
+      background-color: #3B82F6;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 0 10px;
+    }
+    button:hover {
+      background-color: #2563EB;
+    }
+  </style>
+</head>
+<body>
+  <div class="button-container no-print">
+    <button onclick="window.print()">🖨️ Print Report</button>
+    <button onclick="window.close()">Close</button>
+  </div>
+  
+  <h1>📊 Barangay Analytics Report</h1>
+  <p><strong>Barangay:</strong> ${barangay}</p>
+  <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+
+  <h2>Overview</h2>
+  <div class="stat-box">
+    <div class="stat-label">Total Properties</div>
+    <div class="stat-value">${analytics.totalProperties}</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Total Bookings</div>
+    <div class="stat-value">${analytics.totalBookings}</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Total Views</div>
+    <div class="stat-value">${analytics.totalViews}</div>
+  </div>
+
+  <h2>Owner Demographics</h2>
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>Value</th>
+      <th>Percentage</th>
+    </tr>
+    <tr>
+      <td>Total Owners</td>
+      <td>${analytics.ownerAnalytics.totalOwners}</td>
+      <td>100%</td>
+    </tr>
+    <tr>
+      <td>Male Owners</td>
+      <td>${analytics.ownerAnalytics.maleOwners}</td>
+      <td>${analytics.ownerAnalytics.maleOwnerPercentage}%</td>
+    </tr>
+    <tr>
+      <td>Female Owners</td>
+      <td>${analytics.ownerAnalytics.femaleOwners}</td>
+      <td>${analytics.ownerAnalytics.femaleOwnerPercentage}%</td>
+    </tr>
+    <tr>
+      <td>Average Properties per Owner</td>
+      <td colspan="2">${analytics.ownerAnalytics.averagePropertiesPerOwner}</td>
+    </tr>
+  </table>
+
+  <h2>Tenant Demographics</h2>
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>Value</th>
+      <th>Percentage</th>
+    </tr>
+    <tr>
+      <td>Total Tenants</td>
+      <td>${analytics.genderAnalytics.total}</td>
+      <td>100%</td>
+    </tr>
+    <tr>
+      <td>Male Tenants</td>
+      <td>${analytics.genderAnalytics.male}</td>
+      <td>${analytics.genderAnalytics.malePercentage}%</td>
+    </tr>
+    <tr>
+      <td>Female Tenants</td>
+      <td>${analytics.genderAnalytics.female}</td>
+      <td>${analytics.genderAnalytics.femalePercentage}%</td>
+    </tr>
+  </table>
+
+  <h2>Property Status</h2>
+  <table>
+    <tr>
+      <th>Status</th>
+      <th>Count</th>
+      <th>Percentage</th>
+    </tr>
+    <tr>
+      <td>Available</td>
+      <td>${analytics.availableProperties}</td>
+      <td>${analytics.totalProperties > 0 ? Math.round((analytics.availableProperties / analytics.totalProperties) * 100) : 0}%</td>
+    </tr>
+    <tr>
+      <td>Occupied</td>
+      <td>${analytics.occupiedProperties}</td>
+      <td>${analytics.totalProperties > 0 ? Math.round((analytics.occupiedProperties / analytics.totalProperties) * 100) : 0}%</td>
+    </tr>
+    <tr>
+      <td>Reserved</td>
+      <td>${analytics.reservedProperties}</td>
+      <td>${analytics.totalProperties > 0 ? Math.round((analytics.reservedProperties / analytics.totalProperties) * 100) : 0}%</td>
+    </tr>
+  </table>
+
+  <h2>Booking Status</h2>
+  <table>
+    <tr>
+      <th>Status</th>
+      <th>Count</th>
+      <th>Percentage</th>
+    </tr>
+    <tr>
+      <td>Approved</td>
+      <td>${analytics.approvedBookings}</td>
+      <td>${analytics.totalBookings > 0 ? Math.round((analytics.approvedBookings / analytics.totalBookings) * 100) : 0}%</td>
+    </tr>
+    <tr>
+      <td>Pending</td>
+      <td>${analytics.pendingBookings}</td>
+      <td>${analytics.totalBookings > 0 ? Math.round((analytics.pendingBookings / analytics.totalBookings) * 100) : 0}%</td>
+    </tr>
+    <tr>
+      <td>Rejected</td>
+      <td>${analytics.rejectedBookings}</td>
+      <td>${analytics.totalBookings > 0 ? Math.round((analytics.rejectedBookings / analytics.totalBookings) * 100) : 0}%</td>
+    </tr>
+    <tr>
+      <td>Cancelled</td>
+      <td>${analytics.cancelledBookings}</td>
+      <td>${analytics.totalBookings > 0 ? Math.round((analytics.cancelledBookings / analytics.totalBookings) * 100) : 0}%</td>
+    </tr>
+    <tr>
+      <td>Completed</td>
+      <td>${analytics.completedBookings}</td>
+      <td>${analytics.totalBookings > 0 ? Math.round((analytics.completedBookings / analytics.totalBookings) * 100) : 0}%</td>
+    </tr>
+  </table>
+
+  <h2>Market Analytics</h2>
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>Value</th>
+    </tr>
+    <tr>
+      <td>Occupancy Rate</td>
+      <td>${analytics.marketAnalytics.occupancyRate}%</td>
+    </tr>
+    <tr>
+      <td>Average Days on Market</td>
+      <td>${analytics.marketAnalytics.averageDaysOnMarket} days</td>
+    </tr>
+  </table>
+
+  <h2>Recent Activity (Last 7 Days)</h2>
+  <table>
+    <tr>
+      <th>Activity</th>
+      <th>Count</th>
+    </tr>
+    <tr>
+      <td>New Bookings</td>
+      <td>${analytics.recentActivity.newBookings}</td>
+    </tr>
+    <tr>
+      <td>New Properties</td>
+      <td>${analytics.recentActivity.newProperties}</td>
+    </tr>
+    <tr>
+      <td>New Owners</td>
+      <td>${analytics.recentActivity.newOwners}</td>
+    </tr>
+    <tr>
+      <td>New Tenants</td>
+      <td>${analytics.recentActivity.newTenants}</td>
+    </tr>
+    <tr>
+      <td>New Inquiries</td>
+      <td>${analytics.recentActivity.newInquiries}</td>
+    </tr>
+  </table>
+
+  ${analytics.ownerAnalytics.topOwners.length > 0 ? `
+  <h2>Top Performing Owners</h2>
+  <table>
+    <tr>
+      <th>Rank</th>
+      <th>Owner Name</th>
+      <th>Properties</th>
+    </tr>
+    ${analytics.ownerAnalytics.topOwners.map((owner, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${owner.ownerName}</td>
+      <td>${owner.propertyCount}</td>
+    </tr>
+    `).join('')}
+  </table>
+  ` : ''}
+
+  ${analytics.relationshipAnalytics.mostActiveOwners.length > 0 ? `
+  <h2>Most Active Owners</h2>
+  <table>
+    <tr>
+      <th>Rank</th>
+      <th>Owner Name</th>
+      <th>Bookings</th>
+    </tr>
+    ${analytics.relationshipAnalytics.mostActiveOwners.map((owner, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${owner.ownerName}</td>
+      <td>${owner.bookingCount}</td>
+    </tr>
+    `).join('')}
+  </table>
+  ` : ''}
+
+  ${analytics.relationshipAnalytics.mostActiveTenants.length > 0 ? `
+  <h2>Most Active Tenants</h2>
+  <table>
+    <tr>
+      <th>Rank</th>
+      <th>Tenant Name</th>
+      <th>Bookings</th>
+    </tr>
+    ${analytics.relationshipAnalytics.mostActiveTenants.map((tenant, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${tenant.tenantName}</td>
+      <td>${tenant.bookingCount}</td>
+    </tr>
+    `).join('')}
+  </table>
+  ` : ''}
+
+  ${analytics.marketAnalytics.popularPropertyTypes.length > 0 ? `
+  <h2>Popular Property Types</h2>
+  <table>
+    <tr>
+      <th>Property Type</th>
+      <th>Count</th>
+    </tr>
+    ${analytics.marketAnalytics.popularPropertyTypes.map(type => `
+    <tr>
+      <td>${type.type}</td>
+      <td>${type.count}</td>
+    </tr>
+    `).join('')}
+  </table>
+  ` : ''}
+
+  <div class="footer">
+    <p>Report generated on ${new Date().toLocaleString()}</p>
+    <p>Barangay Analytics System v1.0</p>
+  </div>
+</body>
+</html>
+    `;
+  };
+
+  const handleMobileShare = async (content: string, filename: string, mimeType: string) => {
+    try {
+      // Check if expo-sharing is available
+      let Sharing: any;
+      try {
+        Sharing = await import('expo-sharing');
+      } catch (e) {
+        console.log('expo-sharing not available, using Share API');
+      }
+
+      // Create file path
+      // Use the correct FileSystem API based on expo-file-system version
+      const baseDir = (FileSystem as any).documentDirectory || (FileSystem as any).cacheDirectory || '';
+      const fileUri = baseDir + filename;
+      
+      // Write file
+      await FileSystem.writeAsStringAsync(fileUri, content);
+
+      // Share file if expo-sharing is available
+      if (Sharing && Sharing.isAvailableAsync && await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri);
+        Alert.alert('Success', 'Report shared successfully!');
+      } else {
+        // Fallback: Use React Native Share API with file URI
+        try {
+          await Share.share({
+            message: content,
+            title: filename,
+            url: fileUri, // iOS supports file URLs
+          });
+        } catch (shareError) {
+          // If file sharing fails, just share text content
+          await Share.share({
+            message: content,
+            title: filename,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error sharing file:', error);
+      // Final fallback: Just share the text content
+      try {
+        await Share.share({
+          message: content,
+          title: filename,
+        });
+      } catch (shareError) {
+        Alert.alert('Share Error', 'Unable to share the report. Please try again.');
+      }
+    }
+  };
+
+  const handleExport = async (format: 'all' | 'summary' | 'csv' | 'json' = 'all') => {
+    if (!userBarangay) return;
 
     try {
       setExporting(true);
-      const exportData = await exportBarangayAnalytics(user.barangay);
+      const exportData = await exportBarangayAnalytics(userBarangay);
       
-      // Create downloadable files
-      const summaryBlob = new Blob([exportData.summary], { type: 'text/plain' });
-      const csvBlob = new Blob([exportData.csvData], { type: 'text/csv' });
-      const jsonBlob = new Blob([JSON.stringify(exportData.jsonData, null, 2)], { type: 'application/json' });
+      // Web platform: Use browser download
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined' && typeof Blob !== 'undefined') {
+        const downloadFile = (content: string, filename: string, mimeType: string) => {
+          try {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } catch (error) {
+            console.error('Error downloading file:', error);
+            // Fallback: Try to copy to clipboard
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(content).then(() => {
+                Alert.alert('Copied to Clipboard', 'Data has been copied to your clipboard.');
+              }).catch(() => {
+                Alert.alert('Download Failed', 'Unable to download file. Please try again.');
+              });
+            } else {
+              Alert.alert('Download Failed', 'Unable to download file. Please try again.');
+            }
+          }
+        };
+        
+        if (format === 'all' || format === 'summary') {
+          downloadFile(exportData.summary, `${userBarangay}_analytics_report.txt`, 'text/plain');
+        }
+        
+        if (format === 'all' || format === 'csv') {
+          if (format === 'all') await new Promise(resolve => setTimeout(resolve, 500));
+          downloadFile(exportData.csvData, `${userBarangay}_analytics_data.csv`, 'text/csv');
+        }
+        
+        if (format === 'all' || format === 'json') {
+          if (format === 'all') await new Promise(resolve => setTimeout(resolve, 500));
+          downloadFile(JSON.stringify(exportData.jsonData, null, 2), `${userBarangay}_analytics_data.json`, 'application/json');
+        }
+        
+        setShowExportModal(false);
+        Alert.alert('Export Successful', 'Analytics data exported successfully! Check your downloads folder.');
+        return;
+      }
+
+      // Mobile platform: Use file system and sharing
+      const filesToShare: Array<{ content: string; filename: string; mimeType: string }> = [];
       
-      // Create download links
-      const summaryUrl = URL.createObjectURL(summaryBlob);
-      const csvUrl = URL.createObjectURL(csvBlob);
-      const jsonUrl = URL.createObjectURL(jsonBlob);
+      if (format === 'all' || format === 'summary') {
+        filesToShare.push({
+          content: exportData.summary,
+          filename: `${userBarangay}_analytics_report.txt`,
+          mimeType: 'text/plain'
+        });
+      }
       
-      // Trigger downloads
-      const summaryLink = document.createElement('a');
-      summaryLink.href = summaryUrl;
-      summaryLink.download = `${user.barangay}_analytics_report.txt`;
-      summaryLink.click();
+      if (format === 'all' || format === 'csv') {
+        filesToShare.push({
+          content: exportData.csvData,
+          filename: `${userBarangay}_analytics_data.csv`,
+          mimeType: 'text/csv'
+        });
+      }
       
-      const csvLink = document.createElement('a');
-      csvLink.href = csvUrl;
-      csvLink.download = `${user.barangay}_analytics_data.csv`;
-      csvLink.click();
+      if (format === 'all' || format === 'json') {
+        filesToShare.push({
+          content: JSON.stringify(exportData.jsonData, null, 2),
+          filename: `${userBarangay}_analytics_data.json`,
+          mimeType: 'application/json'
+        });
+      }
+
+      // Share files one by one on mobile
+      for (let i = 0; i < filesToShare.length; i++) {
+        const file = filesToShare[i];
+        await handleMobileShare(file.content, file.filename, file.mimeType);
+        
+        // Small delay between shares
+        if (i < filesToShare.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
       
-      const jsonLink = document.createElement('a');
-      jsonLink.href = jsonUrl;
-      jsonLink.download = `${user.barangay}_analytics_data.json`;
-      jsonLink.click();
-      
-      // Clean up URLs
-      setTimeout(() => {
-        URL.revokeObjectURL(summaryUrl);
-        URL.revokeObjectURL(csvUrl);
-        URL.revokeObjectURL(jsonUrl);
-      }, 1000);
-      
-      alert('Analytics data exported successfully! Check your downloads folder.');
+      setShowExportModal(false);
+      Alert.alert('Export Successful', `${filesToShare.length} file(s) shared successfully!`);
       
     } catch (error) {
       console.error('Error exporting analytics:', error);
-      alert('Failed to export analytics data. Please try again.');
+      Alert.alert('Export Failed', 'Failed to export analytics data. Please try again.');
     } finally {
       setExporting(false);
     }
@@ -703,7 +1224,7 @@ export default function ReportsPage() {
               <View style={sharedStyles.headerLeft}>
                 <Text style={sharedStyles.pageTitle}>Reports & Analytics</Text>
                 <Text style={sharedStyles.pageSubtitle}>
-                  Comprehensive data for {user?.barangay || 'your barangay'}
+                  Comprehensive data for {userBarangay || 'your barangay'}
                 </Text>
               </View>
             </View>
@@ -732,6 +1253,11 @@ export default function ReportsPage() {
     );
   }
 
+  // Early return if analytics is null - after this point analytics is guaranteed to be non-null
+  if (!analytics) {
+    return null; // This case should be handled by the earlier check
+  }
+
   return (
     <View style={sharedStyles.container}>
       <ScrollView style={sharedStyles.scrollView}>
@@ -741,7 +1267,7 @@ export default function ReportsPage() {
             <View style={sharedStyles.headerLeft}>
               <Text style={sharedStyles.pageTitle}>📊 Reports & Analytics</Text>
               <Text style={sharedStyles.pageSubtitle}>
-                Comprehensive data for {user?.barangay || 'your barangay'}
+                Comprehensive data for {userBarangay || 'your barangay'}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -768,7 +1294,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#3B82F6' }]}>
                   <Users size={20} color="white" />
                   </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Overview
                 </Text>
               </View>
@@ -801,7 +1327,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#EC4899' }]}>
                     <Users size={20} color="white" />
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Resident Gender Distribution
                   </Text>
                 </View>
@@ -908,7 +1434,7 @@ export default function ReportsPage() {
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#10B981' }]}>
                   <BarChart3 size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Property Status Breakdown
                 </Text>
               </View>
@@ -965,7 +1491,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
                     <Home size={20} color="white" />
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                     Property Types Distribution
                   </Text>
                 </View>
@@ -997,9 +1523,9 @@ export default function ReportsPage() {
             <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
-                  <PieChart size={20} color="white" />
+                  <PieChartIcon size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Booking Status Breakdown
                 </Text>
               </View>
@@ -1042,7 +1568,7 @@ export default function ReportsPage() {
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#10B981' }]}>
                   <TrendingUp size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Booking Trends
                 </Text>
               </View>
@@ -1085,52 +1611,7 @@ export default function ReportsPage() {
             </View>
           </View>
 
-          {/* 5. FINANCIAL SUMMARY */}
-          <View style={[sharedStyles.section, { marginBottom: designTokens.spacing.lg }]}>
-            <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: designTokens.spacing.md }]}>
-              💰 Financial Summary
-            </Text>
-            
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[sharedStyles.statIcon, { backgroundColor: '#F59E0B' }]}>
-                  <DollarSign size={20} color="white" />
-                </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
-                  Revenue & Pricing Analytics
-                </Text>
-              </View>
-
-              <View style={{ gap: 16 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Total Revenue</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#10B981', fontSize: 18 }]}>
-                    ₱{analytics.totalRevenue.toLocaleString()}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Average Booking Value</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#3B82F6' }]}>
-                    ₱{analytics.averageBookingValue.toLocaleString()}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Average Monthly Rent</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#8B5CF6' }]}>
-                    ₱{analytics.averageRent.toLocaleString()}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Conversion Rate</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#F59E0B' }]}>
-                    {analytics.relationshipAnalytics.conversionRate}%
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* 6. ACTIVITY & ENGAGEMENT */}
+          {/* 5. ACTIVITY & ENGAGEMENT */}
           <View style={[sharedStyles.section, { marginBottom: designTokens.spacing.lg }]}>
             <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: designTokens.spacing.md }]}>
               📊 Activity & Engagement
@@ -1151,7 +1632,7 @@ export default function ReportsPage() {
                     <Text style={[sharedStyles.statLabel, { fontSize: 12, color: '#6B7280', marginBottom: 2 }]}>
                       Time Period
                     </Text>
-                    <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md, textTransform: 'capitalize' }]}>
+                    <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base, textTransform: 'capitalize' }]}>
                       {timePeriod === 'daily' ? 'Today' : timePeriod === 'weekly' ? 'Last 7 Days' : timePeriod === 'monthly' ? 'This Month' : 'This Year'}
                     </Text>
                   </View>
@@ -1445,7 +1926,7 @@ export default function ReportsPage() {
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#EF4444' }]}>
                   <Activity size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Recent Activity ({timePeriod === 'daily' ? 'Today' : timePeriod === 'weekly' ? 'Last 7 Days' : timePeriod === 'monthly' ? 'This Month' : 'This Year'})
                 </Text>
               </View>
@@ -1491,7 +1972,7 @@ export default function ReportsPage() {
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
                   <Eye size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Engagement Metrics
                 </Text>
               </View>
@@ -1532,7 +2013,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#10B981' }]}>
                     <Award size={20} color="white" />
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                     Top Performing Owners
                   </Text>
                 </View>
@@ -1558,9 +2039,6 @@ export default function ReportsPage() {
                           {owner.propertyCount} properties
                         </Text>
                       </View>
-                      <Text style={[sharedStyles.statLabel, { color: '#10B981', fontSize: 16 }]}>
-                        ₱{owner.totalRevenue.toLocaleString()}
-                      </Text>
                     </View>
                   ))}
                 </View>
@@ -1574,7 +2052,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#EF4444' }]}>
                     <TrendingUp size={20} color="white" />
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                     Most Active Owners
                   </Text>
                 </View>
@@ -1600,9 +2078,6 @@ export default function ReportsPage() {
                           {owner.bookingCount} bookings
                         </Text>
                       </View>
-                      <Text style={[sharedStyles.statLabel, { color: '#10B981', fontSize: 16 }]}>
-                        ₱{owner.revenue.toLocaleString()}
-                      </Text>
                     </View>
                   ))}
                 </View>
@@ -1616,7 +2091,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#EC4899' }]}>
                     <Users size={20} color="white" />
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                     Most Active Tenants
                   </Text>
                 </View>
@@ -1661,7 +2136,7 @@ export default function ReportsPage() {
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
                   <Building2 size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Market Analytics
                 </Text>
               </View>
@@ -1679,18 +2154,6 @@ export default function ReportsPage() {
                     {analytics.marketAnalytics.averageDaysOnMarket} days
                   </Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Price Range</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#3B82F6' }]}>
-                    ₱{analytics.marketAnalytics.priceRange.min.toLocaleString()} - ₱{analytics.marketAnalytics.priceRange.max.toLocaleString()}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Median Price</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#8B5CF6' }]}>
-                    ₱{analytics.marketAnalytics.priceRange.median.toLocaleString()}
-                  </Text>
-                </View>
               </View>
             </View>
 
@@ -1701,7 +2164,7 @@ export default function ReportsPage() {
                   <View style={[sharedStyles.statIcon, { backgroundColor: '#F59E0B' }]}>
                     <MapPin size={20} color="white" />
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                     Popular Property Types
                   </Text>
                 </View>
@@ -1727,9 +2190,6 @@ export default function ReportsPage() {
                           {type.count} properties
                         </Text>
                       </View>
-                      <Text style={[sharedStyles.statLabel, { color: '#10B981', fontSize: 16 }]}>
-                        ₱{type.averageRent.toLocaleString()}
-                      </Text>
                     </View>
                   ))}
                 </View>
@@ -1742,7 +2202,7 @@ export default function ReportsPage() {
                 <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
                   <Target size={20} color="white" />
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.md }]}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
                   Tenant-Owner Relationships
                 </Text>
               </View>
@@ -1775,26 +2235,50 @@ export default function ReportsPage() {
             flexDirection: 'row', 
             gap: 12, 
             marginTop: designTokens.spacing.lg,
-            marginBottom: designTokens.spacing.xl
+            marginBottom: designTokens.spacing.xl,
+            flexWrap: 'wrap'
           }}>
             <TouchableOpacity
               onPress={loadAnalytics}
-              style={[sharedStyles.primaryButton, { flex: 1 }]}
+              style={[sharedStyles.primaryButton, { flex: 1, minWidth: 150 }]}
               activeOpacity={0.8}
             >
               <RefreshCw size={20} color="white" />
               <Text style={[sharedStyles.primaryButtonText, { marginLeft: 8 }]}>
-                🔄 Refresh Analytics
+                🔄 Refresh
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity
-              onPress={handleExport}
+              onPress={handlePrint}
+              style={[
+                sharedStyles.primaryButton, 
+                { 
+                  flex: 1,
+                  minWidth: 150,
+                  backgroundColor: '#8B5CF6',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8
+                }
+              ]}
+              activeOpacity={0.8}
+            >
+              <Printer size={20} color="white" />
+              <Text style={sharedStyles.primaryButtonText}>
+                🖨️ Print
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              onPress={() => setShowExportModal(true)}
               disabled={exporting}
               style={[
                 sharedStyles.primaryButton, 
                 { 
                   flex: 1,
+                  minWidth: 150,
                   backgroundColor: exporting ? '#9CA3AF' : '#10B981',
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -1807,13 +2291,188 @@ export default function ReportsPage() {
               {exporting ? (
                 <ActivityIndicator size="small" color="white" />
               ) : (
-                <Download size={20} color="white" />
+                <FileDown size={20} color="white" />
               )}
               <Text style={sharedStyles.primaryButtonText}>
-                {exporting ? 'Exporting...' : '📊 Export Data'}
+                {exporting ? 'Exporting...' : '📥 Download'}
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* Export Format Selection Modal */}
+          <Modal
+            visible={showExportModal}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setShowExportModal(false)}
+          >
+            <Pressable
+              style={{
+                flex: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 20,
+              }}
+              onPress={() => setShowExportModal(false)}
+            >
+              <Pressable
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 16,
+                  padding: 24,
+                  width: '100%',
+                  maxWidth: 400,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 8,
+                }}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: 8 }]}>
+                  Download Analytics Data
+                </Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: 14, color: '#6B7280', marginBottom: 20 }]}>
+                  Choose the format you want to download:
+                </Text>
+
+                <View style={{ gap: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => handleExport('all')}
+                    disabled={exporting}
+                    style={{
+                      paddingVertical: 16,
+                      paddingHorizontal: 20,
+                      borderRadius: 12,
+                      backgroundColor: '#10B981',
+                      borderWidth: 2,
+                      borderColor: '#10B981',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <Download size={20} color="white" />
+                      <View>
+                        <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF', marginBottom: 2 }}>
+                          All Formats
+                        </Text>
+                        <Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.8)' }}>
+                          Summary, CSV, and JSON
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleExport('summary')}
+                    disabled={exporting}
+                    style={{
+                      paddingVertical: 14,
+                      paddingHorizontal: 20,
+                      borderRadius: 12,
+                      backgroundColor: '#F9FAFB',
+                      borderWidth: 2,
+                      borderColor: '#E5E7EB',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <FileText size={18} color="#3B82F6" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 2 }}>
+                        Summary Report (TXT)
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#6B7280' }}>
+                        Human-readable text report
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleExport('csv')}
+                    disabled={exporting}
+                    style={{
+                      paddingVertical: 14,
+                      paddingHorizontal: 20,
+                      borderRadius: 12,
+                      backgroundColor: '#F9FAFB',
+                      borderWidth: 2,
+                      borderColor: '#E5E7EB',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <FileDown size={18} color="#10B981" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 2 }}>
+                        CSV Data
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#6B7280' }}>
+                        Spreadsheet format for Excel
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleExport('json')}
+                    disabled={exporting}
+                    style={{
+                      paddingVertical: 14,
+                      paddingHorizontal: 20,
+                      borderRadius: 12,
+                      backgroundColor: '#F9FAFB',
+                      borderWidth: 2,
+                      borderColor: '#E5E7EB',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <FileText size={18} color="#8B5CF6" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 2 }}>
+                        JSON Data
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#6B7280' }}>
+                        Structured data format
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => setShowExportModal(false)}
+                  style={{
+                    marginTop: 20,
+                    paddingVertical: 12,
+                    paddingHorizontal: 20,
+                    borderRadius: 8,
+                    backgroundColor: '#F3F4F6',
+                    alignItems: 'center',
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '500',
+                    color: '#6B7280',
+                  }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </Pressable>
+            </Pressable>
+          </Modal>
         </View>
       </ScrollView>
     </View>

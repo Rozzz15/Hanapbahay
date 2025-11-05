@@ -68,6 +68,10 @@ export default function CreateListing() {
   const [currentStep, setCurrentStep] = useState(1);
   const [customRule, setCustomRule] = useState('');
   const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showWarnings, setShowWarnings] = useState(false);
+  const [showPhotoSourceModal, setShowPhotoSourceModal] = useState(false);
+  const [photoSourceType, setPhotoSourceType] = useState<'cover' | 'photos' | null>(null);
   const [formData, setFormData] = useState<ListingFormData>({
     propertyType: '',
     rentalType: '',
@@ -111,6 +115,14 @@ export default function CreateListing() {
 
   const updateFormData = (field: keyof ListingFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error for this field when user starts typing
+    if (errors[field]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
+    }
   };
 
   const toggleArrayItem = (field: 'amenities' | 'rules' | 'paymentMethods', item: string) => {
@@ -120,6 +132,14 @@ export default function CreateListing() {
         ? prev[field].filter(i => i !== item)
         : [...prev[field], item]
     }));
+    // Clear error for payment methods when user selects one
+    if (field === 'paymentMethods' && errors.paymentMethods) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors.paymentMethods;
+        return newErrors;
+      });
+    }
   };
 
   const addCustomRule = () => {
@@ -140,72 +160,142 @@ export default function CreateListing() {
   };
 
   const validateStep = (step: number): boolean => {
+    const newErrors: Record<string, string> = {};
+    
     switch (step) {
       case 1:
-        return !!(formData.propertyType && formData.rentalType && formData.monthlyRent);
+        if (!formData.propertyType) newErrors.propertyType = 'Property type is required';
+        if (!formData.rentalType) newErrors.rentalType = 'Rental type is required';
+        if (!formData.monthlyRent || !formData.monthlyRent.trim()) newErrors.monthlyRent = 'Monthly rent is required';
+        break;
       case 2:
-        return !!(formData.address && formData.barangay && formData.description && formData.bedrooms && formData.bathrooms);
+        if (!formData.address || !formData.address.trim()) newErrors.address = 'Address is required';
+        if (!formData.barangay || !formData.barangay.trim()) newErrors.barangay = 'Barangay is required';
+        if (!formData.description || !formData.description.trim()) newErrors.description = 'Description is required';
+        if (!formData.bedrooms || !formData.bedrooms.trim()) newErrors.bedrooms = 'Number of bedrooms is required';
+        if (!formData.bathrooms || !formData.bathrooms.trim()) newErrors.bathrooms = 'Number of bathrooms is required';
+        break;
       case 3:
-        return !!(formData.ownerName && formData.contactNumber && formData.email);
+        if (!formData.ownerName || !formData.ownerName.trim()) newErrors.ownerName = 'Owner name is required';
+        if (!formData.contactNumber || !formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
+        if (!formData.email || !formData.email.trim()) newErrors.email = 'Email address is required';
+        else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email address is invalid';
+        break;
       case 4:
-        return !!(formData.paymentMethods.length > 0);
+        if (formData.paymentMethods.length === 0) newErrors.paymentMethods = 'At least one payment method is required';
+        break;
       case 5:
-        // Media is optional, but show a warning if no cover photo
-        return true;
-      default:
-        return true;
+        // Media is optional, no validation needed
+        break;
     }
+    
+    setErrors(newErrors);
+    setShowWarnings(Object.keys(newErrors).length > 0);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
+      setErrors({});
+      setShowWarnings(false);
       setCurrentStep(prev => Math.min(prev + 1, 5));
     } else {
       showAlert('Validation Error', 'Please fill in all required fields');
     }
   };
 
+  // Check for errors when form data changes (only if warnings are already shown)
+  useEffect(() => {
+    if (showWarnings) {
+      validateStep(currentStep);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.propertyType, formData.rentalType, formData.monthlyRent, formData.address, formData.barangay, formData.description, formData.bedrooms, formData.bathrooms, formData.ownerName, formData.contactNumber, formData.email, formData.paymentMethods, currentStep]);
+
   const handlePrevious = () => {
+    setErrors({});
+    setShowWarnings(false);
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
   // Image Picker Functions
-  const pickCoverPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      showAlert('Permission Required', 'Please grant permission to access your photos');
-      return;
-    }
+  const showPhotoSourceSelection = (type: 'cover' | 'photos') => {
+    setPhotoSourceType(type);
+    setShowPhotoSourceModal(true);
+  };
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [16, 9],
-      quality: 0.8,
-    });
+  const takePhotoFromCamera = async () => {
+    if (!photoSourceType) return;
+    
+    setShowPhotoSourceModal(false);
+    
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission Required', 'Please grant permission to access your camera');
+        return;
+      }
 
-    if (!result.canceled && result.assets[0]) {
-      updateFormData('coverPhoto', result.assets[0].uri);
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: photoSourceType === 'cover',
+        aspect: photoSourceType === 'cover' ? [16, 9] : undefined,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        if (photoSourceType === 'cover') {
+          updateFormData('coverPhoto', result.assets[0].uri);
+        } else if (photoSourceType === 'photos') {
+          updateFormData('photos', [...formData.photos, result.assets[0].uri]);
+        }
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      showAlert('Error', 'Failed to take photo. Please try again.');
     }
   };
 
+  const pickPhotoFromGallery = async () => {
+    if (!photoSourceType) return;
+    
+    setShowPhotoSourceModal(false);
+    
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission Required', 'Please grant permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: photoSourceType === 'cover',
+        aspect: photoSourceType === 'cover' ? [16, 9] : undefined,
+        allowsMultipleSelection: photoSourceType === 'photos',
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        if (photoSourceType === 'cover' && result.assets[0]) {
+          updateFormData('coverPhoto', result.assets[0].uri);
+        } else if (photoSourceType === 'photos') {
+          const newPhotos = result.assets.map(asset => asset.uri);
+          updateFormData('photos', [...formData.photos, ...newPhotos]);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking photo:', error);
+      showAlert('Error', 'Failed to pick photo. Please try again.');
+    }
+  };
+
+  const pickCoverPhoto = async () => {
+    showPhotoSourceSelection('cover');
+  };
+
   const pickPhotos = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      showAlert('Permission Required', 'Please grant permission to access your photos');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets) {
-      const newPhotos = result.assets.map(asset => asset.uri);
-      updateFormData('photos', [...formData.photos, ...newPhotos]);
-    }
+    showPhotoSourceSelection('photos');
   };
 
   const pickVideos = async () => {
@@ -242,8 +332,17 @@ export default function CreateListing() {
       return;
     }
 
-    if (!validateStep(5)) {
-      showAlert('Validation Error', 'Please fill in all required fields');
+    // Validate all steps before submitting
+    let allValid = true;
+    for (let step = 1; step <= 4; step++) {
+      if (!validateStep(step)) {
+        allValid = false;
+        break;
+      }
+    }
+    
+    if (!allValid) {
+      showAlert('Validation Error', 'Please fill in all required fields in all steps');
       return;
     }
 
@@ -409,6 +508,20 @@ export default function CreateListing() {
 
   const renderStep1 = () => (
     <View style={professionalStyles.stepContent}>
+      {showWarnings && Object.keys(errors).length > 0 && (
+        <View style={professionalStyles.warningBanner}>
+          <AlertCircle size={20} color={designTokens.colors.error} style={{ marginRight: 12, marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: designTokens.colors.error, marginBottom: 4 }}>
+              Required Fields Missing
+            </Text>
+            <Text style={{ fontSize: 13, color: designTokens.colors.error }}>
+              Please fill in all required fields marked with *
+            </Text>
+          </View>
+        </View>
+      )}
+      
       <View style={professionalStyles.sectionHeader}>
         <View style={professionalStyles.sectionIcon}>
           <Home size={20} color={designTokens.colors.primary} />
@@ -424,19 +537,24 @@ export default function CreateListing() {
               key={type}
               style={[
                 professionalStyles.optionCard,
-                formData.propertyType === type && professionalStyles.optionCardActive
+                formData.propertyType === type && professionalStyles.optionCardActive,
+                errors.propertyType && !formData.propertyType && professionalStyles.optionCardError
               ]}
               onPress={() => updateFormData('propertyType', type)}
             >
               <Text style={[
                 professionalStyles.optionText,
-                formData.propertyType === type && professionalStyles.optionTextActive
+                formData.propertyType === type && professionalStyles.optionTextActive,
+                errors.propertyType && !formData.propertyType && { color: designTokens.colors.error }
               ]}>
                 {type}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
+        {errors.propertyType && (
+          <Text style={professionalStyles.errorText}>{errors.propertyType}</Text>
+        )}
       </View>
 
       <View style={professionalStyles.inputGroup}>
@@ -447,19 +565,24 @@ export default function CreateListing() {
               key={type}
               style={[
                 professionalStyles.optionCard,
-                formData.rentalType === type && professionalStyles.optionCardActive
+                formData.rentalType === type && professionalStyles.optionCardActive,
+                errors.rentalType && !formData.rentalType && professionalStyles.optionCardError
               ]}
               onPress={() => updateFormData('rentalType', type)}
             >
               <Text style={[
                 professionalStyles.optionText,
-                formData.rentalType === type && professionalStyles.optionTextActive
+                formData.rentalType === type && professionalStyles.optionTextActive,
+                errors.rentalType && !formData.rentalType && { color: designTokens.colors.error }
               ]}>
                 {type}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
+        {errors.rentalType && (
+          <Text style={professionalStyles.errorText}>{errors.rentalType}</Text>
+        )}
       </View>
 
       <View style={professionalStyles.inputGroup}>
@@ -469,13 +592,20 @@ export default function CreateListing() {
             <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>₱</Text>
           </View>
           <TextInput
-            style={[professionalStyles.input, professionalStyles.inputWithIcon]}
+            style={[
+              professionalStyles.input, 
+              professionalStyles.inputWithIcon,
+              errors.monthlyRent && professionalStyles.inputError
+            ]}
             placeholder="Enter monthly rent"
             value={formData.monthlyRent}
             onChangeText={(value) => updateFormData('monthlyRent', value)}
             keyboardType="numeric"
           />
         </View>
+        {errors.monthlyRent && (
+          <Text style={professionalStyles.errorText}>{errors.monthlyRent}</Text>
+        )}
       </View>
 
       <View style={professionalStyles.inputGroup}>
@@ -528,6 +658,20 @@ export default function CreateListing() {
 
   const renderStep2 = () => (
     <View style={professionalStyles.stepContent}>
+      {showWarnings && Object.keys(errors).length > 0 && (
+        <View style={professionalStyles.warningBanner}>
+          <AlertCircle size={20} color={designTokens.colors.error} style={{ marginRight: 12, marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: designTokens.colors.error, marginBottom: 4 }}>
+              Required Fields Missing
+            </Text>
+            <Text style={{ fontSize: 13, color: designTokens.colors.error }}>
+              Please fill in all required fields marked with *
+            </Text>
+          </View>
+        </View>
+      )}
+      
       <View style={professionalStyles.sectionHeader}>
         <View style={professionalStyles.sectionIcon}>
           <MapPin size={20} color={designTokens.colors.primary} />
@@ -542,7 +686,12 @@ export default function CreateListing() {
             <MapPin size={18} color={designTokens.colors.textMuted} />
           </View>
           <TextInput
-            style={[professionalStyles.input, professionalStyles.inputWithIcon, professionalStyles.inputMultiline]}
+            style={[
+              professionalStyles.input, 
+              professionalStyles.inputWithIcon, 
+              professionalStyles.inputMultiline,
+              errors.address && professionalStyles.inputError
+            ]}
             placeholder="Enter complete address"
             value={formData.address}
             onChangeText={(value) => updateFormData('address', value)}
@@ -550,6 +699,9 @@ export default function CreateListing() {
             numberOfLines={3}
           />
         </View>
+        {errors.address && (
+          <Text style={professionalStyles.errorText}>{errors.address}</Text>
+        )}
       </View>
 
       <View style={{ marginBottom: 24 }} />
@@ -558,17 +710,20 @@ export default function CreateListing() {
         <Text style={professionalStyles.inputLabel}>Barangay *</Text>
         <TouchableOpacity
           onPress={() => setShowBarangayDropdown(true)}
-          style={{
-            borderWidth: 1,
-            borderColor: formData.barangay ? designTokens.colors.primary : designTokens.colors.border,
-            borderRadius: 12,
-            backgroundColor: 'white',
-            paddingVertical: 14,
-            paddingHorizontal: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
+          style={[
+            {
+              borderWidth: 2,
+              borderColor: formData.barangay ? designTokens.colors.primary : designTokens.colors.border,
+              borderRadius: 12,
+              backgroundColor: errors.barangay ? '#FEF2F2' : 'white',
+              paddingVertical: 14,
+              paddingHorizontal: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            },
+            errors.barangay && { borderColor: designTokens.colors.error }
+          ]}
         >
           <Text style={{
             fontSize: 16,
@@ -582,7 +737,10 @@ export default function CreateListing() {
             color: designTokens.colors.textMuted,
           }}>▼</Text>
         </TouchableOpacity>
-        {formData.barangay && (
+        {errors.barangay && (
+          <Text style={professionalStyles.errorText}>{errors.barangay}</Text>
+        )}
+        {formData.barangay && !errors.barangay && (
           <Text style={{ marginTop: 8, fontSize: 14, color: designTokens.colors.success }}>
             ✓ Selected: {formData.barangay}
           </Text>
@@ -667,13 +825,20 @@ export default function CreateListing() {
       <View style={professionalStyles.inputGroup}>
         <Text style={professionalStyles.inputLabel}>Description *</Text>
         <TextInput
-          style={[professionalStyles.input, professionalStyles.inputMultiline]}
+          style={[
+            professionalStyles.input, 
+            professionalStyles.inputMultiline,
+            errors.description && professionalStyles.inputError
+          ]}
           placeholder="Describe your property, its features, and what makes it special..."
           value={formData.description}
           onChangeText={(value) => updateFormData('description', value)}
           multiline
           numberOfLines={4}
         />
+        {errors.description && (
+          <Text style={professionalStyles.errorText}>{errors.description}</Text>
+        )}
       </View>
 
       <View style={{
@@ -690,13 +855,21 @@ export default function CreateListing() {
               <Home size={18} color={designTokens.colors.textMuted} />
             </View>
             <TextInput
-              style={[professionalStyles.input, professionalStyles.inputWithIcon, { height: 50 }]}
+              style={[
+                professionalStyles.input, 
+                professionalStyles.inputWithIcon, 
+                { height: 50 },
+                errors.bedrooms && professionalStyles.inputError
+              ]}
               placeholder="Number of bedrooms"
               value={formData.bedrooms}
               onChangeText={(value) => updateFormData('bedrooms', value)}
               keyboardType="numeric"
             />
           </View>
+          {errors.bedrooms && (
+            <Text style={professionalStyles.errorText}>{errors.bedrooms}</Text>
+          )}
         </View>
         <View style={{ flex: isMobile ? 0 : 1, width: isMobile ? '100%' : undefined }}>
           <Text style={[professionalStyles.inputLabel, { marginBottom: 10 }]}>Bathrooms *</Text>
@@ -705,13 +878,21 @@ export default function CreateListing() {
               <Home size={18} color={designTokens.colors.textMuted} />
             </View>
             <TextInput
-              style={[professionalStyles.input, professionalStyles.inputWithIcon, { height: 50 }]}
+              style={[
+                professionalStyles.input, 
+                professionalStyles.inputWithIcon, 
+                { height: 50 },
+                errors.bathrooms && professionalStyles.inputError
+              ]}
               placeholder="Number of bathrooms"
               value={formData.bathrooms}
               onChangeText={(value) => updateFormData('bathrooms', value)}
               keyboardType="numeric"
             />
           </View>
+          {errors.bathrooms && (
+            <Text style={professionalStyles.errorText}>{errors.bathrooms}</Text>
+          )}
         </View>
       </View>
 
@@ -792,6 +973,20 @@ export default function CreateListing() {
 
   const renderStep3 = () => (
     <View style={professionalStyles.stepContent}>
+      {showWarnings && Object.keys(errors).length > 0 && (
+        <View style={professionalStyles.warningBanner}>
+          <AlertCircle size={20} color={designTokens.colors.error} style={{ marginRight: 12, marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: designTokens.colors.error, marginBottom: 4 }}>
+              Required Fields Missing
+            </Text>
+            <Text style={{ fontSize: 13, color: designTokens.colors.error }}>
+              Please fill in all required fields marked with *
+            </Text>
+          </View>
+        </View>
+      )}
+      
       <View style={professionalStyles.sectionHeader}>
         <View style={professionalStyles.sectionIcon}>
           <Users size={20} color={designTokens.colors.primary} />
@@ -807,7 +1002,11 @@ export default function CreateListing() {
             <Users size={18} color={designTokens.colors.textMuted} />
           </View>
           <TextInput
-            style={[professionalStyles.input, professionalStyles.inputWithIcon]}
+            style={[
+              professionalStyles.input, 
+              professionalStyles.inputWithIcon,
+              errors.ownerName && professionalStyles.inputError
+            ]}
             placeholder="Enter owner's full name"
             value={formData.ownerName}
             onChangeText={(value) => {
@@ -816,6 +1015,9 @@ export default function CreateListing() {
             }}
           />
         </View>
+        {errors.ownerName && (
+          <Text style={professionalStyles.errorText}>{errors.ownerName}</Text>
+        )}
       </View>
 
       <View style={professionalStyles.inputGroup}>
@@ -835,7 +1037,11 @@ export default function CreateListing() {
             <Phone size={18} color={designTokens.colors.textMuted} />
           </View>
           <TextInput
-            style={[professionalStyles.input, professionalStyles.inputWithIcon]}
+            style={[
+              professionalStyles.input, 
+              professionalStyles.inputWithIcon,
+              errors.contactNumber && professionalStyles.inputError
+            ]}
             placeholder="Enter contact number"
             value={formData.contactNumber}
             onChangeText={(value) => {
@@ -845,6 +1051,9 @@ export default function CreateListing() {
             keyboardType="phone-pad"
           />
         </View>
+        {errors.contactNumber && (
+          <Text style={professionalStyles.errorText}>{errors.contactNumber}</Text>
+        )}
       </View>
 
       <View style={professionalStyles.inputGroup}>
@@ -854,7 +1063,11 @@ export default function CreateListing() {
             <Mail size={18} color={designTokens.colors.textMuted} />
           </View>
           <TextInput
-            style={[professionalStyles.input, professionalStyles.inputWithIcon]}
+            style={[
+              professionalStyles.input, 
+              professionalStyles.inputWithIcon,
+              errors.email && professionalStyles.inputError
+            ]}
             placeholder="Enter email address"
             value={formData.email}
             onChangeText={(value) => {
@@ -865,6 +1078,9 @@ export default function CreateListing() {
             autoCapitalize="none"
           />
         </View>
+        {errors.email && (
+          <Text style={professionalStyles.errorText}>{errors.email}</Text>
+        )}
       </View>
 
       <View style={professionalStyles.inputGroup}>
@@ -887,6 +1103,20 @@ export default function CreateListing() {
 
   const renderStep4 = () => (
     <View style={professionalStyles.stepContent}>
+      {showWarnings && Object.keys(errors).length > 0 && (
+        <View style={professionalStyles.warningBanner}>
+          <AlertCircle size={20} color={designTokens.colors.error} style={{ marginRight: 12, marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: designTokens.colors.error, marginBottom: 4 }}>
+              Required Fields Missing
+            </Text>
+            <Text style={{ fontSize: 13, color: designTokens.colors.error }}>
+              Please fill in all required fields marked with *
+            </Text>
+          </View>
+        </View>
+      )}
+      
       <View style={professionalStyles.sectionHeader}>
         <View style={professionalStyles.sectionIcon}>
           <Text style={{ fontSize: 20, color: designTokens.colors.primary }}>₱</Text>
@@ -921,19 +1151,24 @@ export default function CreateListing() {
               key={method}
               style={[
                 professionalStyles.optionCard,
-                formData.paymentMethods.includes(method) && professionalStyles.optionCardActive
+                formData.paymentMethods.includes(method) && professionalStyles.optionCardActive,
+                errors.paymentMethods && formData.paymentMethods.length === 0 && professionalStyles.optionCardError
               ]}
               onPress={() => toggleArrayItem('paymentMethods', method)}
             >
               <Text style={[
                 professionalStyles.optionText,
-                formData.paymentMethods.includes(method) && professionalStyles.optionTextActive
+                formData.paymentMethods.includes(method) && professionalStyles.optionTextActive,
+                errors.paymentMethods && formData.paymentMethods.length === 0 && { color: designTokens.colors.error }
               ]}>
                 {method}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
+        {errors.paymentMethods && (
+          <Text style={professionalStyles.errorText}>{errors.paymentMethods}</Text>
+        )}
       </View>
 
     </View>
@@ -1234,6 +1469,125 @@ export default function CreateListing() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Photo Source Selection Modal */}
+      <Modal
+        visible={showPhotoSourceModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPhotoSourceModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'flex-end',
+        }}>
+          <View style={{
+            backgroundColor: 'white',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+          }}>
+            <View style={{
+              padding: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#eee',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}>
+              <Text style={{
+                fontSize: 18,
+                fontWeight: 'bold',
+                color: designTokens.colors.text,
+              }}>
+                Select Photo Source
+              </Text>
+              <TouchableOpacity onPress={() => setShowPhotoSourceModal(false)}>
+                <X size={24} color={designTokens.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 20,
+                paddingHorizontal: 20,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f0f0f0',
+              }}
+              onPress={takePhotoFromCamera}
+            >
+              <View style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: designTokens.colors.primaryLight,
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 16,
+              }}>
+                <Camera size={24} color={designTokens.colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: designTokens.colors.text,
+                  marginBottom: 4,
+                }}>
+                  Take Photo
+                </Text>
+                <Text style={{
+                  fontSize: 14,
+                  color: designTokens.colors.textMuted,
+                }}>
+                  Use your camera to take a new photo
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 20,
+                paddingHorizontal: 20,
+              }}
+              onPress={pickPhotoFromGallery}
+            >
+              <View style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: designTokens.colors.primaryLight,
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 16,
+              }}>
+                <ImageIcon size={24} color={designTokens.colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: designTokens.colors.text,
+                  marginBottom: 4,
+                }}>
+                  Choose from Gallery
+                </Text>
+                <Text style={{
+                  fontSize: 14,
+                  color: designTokens.colors.textMuted,
+                }}>
+                  Select an existing photo from your gallery
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

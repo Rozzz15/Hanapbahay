@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ScrollView, View, Text, TouchableOpacity, Image, Alert, Modal, Dimensions, Platform, StyleSheet } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, Image, Alert, Modal, Dimensions, Platform, StyleSheet, TextInput, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { ArrowLeft, MapPin, Bed, Bath, Star, Calendar, CheckCircle, X, ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Bed, Bath, Star, Calendar, CheckCircle, X, ChevronLeft, ChevronRight, MessageCircle, EyeOff } from 'lucide-react-native';
 import { PropertyVideoPlayer, VideoGallery } from '@/components/video';
 // Removed video components import - functionality removed
 import { useAuth } from '@/context/AuthContext';
@@ -18,7 +18,18 @@ export default function PropertyPreviewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user, isAuthenticated } = useAuth();
-  const { width: screenWidth } = Dimensions.get('window');
+  const [dimensions, setDimensions] = useState(Dimensions.get('window'));
+  const { width: screenWidth, height: screenHeight } = dimensions;
+  const isMobile = Platform.OS !== 'web' || screenWidth < 768;
+  const isSmallScreen = screenWidth < 375;
+
+  // Listen for dimension changes
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setDimensions(window);
+    });
+    return () => subscription?.remove();
+  }, []);
 
   // Photo viewer modal state
   const [photoViewerVisible, setPhotoViewerVisible] = useState(false);
@@ -44,9 +55,14 @@ export default function PropertyPreviewScreen() {
   
   // Rating state
   const [userRating, setUserRating] = useState(0);
+  const [userReview, setUserReview] = useState('');
   const [calculatedRating, setCalculatedRating] = useState(0);
   const [totalReviews, setTotalReviews] = useState(0);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [tempRating, setTempRating] = useState(0);
+  const [tempReview, setTempReview] = useState('');
+  const [tempIsAnonymous, setTempIsAnonymous] = useState(false);
   
 
 
@@ -241,6 +257,7 @@ export default function PropertyPreviewScreen() {
         const userRatingData = await getUserRatingForProperty(propertyId, user.id);
         if (userRatingData) {
           setUserRating(userRatingData.rating);
+          setUserReview(userRatingData.review || '');
         }
       }
       
@@ -254,8 +271,8 @@ export default function PropertyPreviewScreen() {
     }
   };
   
-  // Handle rating submission
-  const handleRatingSubmit = async (newRating: number) => {
+  // Handle star click - open rating modal
+  const handleStarClick = async (newRating: number) => {
     if (!isAuthenticated || !user?.id) {
       Alert.alert('Login Required', 'Please login to rate this property');
       return;
@@ -266,13 +283,54 @@ export default function PropertyPreviewScreen() {
       return;
     }
     
+    // Set temp rating and review
+    setTempRating(newRating);
+    setTempReview(userReview || '');
+    
+    // Load existing anonymous preference if available
+    try {
+      const userRatingData = await getUserRatingForProperty(params.id as string, user.id);
+      setTempIsAnonymous(userRatingData?.isAnonymous || false);
+    } catch (error) {
+      console.error('Error loading existing rating:', error);
+      setTempIsAnonymous(false);
+    }
+    
+    setRatingModalVisible(true);
+  };
+
+  // Handle rating submission with comment
+  const handleRatingSubmit = async () => {
+    if (!isAuthenticated || !user?.id) {
+      Alert.alert('Login Required', 'Please login to rate this property');
+      return;
+    }
+    
+    if (isOwnerView) {
+      Alert.alert('Not Allowed', 'Owners cannot rate their own properties');
+      return;
+    }
+    
+    if (tempRating === 0) {
+      Alert.alert('Error', 'Please select a rating');
+      return;
+    }
+    
     setIsSubmittingRating(true);
     
     try {
-      const result = await rateProperty(params.id as string, user.id, newRating);
+      const result = await rateProperty(
+        params.id as string, 
+        user.id, 
+        tempRating,
+        tempReview.trim() || undefined,
+        tempIsAnonymous
+      );
       
       if (result.success) {
-        setUserRating(newRating);
+        setUserRating(tempRating);
+        setUserReview(tempReview.trim());
+        setRatingModalVisible(false);
         Alert.alert('Success', result.message);
         // Reload rating data to update average
         await loadRatingData();
@@ -589,27 +647,29 @@ const goToNextPhoto = () => {
                 <Text style={styles.statusText}>Available</Text>
               </View>
               
-              {/* Rating Badge */}
-              <View style={styles.ratingBadge}>
-                <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                <Text style={styles.ratingText}>
-                  {calculatedRating > 0 ? calculatedRating.toFixed(1) : 'No ratings'}{calculatedRating > 0 && ` (${totalReviews})`}
-                </Text>
-              </View>
+              {/* Rating Badge - Only show if there are ratings */}
+              {calculatedRating > 0 && (
+                <View style={styles.ratingBadge}>
+                  <Star size={14} color="#F59E0B" fill="#F59E0B" />
+                  <Text style={styles.ratingText}>
+                    {calculatedRating.toFixed(1)} ({totalReviews})
+                  </Text>
+                </View>
+              )}
               
               {/* Removed favorite button */}
             </View>
           </View>
 
           {/* Property Info Card */}
-          <View style={styles.propertyInfoCard}>
-            <View style={styles.propertyHeader}>
-              <Text style={styles.propertyTitle}>{displayTitle}</Text>
+          <View style={[styles.propertyInfoCard, isMobile && styles.propertyInfoCardMobile]}>
+            <View style={[styles.propertyHeader, isMobile && styles.propertyHeaderMobile]}>
+              <Text style={[styles.propertyTitle, isMobile && styles.propertyTitleMobile]}>{displayTitle}</Text>
               {(() => {
                 const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
                 return monthlyRent && monthlyRent > 0;
               })() && (
-                <Text style={styles.propertyPrice}>
+                <Text style={[styles.propertyPrice, isMobile && styles.propertyPriceMobile]}>
                   ₱{(() => {
                     const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
                     return monthlyRent.toLocaleString();
@@ -620,7 +680,7 @@ const goToNextPhoto = () => {
             
             <View style={styles.locationRow}>
               <MapPin size={16} color="#6B7280" />
-              <Text style={styles.locationText}>{propertyData.address}</Text>
+              <Text style={[styles.locationText, isMobile && styles.locationTextMobile]}>{propertyData.address}</Text>
             </View>
 
             {/* Property Specifications */}
@@ -637,14 +697,14 @@ const goToNextPhoto = () => {
           </View>
           
           {/* Description Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Description</Text>
-            <Text style={styles.descriptionText}>{propertyData.description}</Text>
+          <View style={[styles.section, isMobile && styles.sectionMobile]}>
+            <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Description</Text>
+            <Text style={[styles.descriptionText, isMobile && styles.descriptionTextMobile]}>{propertyData.description}</Text>
           </View>
 
           {/* Amenities Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Amenities</Text>
+          <View style={[styles.section, isMobile && styles.sectionMobile]}>
+            <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Amenities</Text>
             <View style={styles.amenitiesGrid}>
               {propertyData.amenities.map((amenity: string, index: number) => (
                 <View key={index} style={styles.amenityTag}>
@@ -656,10 +716,10 @@ const goToNextPhoto = () => {
 
           {/* Rating Section - Only show for tenants, not owners viewing their own listing */}
           {!isOwnerView && isAuthenticated && (
-            <View style={styles.section}>
+            <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <View style={styles.ratingSection}>
                 <View style={styles.ratingHeader}>
-                  <Text style={styles.sectionTitle}>Rating & Reviews</Text>
+                  <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rating & Reviews</Text>
                   {calculatedRating > 0 && (
                     <View style={styles.averageRatingBadge}>
                       <Star size={18} color="#F59E0B" fill="#F59E0B" />
@@ -677,15 +737,39 @@ const goToNextPhoto = () => {
                     rating={userRating}
                     size={32}
                     interactive={true}
-                    onRatingChange={handleRatingSubmit}
+                    onRatingChange={handleStarClick}
                     color="#F59E0B"
                     inactiveColor="#D1D5DB"
                     style={styles.starRatingContainer}
                   />
+                  {userRating === 0 && calculatedRating === 0 && (
+                    <Text style={styles.noRatingText}>(No Rating)</Text>
+                  )}
                   {userRating > 0 && (
-                    <Text style={styles.ratingFeedback}>
-                      You rated this property {userRating} star{userRating !== 1 ? 's' : ''}
-                    </Text>
+                    <View style={styles.userRatingInfo}>
+                      <Text style={styles.ratingFeedback}>
+                        You rated this property {userRating} star{userRating !== 1 ? 's' : ''}
+                      </Text>
+                      {userReview && (
+                        <View style={styles.userReviewContainer}>
+                          <Text style={styles.userReviewLabel}>Your comment:</Text>
+                          <Text style={styles.userReviewText}>{userReview}</Text>
+                        </View>
+                      )}
+                      <TouchableOpacity 
+                        onPress={async () => {
+                          setTempRating(userRating);
+                          setTempReview(userReview);
+                          // Load existing anonymous preference
+                          const userRatingData = await getUserRatingForProperty(params.id as string, user?.id || '');
+                          setTempIsAnonymous(userRatingData?.isAnonymous || false);
+                          setRatingModalVisible(true);
+                        }}
+                        style={styles.editRatingButton}
+                      >
+                        <Text style={styles.editRatingText}>Edit Rating</Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
                   {isSubmittingRating && (
                     <Text style={styles.submittingText}>Submitting your rating...</Text>
@@ -696,33 +780,39 @@ const goToNextPhoto = () => {
           )}
 
           {/* Display overall rating for owner view or non-authenticated users */}
-          {(isOwnerView || !isAuthenticated) && totalReviews > 0 && (
-            <View style={styles.section}>
+          {(isOwnerView || !isAuthenticated) && (
+            <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <View style={styles.ratingSection}>
                 <View style={styles.ratingHeader}>
-                  <Text style={styles.sectionTitle}>Rating & Reviews</Text>
-                  <View style={styles.averageRatingBadge}>
-                    <Star size={18} color="#F59E0B" fill="#F59E0B" />
-                    <Text style={styles.averageRatingText}>{calculatedRating.toFixed(1)}</Text>
-                    <Text style={styles.totalReviewsText}>({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})</Text>
-                  </View>
+                  <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rating & Reviews</Text>
+                  {totalReviews > 0 && (
+                    <View style={styles.averageRatingBadge}>
+                      <Star size={18} color="#F59E0B" fill="#F59E0B" />
+                      <Text style={styles.averageRatingText}>{calculatedRating.toFixed(1)}</Text>
+                      <Text style={styles.totalReviewsText}>({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})</Text>
+                    </View>
+                  )}
                 </View>
-                <StarRating
-                  rating={calculatedRating}
-                  size={28}
-                  interactive={false}
-                  showCount={false}
-                  color="#F59E0B"
-                  inactiveColor="#D1D5DB"
-                  style={styles.starRatingContainer}
-                />
+                {totalReviews > 0 ? (
+                  <StarRating
+                    rating={calculatedRating}
+                    size={28}
+                    interactive={false}
+                    showCount={false}
+                    color="#F59E0B"
+                    inactiveColor="#D1D5DB"
+                    style={styles.starRatingContainer}
+                  />
+                ) : (
+                  <Text style={styles.noRatingText}>(No Rating)</Text>
+                )}
               </View>
             </View>
           )}
 
           {/* House Rules Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>House Rules</Text>
+          <View style={[styles.section, isMobile && styles.sectionMobile]}>
+            <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>House Rules</Text>
             <View style={styles.rulesList}>
               {propertyData.rules.map((rule: string, index: number) => (
                 <View key={index} style={styles.ruleItem}>
@@ -741,16 +831,16 @@ const goToNextPhoto = () => {
               (propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '') ||
               (propertyData.paymentMethods && propertyData.paymentMethods.length > 0);
           })() && (
-            <View style={styles.rentalDetailsCard}>
-              <Text style={styles.sectionTitle}>Rental Details</Text>
+            <View style={[styles.rentalDetailsCard, isMobile && styles.rentalDetailsCardMobile]}>
+              <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rental Details</Text>
               <View style={styles.rentalDetailsList}>
                 {(() => {
                   const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
                   return monthlyRent && monthlyRent > 0;
                 })() && (
-                  <View style={styles.rentalDetailItem}>
-                    <Text style={styles.rentalDetailLabel}>Monthly Rent:</Text>
-                    <Text style={styles.rentalDetailValue}>
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Monthly Rent:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
                       ₱{(() => {
                         const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
                         return monthlyRent.toLocaleString();
@@ -759,21 +849,23 @@ const goToNextPhoto = () => {
                   </View>
                 )}
                 {propertyData.securityDeposit && propertyData.securityDeposit > 0 && (
-                  <View style={styles.rentalDetailItem}>
-                    <Text style={styles.rentalDetailLabel}>Security Deposit:</Text>
-                    <Text style={styles.rentalDetailValue}>₱{propertyData.securityDeposit!.toLocaleString()}</Text>
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Security Deposit:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>₱{propertyData.securityDeposit!.toLocaleString()}</Text>
                   </View>
                 )}
                 {propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '' && (
-                  <View style={styles.rentalDetailItem}>
-                    <Text style={styles.rentalDetailLabel}>Availability:</Text>
-                    <Text style={styles.availabilityStatus}>{propertyData.availabilityStatus}</Text>
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Availability:</Text>
+                    <Text style={[styles.availabilityStatus, isMobile && styles.rentalDetailValueMobile]}>{propertyData.availabilityStatus}</Text>
                   </View>
                 )}
                 {propertyData.paymentMethods && propertyData.paymentMethods.length > 0 && (
-                  <View style={styles.rentalDetailItem}>
-                    <Text style={styles.rentalDetailLabel}>Payment Methods:</Text>
-                    <Text style={styles.rentalDetailValue}>{propertyData.paymentMethods.join(', ')}</Text>
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Payment Methods:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      {propertyData.paymentMethods.join(', ')}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -782,7 +874,7 @@ const goToNextPhoto = () => {
 
           {/* Enhanced Photo Gallery */}
           {isLoadingMedia ? (
-            <View style={styles.section}>
+            <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <View style={styles.loadingCard}>
                 <Text style={styles.loadingTitle}>📸 Loading Photos...</Text>
                 <Text style={styles.loadingText}>
@@ -799,8 +891,8 @@ const goToNextPhoto = () => {
             });
             return propertyData.photos && propertyData.photos.length > 0;
           })() ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
+            <View style={[styles.section, isMobile && styles.sectionMobile]}>
+              <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>
                 📸 Property Photos ({propertyData.photos.length})
               </Text>
               <View style={styles.photoGalleryContainer}>
@@ -811,7 +903,7 @@ const goToNextPhoto = () => {
                   style={styles.photoScrollView}
                   contentContainerStyle={styles.photoScrollContent}
                   decelerationRate="fast"
-                  snapToInterval={screenWidth * 0.6 + 16}
+                  snapToInterval={isMobile ? screenWidth * 0.75 + 16 : screenWidth * 0.6 + 16}
                   snapToAlignment="start"
                   pagingEnabled={false}
                   bounces={true}
@@ -821,13 +913,13 @@ const goToNextPhoto = () => {
                   disableIntervalMomentum={false}
                   onScroll={(event) => {
                     const scrollX = event.nativeEvent.contentOffset.x;
-                    const photoWidth = screenWidth * 0.6 + 16;
+                    const photoWidth = isMobile ? screenWidth * 0.75 + 16 : screenWidth * 0.6 + 16;
                     const currentIndex = Math.round(scrollX / photoWidth);
                     setCurrentPhotoScrollIndex(Math.min(currentIndex, propertyData.photos.length - 1));
                   }}
                   onScrollEndDrag={(event) => {
                     const scrollX = event.nativeEvent.contentOffset.x;
-                    const photoWidth = screenWidth * 0.6 + 16;
+                    const photoWidth = isMobile ? screenWidth * 0.75 + 16 : screenWidth * 0.6 + 16;
                     const currentIndex = Math.round(scrollX / photoWidth);
                     const targetX = currentIndex * photoWidth;
                     photoScrollRef.current?.scrollTo({ x: targetX, animated: true });
@@ -836,7 +928,7 @@ const goToNextPhoto = () => {
                   {propertyData.photos.map((photo: string, index: number) => (
                     <TouchableOpacity 
                       key={index} 
-                      style={styles.photoItem}
+                      style={[styles.photoItem, isMobile && styles.photoItemMobile]}
                       onPress={() => openPhotoViewer(index)}
                       activeOpacity={0.7}
                     >
@@ -854,7 +946,7 @@ const goToNextPhoto = () => {
               </View>
             </View>
           ) : (
-            <View style={styles.section}>
+            <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <View style={styles.noPhotosCard}>
                 <Text style={styles.noPhotosTitle}>📸 No Photos Available</Text>
                 <Text style={styles.noPhotosText}>
@@ -875,10 +967,10 @@ const goToNextPhoto = () => {
           />
 
           {/* Contact Info */}
-          <View style={styles.contactCard}>
+          <View style={[styles.contactCard, isMobile && styles.contactCardMobile]}>
             <Text style={styles.contactTitle}>Contact Information</Text>
             <View style={styles.contactInfo}>
-              <View style={styles.contactInfoCard}>
+              <View style={[styles.contactInfoCard, isMobile && styles.contactInfoCardMobile]}>
                 <Text style={styles.contactTextBold}>Owner: {propertyData.ownerName}</Text>
                 {propertyData.businessName && (
                   <Text style={styles.contactText}>Business: {propertyData.businessName}</Text>
@@ -894,9 +986,9 @@ const goToNextPhoto = () => {
 
           {/* Action Buttons */}
           {!isOwnerView && (
-            <View style={styles.actionButtonsContainer}>
+            <View style={[styles.actionButtonsContainer, isMobile && styles.actionButtonsContainerMobile]}>
               <TouchableOpacity 
-                style={styles.messageButton}
+                style={[styles.messageButton, isMobile && styles.messageButtonMobile]}
                 onPress={async () => {
                   if (!user?.id) {
                     Alert.alert('Please log in', 'You need to be logged in to message the owner.');
@@ -951,11 +1043,11 @@ const goToNextPhoto = () => {
                 }}
               >
                 <MessageCircle size={20} color="#FFFFFF" />
-                <Text style={styles.messageButtonText}>Message Owner</Text>
+                <Text style={[styles.messageButtonText, isMobile && styles.messageButtonTextMobile]}>Message Owner</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.bookButton}
+                style={[styles.bookButton, isMobile && styles.bookButtonMobile]}
                 onPress={async () => {
                   if (!user?.id) {
                     Alert.alert('Please log in', 'You need to be logged in to book this property.');
@@ -972,7 +1064,7 @@ const goToNextPhoto = () => {
                 }}
               >
                 <Calendar size={20} color="#FFFFFF" />
-                <Text style={styles.bookButtonText}>Book Now</Text>
+                <Text style={[styles.bookButtonText, isMobile && styles.bookButtonTextMobile]}>Book Now</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1064,6 +1156,106 @@ const goToNextPhoto = () => {
         onClose={() => setVideoPlayerVisible(false)}
         initialIndex={currentVideoIndex}
       />
+
+      {/* Rating Modal with Comment */}
+      <Modal
+        visible={ratingModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setRatingModalVisible(false)}
+      >
+        <View style={styles.ratingModalOverlay}>
+          <View style={[styles.ratingModalContent, isMobile && styles.ratingModalContentMobile]}>
+            <View style={styles.ratingModalHeader}>
+              <Text style={styles.ratingModalTitle}>Rate this Property</Text>
+              <TouchableOpacity
+                onPress={() => setRatingModalVisible(false)}
+                style={styles.ratingModalCloseButton}
+              >
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.ratingModalBody}>
+              <Text style={styles.ratingModalLabel}>Your Rating:</Text>
+              <StarRating
+                rating={tempRating}
+                size={40}
+                interactive={true}
+                onRatingChange={setTempRating}
+                color="#F59E0B"
+                inactiveColor="#D1D5DB"
+                style={styles.ratingModalStars}
+              />
+
+              <Text style={[styles.ratingModalLabel, styles.ratingModalLabelTop]}>
+                Add a comment (optional):
+              </Text>
+              <TextInput
+                style={styles.ratingModalTextInput}
+                multiline
+                numberOfLines={4}
+                placeholder="Share your experience with this property..."
+                placeholderTextColor="#9CA3AF"
+                value={tempReview}
+                onChangeText={(text) => {
+                  if (text.length <= 500) {
+                    setTempReview(text);
+                  }
+                }}
+                maxLength={500}
+                textAlignVertical="top"
+              />
+              <Text style={styles.ratingModalCharCount}>
+                {tempReview.length} / 500 characters
+              </Text>
+
+              {/* Anonymous Option */}
+              <View style={styles.anonymousOptionContainer}>
+                <View style={styles.anonymousOptionContent}>
+                  <View style={styles.anonymousOptionInfo}>
+                    <EyeOff size={20} color="#6B7280" />
+                    <View style={styles.anonymousOptionTextContainer}>
+                      <Text style={styles.anonymousOptionLabel}>Post as Anonymous</Text>
+                      <Text style={styles.anonymousOptionDescription}>
+                        Your name will not be shown with this rating
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={tempIsAnonymous}
+                    onValueChange={setTempIsAnonymous}
+                    trackColor={{ false: '#D1D5DB', true: '#3B82F6' }}
+                    thumbColor="#FFFFFF"
+                    ios_backgroundColor="#D1D5DB"
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.ratingModalFooter}>
+              <TouchableOpacity
+                onPress={() => setRatingModalVisible(false)}
+                style={[styles.ratingModalButton, styles.ratingModalCancelButton]}
+                disabled={isSubmittingRating}
+              >
+                <Text style={styles.ratingModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleRatingSubmit}
+                style={[styles.ratingModalButton, styles.ratingModalSubmitButton]}
+                disabled={isSubmittingRating || tempRating === 0}
+              >
+                {isSubmittingRating ? (
+                  <Text style={styles.ratingModalSubmitText}>Submitting...</Text>
+                ) : (
+                  <Text style={styles.ratingModalSubmitText}>Submit Rating</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
         </SafeAreaView>
       </>
@@ -1183,11 +1375,20 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  propertyInfoCardMobile: {
+    margin: 12,
+    padding: 16,
+  },
   propertyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
+  },
+  propertyHeaderMobile: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
   },
   propertyTitle: {
     fontSize: 24,
@@ -1196,10 +1397,20 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  propertyTitleMobile: {
+    fontSize: 18,
+    flex: 0,
+    marginRight: 0,
+    lineHeight: 26,
+  },
   propertyPrice: {
     fontSize: 24,
     fontWeight: '700',
     color: '#10B981',
+  },
+  propertyPriceMobile: {
+    fontSize: 20,
+    alignSelf: 'flex-start',
   },
   locationRow: {
     flexDirection: 'row',
@@ -1211,6 +1422,10 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginLeft: 8,
     flex: 1,
+    flexWrap: 'wrap',
+  },
+  locationTextMobile: {
+    fontSize: 14,
   },
   specificationsRow: {
     flexDirection: 'row',
@@ -1241,16 +1456,28 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  sectionMobile: {
+    padding: 16,
+    marginHorizontal: 12,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#111827',
     marginBottom: 12,
   },
+  sectionTitleMobile: {
+    fontSize: 16,
+    marginBottom: 10,
+  },
   descriptionText: {
     fontSize: 16,
     color: '#374151',
     lineHeight: 24,
+  },
+  descriptionTextMobile: {
+    fontSize: 14,
+    lineHeight: 22,
   },
   amenitiesGrid: {
     flexDirection: 'row',
@@ -1298,23 +1525,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0F2FE',
   },
+  rentalDetailsCardMobile: {
+    marginHorizontal: 12,
+    padding: 16,
+  },
   rentalDetailsList: {
     gap: 12,
   },
   rentalDetailItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+  },
+  rentalDetailItemMobile: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 4,
   },
   rentalDetailLabel: {
     fontSize: 16,
     color: '#374151',
     fontWeight: '500',
+    flexShrink: 0,
+    marginRight: 8,
+  },
+  rentalDetailLabelMobile: {
+    fontSize: 14,
+    marginRight: 0,
   },
   rentalDetailValue: {
     fontSize: 16,
     color: '#10B981',
     fontWeight: '600',
+    flex: 1,
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  rentalDetailValueMobile: {
+    fontSize: 14,
+    flex: 0,
+    flexShrink: 1,
+    textAlign: 'left',
+    width: '100%',
   },
   availabilityStatus: {
     fontSize: 16,
@@ -1326,6 +1579,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 24,
     gap: 12,
+  },
+  actionButtonsContainerMobile: {
+    marginHorizontal: 12,
+    marginBottom: 20,
+    gap: 8,
   },
   messageButton: {
     flex: 1,
@@ -1342,11 +1600,19 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  messageButtonMobile: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
   messageButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  messageButtonTextMobile: {
+    fontSize: 14,
+    marginLeft: 6,
   },
   bookButton: {
     flex: 1,
@@ -1363,11 +1629,19 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  bookButtonMobile: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
   bookButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  bookButtonTextMobile: {
+    fontSize: 14,
+    marginLeft: 6,
   },
   loadingCard: {
     backgroundColor: '#F0F9FF',
@@ -1401,6 +1675,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: 240,
     height: 200,
+  },
+  photoItemMobile: {
+    width: 280,
+    height: 220,
   },
   photoImage: {
     width: '100%',
@@ -1442,6 +1720,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     padding: 24,
     borderRadius: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  contactCardMobile: {
+    padding: 16,
+    marginHorizontal: 12,
   },
   contactTitle: {
     fontSize: 18,
@@ -1464,6 +1748,10 @@ const styles = StyleSheet.create({
     elevation: 1,
     width: '100%',
     maxWidth: 400,
+  },
+  contactInfoCardMobile: {
+    padding: 12,
+    maxWidth: '100%',
   },
   contactText: {
     fontSize: 16,
@@ -1643,6 +1931,189 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  noRatingText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  userRatingInfo: {
+    marginTop: 12,
+    width: '100%',
+  },
+  userReviewContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  userReviewLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  userReviewText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  editRatingButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#3B82F6',
+  },
+  editRatingText: {
+    fontSize: 14,
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  // Rating Modal Styles
+  ratingModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  ratingModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  ratingModalContentMobile: {
+    maxWidth: '100%',
+    maxHeight: '90%',
+  },
+  ratingModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  ratingModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  ratingModalCloseButton: {
+    padding: 4,
+  },
+  ratingModalBody: {
+    padding: 20,
+  },
+  ratingModalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  ratingModalLabelTop: {
+    marginTop: 24,
+  },
+  ratingModalStars: {
+    marginBottom: 8,
+  },
+  ratingModalTextInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#111827',
+    minHeight: 120,
+    backgroundColor: '#F9FAFB',
+    marginTop: 8,
+  },
+  ratingModalCharCount: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 6,
+    textAlign: 'right',
+  },
+  anonymousOptionContainer: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  anonymousOptionContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  anonymousOptionInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  anonymousOptionTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  anonymousOptionLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  anonymousOptionDescription: {
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 16,
+  },
+  ratingModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  ratingModalButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  ratingModalCancelButton: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  ratingModalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  ratingModalSubmitButton: {
+    backgroundColor: '#3B82F6',
+  },
+  ratingModalSubmitText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
 

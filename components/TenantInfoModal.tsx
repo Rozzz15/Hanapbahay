@@ -18,6 +18,7 @@ interface TenantInfoModalProps {
   tenantName: string;
   tenantEmail?: string;
   tenantPhone?: string;
+  tenantAvatar?: string;
   onClose: () => void;
 }
 
@@ -41,13 +42,16 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
   tenantName,
   tenantEmail,
   tenantPhone,
+  tenantAvatar,
   onClose
 }) => {
   const [tenantProfile, setTenantProfile] = useState<TenantProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
     if (visible && tenantId) {
+      setImageError(false); // Reset image error when opening modal
       loadTenantProfile();
     }
   }, [visible, tenantId]);
@@ -59,40 +63,48 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
       // Try to load user data first
       const user = await db.get('users', tenantId);
       
-      // Load profile photo - THIS IS THE KEY PART
+      // Load profile photo - Use provided tenantAvatar if available, otherwise load it
       let profilePhoto = '';
-      try {
-        const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
-        const photoUri = await loadUserProfilePhoto(tenantId);
-        if (photoUri && photoUri.trim() && photoUri.length > 10) {
-          profilePhoto = photoUri.trim();
-          console.log('✅ Loaded tenant profile photo');
-        }
-      } catch (error) {
-        console.log('⚠️ Could not load profile photo:', error);
-        
-        // Try direct database query as fallback
+      
+      // First, use the provided tenantAvatar if available
+      if (tenantAvatar && tenantAvatar.trim() && tenantAvatar.length > 10) {
+        profilePhoto = tenantAvatar.trim();
+        console.log('✅ Using provided tenant profile photo');
+      } else {
+        // Try to load profile photo from database
         try {
-          const allPhotos = await db.list('user_profile_photos');
-          const tenantPhoto = allPhotos.find((photo: any) => {
-            const photoUserId = photo.userId || photo.userid;
-            return photoUserId === tenantId && photo.photoData && photo.photoData.trim();
-          });
-          
-          if (tenantPhoto) {
-            const photoData = tenantPhoto.photoData;
-            if (photoData && photoData.trim()) {
-              if (photoData.startsWith('data:')) {
-                profilePhoto = photoData.trim();
-              } else {
-                const mimeType = tenantPhoto.mimeType || 'image/jpeg';
-                profilePhoto = `data:${mimeType};base64,${photoData.trim()}`;
-              }
-              console.log('✅ Loaded profile photo via direct query');
-            }
+          const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+          const photoUri = await loadUserProfilePhoto(tenantId);
+          if (photoUri && photoUri.trim() && photoUri.length > 10) {
+            profilePhoto = photoUri.trim();
+            console.log('✅ Loaded tenant profile photo from database');
           }
-        } catch (fallbackError) {
-          console.log('⚠️ Fallback photo loading failed:', fallbackError);
+        } catch (error) {
+          console.log('⚠️ Could not load profile photo:', error);
+          
+          // Try direct database query as fallback
+          try {
+            const allPhotos = await db.list('user_profile_photos');
+            const tenantPhoto = allPhotos.find((photo: any) => {
+              const photoUserId = photo.userId || photo.userid;
+              return photoUserId === tenantId && (photo as any).photoData && (photo as any).photoData.trim();
+            }) as any;
+            
+            if (tenantPhoto) {
+              const photoData = tenantPhoto.photoData;
+              if (photoData && photoData.trim()) {
+                if (photoData.startsWith('data:')) {
+                  profilePhoto = photoData.trim();
+                } else {
+                  const mimeType = tenantPhoto.mimeType || 'image/jpeg';
+                  profilePhoto = `data:${mimeType};base64,${photoData.trim()}`;
+                }
+                console.log('✅ Loaded profile photo via direct query');
+              }
+            }
+          } catch (fallbackError) {
+            console.log('⚠️ Fallback photo loading failed:', fallbackError);
+          }
         }
       }
 
@@ -150,16 +162,20 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
     } catch (error) {
       console.error('❌ Error loading tenant profile:', error);
       
-      // Try to at least load the photo
+      // Try to at least load the photo - use provided tenantAvatar if available
       let errorPhoto = '';
-      try {
-        const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
-        const photoUri = await loadUserProfilePhoto(tenantId);
-        if (photoUri && photoUri.trim() && photoUri.length > 10) {
-          errorPhoto = photoUri.trim();
+      if (tenantAvatar && tenantAvatar.trim() && tenantAvatar.length > 10) {
+        errorPhoto = tenantAvatar.trim();
+      } else {
+        try {
+          const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
+          const photoUri = await loadUserProfilePhoto(tenantId);
+          if (photoUri && photoUri.trim() && photoUri.length > 10) {
+            errorPhoto = photoUri.trim();
+          }
+        } catch (photoError) {
+          console.log('⚠️ Could not load photo on error:', photoError);
         }
-      } catch (photoError) {
-        console.log('⚠️ Could not load photo on error:', photoError);
       }
       
       setTenantProfile({
@@ -206,12 +222,19 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
               <View style={styles.avatarContainer}>
                 {tenantProfile.profilePhoto && 
                  tenantProfile.profilePhoto.trim() && 
-                 tenantProfile.profilePhoto.length > 10 ? (
+                 tenantProfile.profilePhoto.length > 10 && 
+                 !imageError ? (
                   <Image
                     source={{ uri: tenantProfile.profilePhoto }}
                     style={styles.avatar}
-                    onError={() => console.warn('⚠️ Profile photo failed to load')}
-                    onLoad={() => console.log('✅ Profile photo loaded successfully')}
+                    onError={(error) => {
+                      console.warn('⚠️ Profile photo failed to load', error.nativeEvent?.error || 'Unknown error');
+                      setImageError(true);
+                    }}
+                    onLoad={() => {
+                      console.log('✅ Profile photo loaded successfully');
+                      setImageError(false);
+                    }}
                     resizeMode="cover"
                   />
                 ) : (

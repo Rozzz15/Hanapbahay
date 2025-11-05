@@ -53,6 +53,7 @@ export default function OwnerChatRoom() {
     const [ownerId, setOwnerId] = useState<string | null>(null);
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
+    const [paymentBannerVisible, setPaymentBannerVisible] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
 
     const loadParticipantInfo = useCallback(async () => {
@@ -192,8 +193,7 @@ export default function OwnerChatRoom() {
 
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
-                allowsEditing: true,
-                aspect: [4, 3],
+                allowsEditing: false,
                 quality: 0.8,
             });
 
@@ -431,14 +431,37 @@ export default function OwnerChatRoom() {
     };
 
     const renderMessage = (message: Message, index: number) => {
-        const isOwner = message.isOwner;
+        // Check if message is from current user (not just if it's from owner)
+        const isCurrentUser = message.senderId === user?.id;
         const isImageMessage = message.type === 'image' && message.imageUri;
         const canDelete = user?.id === message.senderId;
 
         return (
-            <Animated.View key={message.id} style={[styles.messageContainer, isOwner ? styles.ownerMessageContainer : styles.tenantMessageContainer]}>
+            <Animated.View key={message.id} style={[styles.messageContainer, isCurrentUser ? styles.currentUserMessageContainer : styles.otherUserMessageContainer]}>
+                {/* Show avatar for other user's messages (on the left) */}
+                {!isCurrentUser && (
+                    <View style={styles.avatarLeft}>
+                        {participantInfo.otherParticipantAvatar && 
+                         participantInfo.otherParticipantAvatar.trim() && 
+                         participantInfo.otherParticipantAvatar.length > 10 ? (
+                            <Image 
+                                source={{ uri: participantInfo.otherParticipantAvatar }} 
+                                style={styles.avatarImage}
+                                onError={() => {
+                                    console.warn('⚠️ Participant profile photo failed to load');
+                                }}
+                            />
+                        ) : (
+                            <View style={styles.avatar}>
+                                <Text style={styles.avatarText}>
+                                    {(participantInfo.otherParticipantName || 'U').charAt(0).toUpperCase()}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                )}
                 <TouchableOpacity
-                    style={[styles.messageBubble, isOwner ? styles.ownerMessage : styles.tenantMessage, isImageMessage && styles.imageMessageBubble]}
+                    style={[styles.messageBubble, isCurrentUser ? styles.currentUserMessage : styles.otherUserMessage, isImageMessage && styles.imageMessageBubble]}
                     onLongPress={() => {
                         if (canDelete) {
                             setSelectedMessage(message);
@@ -457,11 +480,11 @@ export default function OwnerChatRoom() {
                             />
                         </View>
                     ) : (
-                        <Text style={[styles.messageText, isOwner ? styles.ownerMessageText : styles.tenantMessageText]}>
+                        <Text style={[styles.messageText, isCurrentUser ? styles.currentUserMessageText : styles.otherUserMessageText]}>
                             {message.text}
                         </Text>
                     )}
-                    <Text style={[styles.messageTime, isOwner ? styles.ownerMessageTime : styles.tenantMessageTime]}>
+                    <Text style={[styles.messageTime, isCurrentUser ? styles.currentUserMessageTime : styles.otherUserMessageTime]}>
                         {formatTime(message.createdAt)}
                     </Text>
                 </TouchableOpacity>
@@ -516,21 +539,32 @@ export default function OwnerChatRoom() {
                 style={styles.messagesContainer}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
-                <ScrollView 
-                    ref={scrollViewRef}
-                    style={styles.messagesScrollView}
-                    contentContainerStyle={styles.messagesContent}
-                    showsVerticalScrollIndicator={false}
-                >
-                    {/* Payment Methods Display - Only show if there's an approved booking */}
+                {/* Sticky Payment Methods Banner */}
+                <View pointerEvents="box-none" style={styles.paymentBannerSticky}>
                     {ownerId && tenantId && (
                       <PaymentMethodsDisplay 
                         ownerId={ownerId} 
                         tenantId={tenantId}
-                        isCurrentUserOwner={isCurrentUserOwner} 
+                        isCurrentUserOwner={isCurrentUserOwner}
+                        onVisibilityChange={(visible) => {
+                            try {
+                                // @ts-ignore - local state not typed here
+                                setPaymentBannerVisible && setPaymentBannerVisible(visible);
+                            } catch {}
+                        }}
                       />
                     )}
-                    
+                </View>
+
+                <ScrollView 
+                    ref={scrollViewRef}
+                    style={styles.messagesScrollView}
+                    contentContainerStyle={[
+                        styles.messagesContent,
+                        paymentBannerVisible && styles.messagesContentWithBanner
+                    ]}
+                    showsVerticalScrollIndicator={false}
+                >
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>
                             <Ionicons name="chatbubbles-outline" size={48} color="#9CA3AF" />
@@ -657,12 +691,22 @@ const styles = StyleSheet.create({
     messagesContainer: {
         flex: 1,
     },
+    paymentBannerSticky: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 10,
+    },
     messagesScrollView: {
         flex: 1,
     },
     messagesContent: {
         paddingVertical: 16,
         paddingHorizontal: 16,
+    },
+    messagesContentWithBanner: {
+        paddingTop: 120,
     },
     emptyState: {
         alignItems: 'center',
@@ -674,74 +718,78 @@ const styles = StyleSheet.create({
         marginTop: 12,
     },
     messageContainer: {
-        marginBottom: 8,
+        marginBottom: 12,
         paddingHorizontal: 16,
-    },
-    ownerMessageContainer: {
+        flexDirection: 'row',
         alignItems: 'flex-end',
     },
-    tenantMessageContainer: {
-        alignItems: 'flex-start',
+    currentUserMessageContainer: {
+        justifyContent: 'flex-end',
+    },
+    otherUserMessageContainer: {
+        justifyContent: 'flex-start',
     },
     avatarLeft: {
         marginRight: 8,
-    },
-    avatarRight: {
-        marginLeft: 8,
-        order: 1,
+        marginBottom: 4,
     },
     avatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: '#F3F4F6',
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#3B82F6',
         justifyContent: 'center',
         alignItems: 'center',
     },
     avatarImage: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
     },
     avatarText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#6B7280',
+        color: '#FFFFFF',
     },
     messageBubble: {
         maxWidth: '75%',
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderRadius: 20,
+        paddingVertical: 10,
+        borderRadius: 18,
     },
-    ownerMessage: {
+    currentUserMessage: {
         backgroundColor: '#3B82F6',
         borderBottomRightRadius: 4,
     },
-    tenantMessage: {
+    otherUserMessage: {
         backgroundColor: '#FFFFFF',
         borderBottomLeftRadius: 4,
         borderWidth: 1,
         borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     messageText: {
         fontSize: 16,
-        lineHeight: 20,
+        lineHeight: 22,
     },
-    ownerMessageText: {
+    currentUserMessageText: {
         color: '#FFFFFF',
     },
-    tenantMessageText: {
+    otherUserMessageText: {
         color: '#111827',
     },
     messageTime: {
         fontSize: 11,
         marginTop: 4,
     },
-    ownerMessageTime: {
-        color: 'rgba(255, 255, 255, 0.7)',
+    currentUserMessageTime: {
+        color: 'rgba(255, 255, 255, 0.8)',
     },
-    tenantMessageTime: {
+    otherUserMessageTime: {
         color: '#9CA3AF',
     },
     inputContainer: {

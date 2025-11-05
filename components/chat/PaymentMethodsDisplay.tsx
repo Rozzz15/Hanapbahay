@@ -20,6 +20,7 @@ interface PaymentMethodsDisplayProps {
   ownerId: string;
   tenantId: string;
   isCurrentUserOwner: boolean;
+  onVisibilityChange?: (visible: boolean) => void;
 }
 
 const PAYMENT_TYPES = [
@@ -29,7 +30,7 @@ const PAYMENT_TYPES = [
   { id: 'cash', name: 'Cash Payment', icon: '💵', color: '#059669' }
 ];
 
-export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUserOwner }: PaymentMethodsDisplayProps) {
+export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUserOwner, onVisibilityChange }: PaymentMethodsDisplayProps) {
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -51,6 +52,9 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
       );
       
       setHasApprovedBooking(!!approvedBooking);
+      if (onVisibilityChange) {
+        onVisibilityChange(!!approvedBooking);
+      }
       console.log('📋 Approved booking check:', {
         hasApprovedBooking: !!approvedBooking,
         ownerId,
@@ -59,6 +63,9 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
     } catch (error) {
       console.error('Error checking approved booking:', error);
       setHasApprovedBooking(false);
+      if (onVisibilityChange) {
+        onVisibilityChange(false);
+      }
     }
   };
 

@@ -18,7 +18,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
-import TenantInfoModal from '@/components/TenantInfoModal';
 import ApprovedBookingsPayment from '@/components/ApprovedBookingsPayment';
 
 interface Conversation {
@@ -45,14 +44,14 @@ export default function OwnerMessages() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedTenant, setSelectedTenant] = useState<Conversation | null>(null);
-    const [isModalVisible, setIsModalVisible] = useState(false);
+    const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
 
     const loadConversations = useCallback(async () => {
         if (!user?.id) return;
 
         try {
             setLoading(true);
+            setImageErrors(new Set()); // Clear image errors when reloading
             console.log('🔄 Loading conversations for owner:', user.id);
 
             // Get all conversations where user is the owner
@@ -224,6 +223,15 @@ export default function OwnerMessages() {
             setConversations(conversationsWithActualMessages);
             console.log(`✅ Loaded ${conversationsWithActualMessages.length} conversations with messages`);
             
+            // Debug: Log avatar info
+            conversationsWithActualMessages.forEach(conv => {
+                console.log(`👤 Tenant ${conv.tenantName} avatar:`, {
+                    hasAvatar: !!conv.tenantAvatar,
+                    avatarLength: conv.tenantAvatar?.length || 0,
+                    avatarPreview: conv.tenantAvatar?.substring(0, 50) || 'none'
+                });
+            });
+            
             // Debug: Log payment status info
             conversationsWithActualMessages.forEach(conv => {
                 if (conv.bookingStatus === 'approved') {
@@ -344,16 +352,6 @@ export default function OwnerMessages() {
         );
     };
 
-    const handleAvatarPress = (conversation: Conversation) => {
-        setSelectedTenant(conversation);
-        setIsModalVisible(true);
-    };
-
-    const handleCloseModal = () => {
-        setIsModalVisible(false);
-        setSelectedTenant(null);
-    };
-
     const formatTime = (timeString?: string) => {
         if (!timeString) return 'Now';
         
@@ -455,11 +453,7 @@ export default function OwnerMessages() {
                                 >
                                     <View style={styles.conversationContent}>
                                         {/* Avatar */}
-                                        <TouchableOpacity 
-                                            style={styles.avatarContainer}
-                                            onPress={() => handleAvatarPress(conversation)}
-                                            activeOpacity={0.7}
-                                        >
+                                        <View style={styles.avatarContainer}>
                                             <View style={styles.avatar}>
                                                 {conversation.tenantAvatar && conversation.tenantAvatar.trim() !== '' ? (
                                                     <Image 
@@ -487,12 +481,39 @@ export default function OwnerMessages() {
                                                     </View>
                                                 )}
                                             </View>
-                                        </TouchableOpacity>
+                                        </View>
                                         
                                         {/* Message Content */}
                                         <View style={styles.messageContent}>
                                             <View style={styles.messageHeader}>
                                                 <View style={styles.tenantNameContainer}>
+                                                    {/* Small Profile Picture */}
+                                                    <View style={styles.smallAvatarContainer}>
+                                                        {conversation.tenantAvatar && 
+                                                         conversation.tenantAvatar.trim() !== '' && 
+                                                         conversation.tenantAvatar.length > 10 &&
+                                                         !imageErrors.has(conversation.id) ? (
+                                                            <Image 
+                                                                source={{ uri: conversation.tenantAvatar }} 
+                                                                style={styles.smallAvatarImage}
+                                                                resizeMode="cover"
+                                                                onError={(error) => {
+                                                                    console.log('❌ Failed to load small avatar for conversation:', conversation.id, conversation.tenantName);
+                                                                    console.log('❌ Avatar URI preview:', conversation.tenantAvatar?.substring(0, 50));
+                                                                    setImageErrors(prev => new Set(prev).add(conversation.id));
+                                                                }}
+                                                                onLoad={() => {
+                                                                    console.log('✅ Successfully loaded small avatar for:', conversation.tenantName);
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            <View style={styles.smallAvatarFallback}>
+                                                                <Text style={styles.smallAvatarText}>
+                                                                    {conversation.tenantName ? conversation.tenantName.charAt(0).toUpperCase() : '?'}
+                                                                </Text>
+                                                            </View>
+                                                        )}
+                                                    </View>
                                                     <Text style={styles.tenantName}>{conversation.tenantName}</Text>
                                                     {/* Payment Confirmation Icon */}
                                                     {conversation.bookingStatus === 'approved' && (
@@ -544,18 +565,6 @@ export default function OwnerMessages() {
                     )}
                 </View>
             </ScrollView>
-
-            {/* Tenant Info Modal */}
-            {selectedTenant && (
-                <TenantInfoModal
-                    visible={isModalVisible}
-                    tenantId={selectedTenant.tenantId}
-                    tenantName={selectedTenant.tenantName}
-                    tenantEmail={selectedTenant.tenantEmail || ""}
-                    tenantPhone={selectedTenant.tenantPhone || ""}
-                    onClose={handleCloseModal}
-                />
-            )}
         </SafeAreaView>
     );
 }
@@ -747,6 +756,32 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 8,
         flex: 1,
+    },
+    smallAvatarContainer: {
+        width: 24,
+        height: 24,
+        marginRight: 0,
+        overflow: 'hidden',
+    },
+    smallAvatarImage: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#F3F4F6',
+    },
+    smallAvatarFallback: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+    },
+    smallAvatarText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#6B7280',
     },
     paymentStatusContainer: {
         marginLeft: 4,

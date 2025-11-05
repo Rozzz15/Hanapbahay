@@ -157,34 +157,30 @@ export default function FilterScreen() {
             <Pressable
               style={styles.applyButton}
               onPress={() => {
-                // Handle filter application
-                const filters = { 
-                  propertyType: selectedPropertyType, 
-                  priceRange, 
-                  barangay: selectedBarangay,
-                  featuredOnly: isFeaturedOnly
-                };
-                console.log('Applying filters:', filters);
+                // Prepare filter data - ensure barangay is in correct format
+                const barangayValue = selectedBarangay || '';
                 
-                // Dispatch filter changes to the dashboard
                 const filterDetail = {
-                  propertyType: selectedPropertyType,
-                  priceRange: priceRange,
-                  barangay: selectedBarangay
+                  propertyType: selectedPropertyType || 'any',
+                  priceRange: priceRange || { min: 1000, max: 5000 },
+                  barangay: barangayValue // Send as-is, will be normalized in filter function
                 };
-                console.log('🚀 Dispatching filter event:', filterDetail);
+                
+                console.log('🚀 Applying new filters:', filterDetail);
+                console.log('📍 Barangay value:', barangayValue);
+                
+                // Dispatch filter event to dashboard
                 dispatchCustomEvent('filtersApplied', filterDetail);
                 console.log('✅ Filter event dispatched successfully');
                 
                 if (isFeaturedOnly) {
                   console.log('🎯 Navigating to featured properties view');
-                  // Navigate back to dashboard with featured filter
                   router.push({
                     pathname: '/(tabs)',
                     params: { featuredFilter: 'true' }
                   });
                 } else {
-                  // Navigate back to dashboard with filters applied
+                  // Navigate back to dashboard
                   console.log('🔄 Navigating back to dashboard with filters applied');
                   router.back();
                 }

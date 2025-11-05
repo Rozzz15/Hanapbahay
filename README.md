@@ -1,29 +1,102 @@
-# Welcome to your Expo app 👋
+# HanapBahay - Property Rental App 🏠
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A property rental application built with Expo, React Native, and TypeScript.
 
-## Get started
+## 🚀 Quick Start
 
-1. Install dependencies
+### Prerequisites
+- Node.js v18.0.0 or higher
+- npm (comes with Node.js)
 
+### Installation
+
+1. **Install dependencies**
    ```bash
    npm install
    ```
 
-2. Start the app
-
+2. **Verify setup (optional but recommended)**
    ```bash
-    npx expo start
+   node scripts/verify-setup.js
    ```
 
-In the output, you'll find options to open the app in a
+3. **Start the app**
+   ```bash
+   npm start
+   ```
+   Or use:
+   ```bash
+   npx expo start
+   ```
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+4. **Choose your platform**
+   - Press `w` for web browser
+   - Press `a` for Android emulator/device
+   - Press `i` for iOS simulator (Mac only)
+   - Scan QR code with Expo Go app on your phone
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### ⚙️ Environment Configuration (Optional)
+
+**Note:** You may see a warning: `⚠️ Supabase credentials not configured, using mock client`
+
+This is **normal** and the app will work fine for development. The app uses a mock Supabase client when credentials aren't configured. To use real Supabase features:
+
+1. Create a `.env` file in the project root:
+   ```env
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+   ```
+
+2. Get your credentials from [Supabase Dashboard](https://app.supabase.com) → Settings → API
+
+See **[SETUP_GUIDE.md](./SETUP_GUIDE.md)** for detailed instructions.
+
+### Troubleshooting
+
+If you encounter issues, especially the **"Something went wrong"** error when opening on another device:
+
+- See **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** for specific solutions to common errors
+- See **[SETUP_GUIDE.md](./SETUP_GUIDE.md)** for detailed setup instructions
+
+**Common quick fixes:**
+```bash
+# Clear cache and restart
+npm run reset
+
+# Reinstall dependencies
+rm -rf node_modules package-lock.json
+npm install
+
+# For network issues on different devices, use tunnel mode
+npm run start:tunnel
+```
+
+## 📱 Platform Support
+
+- **iOS** - Requires Mac with Xcode
+- **Android** - Requires Android Studio or physical device
+- **Web** - Runs in any modern browser
+
+## 🛠️ Available Scripts
+
+- `npm start` - Start Expo development server
+- `npm run reset` - Clear cache and restart
+- `npm run android` - Run on Android
+- `npm run ios` - Run on iOS (Mac only)
+- `npm run web` - Run in web browser
+- `npm test` - Run tests
+- `npm run lint` - Check code quality
+
+## 📚 Project Structure
+
+This project uses [Expo Router](https://docs.expo.dev/router/introduction/) for file-based routing.
+
+- `app/` - Main application screens and routes
+- `components/` - Reusable React components
+- `utils/` - Utility functions
+- `api/` - API integration functions
+- `context/` - React Context providers
+- `assets/` - Images, fonts, and other static assets
 
 ## Get a fresh project
 

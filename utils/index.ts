@@ -8,10 +8,12 @@ export * from './view-tracking';
 
 // Utility functions
 export const formatPrice = (price: number): string => {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
+  // Format as peso currency with explicit peso sign
+  const formatted = new Intl.NumberFormat('en-PH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(price);
+  return `₱${formatted}`;
 };
 
 export const formatDate = (date: Date): string => {

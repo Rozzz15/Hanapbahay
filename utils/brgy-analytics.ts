@@ -52,9 +52,7 @@ export interface ComprehensiveAnalytics {
     growthRate: number;
   };
   
-  // Financial Analytics
-  totalRevenue: number;
-  averageBookingValue: number;
+  // Payment Methods (kept for payment analytics, not financial summary)
   paymentMethods: Record<string, number>;
   
   // Activity Analytics
@@ -473,16 +471,7 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       ? Math.round(((thisMonthBookings - lastMonthBookings) / lastMonthBookings) * 100)
       : 0;
     
-    // Financial Analytics
-    const approvedBookingAmounts = barangayBookings
-      .filter(b => b.status === 'approved')
-      .map(b => b.totalAmount || 0);
-    
-    const totalRevenue = approvedBookingAmounts.reduce((a, b) => a + b, 0);
-    const averageBookingValue = approvedBookingAmounts.length > 0 
-      ? totalRevenue / approvedBookingAmounts.length 
-      : 0;
-    
+    // Payment Methods (kept for payment analytics, not financial summary)
     const paymentMethods = barangayBookings.reduce((acc, booking) => {
       const method = booking.selectedPaymentMethod || 'Unknown';
       acc[method] = (acc[method] || 0) + 1;
@@ -674,8 +663,6 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
         lastMonth: lastMonthBookings,
         growthRate
       },
-      totalRevenue: Math.round(totalRevenue),
-      averageBookingValue: Math.round(averageBookingValue),
       paymentMethods,
       totalInquiries,
       totalViews,
@@ -753,8 +740,6 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
         lastMonth: 0,
         growthRate: 0,
       },
-      totalRevenue: 0,
-      averageBookingValue: 0,
       paymentMethods: {},
       totalInquiries: 0,
       totalViews: 0,
@@ -896,7 +881,6 @@ OVERVIEW
 --------
 Total Properties: ${analytics.totalProperties}
 Total Bookings: ${analytics.totalBookings}
-Total Revenue: ₱${analytics.totalRevenue.toLocaleString()}
 Total Views: ${analytics.totalViews}
 
 OWNER DEMOGRAPHICS
@@ -925,12 +909,6 @@ Pending: ${analytics.pendingBookings}
 Rejected: ${analytics.rejectedBookings}
 Cancelled: ${analytics.cancelledBookings}
 Completed: ${analytics.completedBookings}
-
-FINANCIAL SUMMARY
------------------
-Total Revenue: ₱${analytics.totalRevenue.toLocaleString()}
-Average Booking Value: ₱${analytics.averageBookingValue.toLocaleString()}
-Average Rent: ₱${analytics.averageRent.toLocaleString()}
 
 MARKET ANALYTICS
 ----------------
@@ -990,9 +968,6 @@ ${analytics.marketAnalytics.popularPropertyTypes.map(type =>
       ['Tenant', 'Demographics', 'Female Tenants', analytics.genderAnalytics.female.toString(), `${analytics.genderAnalytics.femalePercentage}%`],
       ['Booking', 'Status', 'Approved', analytics.approvedBookings.toString(), `${Math.round((analytics.approvedBookings / analytics.totalBookings) * 100)}%`],
       ['Booking', 'Status', 'Pending', analytics.pendingBookings.toString(), `${Math.round((analytics.pendingBookings / analytics.totalBookings) * 100)}%`],
-      ['Financial', 'Revenue', 'Total Revenue', `₱${analytics.totalRevenue.toLocaleString()}`, ''],
-      ['Financial', 'Revenue', 'Average Booking Value', `₱${analytics.averageBookingValue.toLocaleString()}`, ''],
-      ['Financial', 'Revenue', 'Average Rent', `₱${analytics.averageRent.toLocaleString()}`, ''],
       ['Market', 'Analytics', 'Occupancy Rate', `${analytics.marketAnalytics.occupancyRate}%`, ''],
       ['Market', 'Analytics', 'Average Days on Market', `${analytics.marketAnalytics.averageDaysOnMarket} days`, ''],
       ['Activity', 'Recent', 'New Bookings (7 days)', analytics.recentActivity.newBookings.toString(), ''],

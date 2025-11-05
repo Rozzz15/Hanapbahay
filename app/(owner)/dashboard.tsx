@@ -21,7 +21,9 @@ import {
   LogOut,
   Plus,
   Eye,
-  User
+  User,
+  TrendingUp,
+  Percent
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -29,6 +31,11 @@ import { Image } from '../../components/ui/image';
 import TenantInfoModal from '../../components/TenantInfoModal';
 import ApprovedBookingsPayment from '../../components/ApprovedBookingsPayment';
 import { isOwnerApproved, hasPendingOwnerApplication } from '../../utils/owner-approval';
+import { 
+  getOwnerFinancialAnalytics, 
+  type OwnerFinancialAnalytics,
+  type TimePeriod 
+} from '../../utils/owner-analytics';
 
 // Types are now imported from owner-dashboard.ts
 
@@ -55,6 +62,9 @@ export default function OwnerDashboard() {
     email?: string;
     phone?: string;
   } | null>(null);
+  const [financialAnalytics, setFinancialAnalytics] = useState<OwnerFinancialAnalytics | null>(null);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<TimePeriod>('monthly');
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
   // Check authentication and approval status
   useEffect(() => {
@@ -156,6 +166,11 @@ export default function OwnerDashboard() {
     }
   }, [user?.id]); // Only depend on user.id to prevent infinite loops
 
+  // Reload analytics when period changes
+  useEffect(() => {
+    loadFinancialAnalytics();
+  }, [analyticsPeriod, loadFinancialAnalytics]);
+
   const loadDashboardData = useCallback(async () => {
     if (!user?.id) return;
 
@@ -165,7 +180,8 @@ export default function OwnerDashboard() {
         loadStats(),
         loadListings(),
         loadBookings(),
-        loadMessages()
+        loadMessages(),
+        loadFinancialAnalytics()
       ]);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -271,6 +287,20 @@ export default function OwnerDashboard() {
       console.error('Error loading messages:', error);
     }
   }, [user?.id]);
+
+  const loadFinancialAnalytics = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      setLoadingAnalytics(true);
+      const analytics = await getOwnerFinancialAnalytics(user.id, analyticsPeriod);
+      setFinancialAnalytics(analytics);
+    } catch (error) {
+      console.error('Error loading financial analytics:', error);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  }, [user?.id, analyticsPeriod]);
 
   const handleBookingAction = async (bookingId: string, action: 'approve' | 'reject') => {
     if (!user?.id) return;
@@ -458,6 +488,177 @@ export default function OwnerDashboard() {
             </View>
           </View>
         </View>
+      </View>
+
+      {/* Financial Analytics / Revenue & Pricing Analytics Section */}
+      <View style={sharedStyles.section}>
+        <View style={sharedStyles.pageHeader}>
+          <Text style={sharedStyles.sectionTitle}>Revenue & Pricing Analytics</Text>
+        </View>
+
+        {/* Time Period Selector */}
+        <View style={{
+          flexDirection: 'row',
+          gap: designTokens.spacing.sm,
+          marginBottom: designTokens.spacing.lg,
+          flexWrap: 'wrap'
+        }}>
+          {(['today', 'weekly', 'monthly', 'yearly'] as TimePeriod[]).map((period) => (
+            <TouchableOpacity
+              key={period}
+              onPress={() => setAnalyticsPeriod(period)}
+              style={{
+                paddingHorizontal: designTokens.spacing.md,
+                paddingVertical: designTokens.spacing.sm,
+                borderRadius: designTokens.borderRadius.md,
+                backgroundColor: analyticsPeriod === period 
+                  ? designTokens.colors.primary 
+                  : designTokens.colors.white,
+                borderWidth: 1,
+                borderColor: analyticsPeriod === period 
+                  ? designTokens.colors.primary 
+                  : designTokens.colors.border,
+                minWidth: 70,
+                alignItems: 'center'
+              }}
+            >
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                fontWeight: designTokens.typography.medium,
+                color: analyticsPeriod === period 
+                  ? designTokens.colors.white 
+                  : designTokens.colors.textPrimary,
+                textTransform: 'capitalize'
+              }}>
+                {period === 'today' ? 'Today' : period === 'weekly' ? 'Weekly' : period === 'monthly' ? 'Monthly' : 'Yearly'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Analytics Metrics */}
+        {loadingAnalytics ? (
+          <View style={[sharedStyles.card, { alignItems: 'center', padding: designTokens.spacing.xl }]}>
+            <Text style={sharedStyles.statSubtitle}>Loading analytics...</Text>
+          </View>
+        ) : financialAnalytics ? (
+          <View>
+            {/* Total Revenue and Average Booking Value Row */}
+            <View style={sharedStyles.grid}>
+              <View style={sharedStyles.gridItem}>
+                <View style={sharedStyles.statCard}>
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.green, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <Text style={{ fontSize: 20, color: "#10B981", fontWeight: 'bold', fontFamily: 'System' }}>₱</Text>
+                    </View>
+                  </View>
+                  <Text style={sharedStyles.statLabel}>Total Revenue</Text>
+                  <Text style={[sharedStyles.statValue, { color: designTokens.colors.success }]}>
+                    {`₱${financialAnalytics.totalRevenue.toLocaleString()}`}
+                  </Text>
+                  <Text style={sharedStyles.statSubtitle}>{financialAnalytics.periodLabel}</Text>
+                </View>
+              </View>
+
+              <View style={sharedStyles.gridItem}>
+                <View style={sharedStyles.statCard}>
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+                      <TrendingUp size={20} color="#3B82F6" />
+                    </View>
+                  </View>
+                  <Text style={sharedStyles.statLabel}>Avg Booking Value</Text>
+                  <Text style={[sharedStyles.statValue, { color: designTokens.colors.info }]}>
+                    {`₱${financialAnalytics.averageBookingValue.toLocaleString()}`}
+                  </Text>
+                  <Text style={sharedStyles.statSubtitle}>
+                    {financialAnalytics.paidBookings > 0 
+                      ? `${financialAnalytics.paidBookings} paid bookings` 
+                      : 'No bookings'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Average Monthly Rent and Conversion Rate Row */}
+            <View style={sharedStyles.grid}>
+              <View style={sharedStyles.gridItem}>
+                <View style={sharedStyles.statCard}>
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
+                      <Home size={20} color="#F59E0B" />
+                    </View>
+                  </View>
+                  <Text style={sharedStyles.statLabel}>Avg Monthly Rent</Text>
+                  <Text style={[sharedStyles.statValue, { color: designTokens.colors.warning }]}>
+                    {`₱${financialAnalytics.averageMonthlyRent.toLocaleString()}`}
+                  </Text>
+                  <Text style={sharedStyles.statSubtitle}>
+                    {financialAnalytics.totalListings > 0 
+                      ? `Across ${financialAnalytics.totalListings} listings` 
+                      : 'No listings'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={sharedStyles.gridItem}>
+                <View style={sharedStyles.statCard}>
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.teal]}>
+                      <Percent size={20} color="#14B8A6" />
+                    </View>
+                  </View>
+                  <Text style={sharedStyles.statLabel}>Conversion Rate</Text>
+                  <Text style={[sharedStyles.statValue, { color: '#14B8A6' }]}>
+                    {`${financialAnalytics.conversionRate.toFixed(1)}%`}
+                  </Text>
+                  <Text style={sharedStyles.statSubtitle}>
+                    {financialAnalytics.totalBookings > 0 
+                      ? `${financialAnalytics.approvedBookings}/${financialAnalytics.totalBookings} approved` 
+                      : 'No bookings'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Additional Stats */}
+            <View style={[sharedStyles.card, { marginTop: designTokens.spacing.md }]}>
+              <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.sm }]}>
+                Additional Insights
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.md }}>
+                <View style={{ flex: 1, minWidth: '45%' }}>
+                  <Text style={sharedStyles.statSubtitle}>Total Bookings</Text>
+                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base }]}>
+                    {financialAnalytics.totalBookings}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, minWidth: '45%' }}>
+                  <Text style={sharedStyles.statSubtitle}>Approved Bookings</Text>
+                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base, color: designTokens.colors.success }]}>
+                    {financialAnalytics.approvedBookings}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, minWidth: '45%' }}>
+                  <Text style={sharedStyles.statSubtitle}>Paid Bookings</Text>
+                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base, color: designTokens.colors.success }]}>
+                    {financialAnalytics.paidBookings}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, minWidth: '45%' }}>
+                  <Text style={sharedStyles.statSubtitle}>Total Inquiries</Text>
+                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base }]}>
+                    {financialAnalytics.totalInquiries}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={[sharedStyles.card, { alignItems: 'center', padding: designTokens.spacing.xl }]}>
+            <Text style={sharedStyles.statSubtitle}>No analytics data available</Text>
+          </View>
+        )}
       </View>
 
       {/* Quick Actions Section */}

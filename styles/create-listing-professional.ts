@@ -95,6 +95,26 @@ export const professionalStyles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  inputError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#EF4444',
+    marginTop: 6,
+    fontWeight: '500',
+  },
+  warningBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
   inputWithIcon: {
     paddingLeft: 48,
   },
@@ -124,6 +144,10 @@ export const professionalStyles = StyleSheet.create({
     paddingVertical: 14,
     minWidth: 100,
     alignItems: 'center',
+  },
+  optionCardError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
   },
   optionCardActive: {
     backgroundColor: '#EEF2FF',

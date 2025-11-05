@@ -232,55 +232,66 @@ const ListingCard: React.FC<ListingType> = ({
                             <Text className="text-sm text-gray-500">per month</Text>
                         </VStack>
                         <HStack className="items-center space-x-2">
-                            {ownerUserId && (
-                                <TouchableOpacity 
-                                    className="bg-green-600 rounded-xl px-4 py-3"
-                                    onPress={async () => {
-                                        if (!user?.id) {
-                                            showAlert('Error', 'Please log in to message the owner.');
-                                            return;
-                                        }
-
-                                        if (!ownerUserId) {
-                                            showAlert('Error', 'Unable to identify property owner. Please try again.');
-                                            return;
-                                        }
-
-                                        const displayName = businessName || ownerName || title;
-                                        
-                                        try {
-                                            console.log('💬 Starting conversation with owner from listing card:', ownerUserId);
+                            {(() => {
+                                // Get ownerUserId - check if it exists and is not empty
+                                const validOwnerUserId = (ownerUserId && ownerUserId.trim() !== '') ? ownerUserId : null;
+                                
+                                if (!validOwnerUserId) {
+                                    return null; // Don't show button if no valid ownerUserId
+                                }
+                                
+                                return (
+                                    <TouchableOpacity 
+                                        className="bg-green-600 rounded-xl px-4 py-3"
+                                        onPress={async (e) => {
+                                            e.stopPropagation(); // Prevent card click
                                             
-                                            // Create or find conversation
-                                            const conversationId = await createOrFindConversation({
-                                                ownerId: ownerUserId,
-                                                tenantId: user.id,
-                                                ownerName: displayName,
-                                                tenantName: user.name || 'Tenant',
-                                                propertyId: id || '',
-                                                propertyTitle: title
-                                            });
+                                            if (!user?.id) {
+                                                showAlert('Error', 'Please log in to message the owner.');
+                                                return;
+                                            }
 
-                                            console.log('✅ Created/found conversation:', conversationId);
+                                            if (!validOwnerUserId || validOwnerUserId.trim() === '') {
+                                                showAlert('Error', 'Unable to identify property owner. Please try again.');
+                                                return;
+                                            }
 
-                                            // Navigate to chat room with conversation ID
-                                            router.push({
-                                                pathname: '/chat-room',
-                                                params: {
-                                                    conversationId: conversationId,
+                                            const displayName = businessName || ownerName || title;
+                                            
+                                            try {
+                                                console.log('💬 Starting conversation with owner from listing card:', validOwnerUserId);
+                                                
+                                                // Create or find conversation
+                                                const conversationId = await createOrFindConversation({
+                                                    ownerId: validOwnerUserId,
+                                                    tenantId: user.id,
                                                     ownerName: displayName,
+                                                    tenantName: user.name || 'Tenant',
+                                                    propertyId: id || '',
                                                     propertyTitle: title
-                                                }
-                                            });
-                                        } catch (error) {
-                                            console.error('❌ Error starting conversation:', error);
-                                            showAlert('Error', 'Failed to start conversation. Please try again.');
-                                        }
-                                    }}
-                                >
-                                    <Text className="text-white font-semibold text-sm">Message Owner</Text>
-                                </TouchableOpacity>
-                            )}
+                                                });
+
+                                                console.log('✅ Created/found conversation:', conversationId);
+
+                                                // Navigate to chat room with conversation ID
+                                                router.push({
+                                                    pathname: '/chat-room',
+                                                    params: {
+                                                        conversationId: conversationId,
+                                                        ownerName: displayName,
+                                                        propertyTitle: title
+                                                    }
+                                                });
+                                            } catch (error) {
+                                                console.error('❌ Error starting conversation:', error);
+                                                showAlert('Error', 'Failed to start conversation. Please try again.');
+                                            }
+                                        }}
+                                    >
+                                        <Text className="text-white font-semibold text-sm">Message Owner</Text>
+                                    </TouchableOpacity>
+                                );
+                            })()}
                             <TouchableOpacity 
                                 className="bg-blue-600 rounded-xl px-6 py-3"
                                 onPress={(e) => {

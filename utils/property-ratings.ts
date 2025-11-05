@@ -67,7 +67,8 @@ export async function rateProperty(
   propertyId: string,
   userId: string,
   rating: number,
-  review?: string
+  review?: string,
+  isAnonymous?: boolean
 ): Promise<{ success: boolean; message: string }> {
   try {
     // Validate rating
@@ -86,6 +87,7 @@ export async function rateProperty(
         ...existingRating,
         rating,
         review,
+        isAnonymous: isAnonymous ?? false,
         updatedAt: now
       };
       
@@ -101,6 +103,7 @@ export async function rateProperty(
         userId,
         rating,
         review,
+        isAnonymous: isAnonymous ?? false,
         createdAt: now,
         updatedAt: now
       };

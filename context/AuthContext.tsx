@@ -343,6 +343,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initializeAuth = async () => {
       console.log('🚀 App initialized - checking auth state');
       try {
+        // Add a small delay to ensure all modules are loaded
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         // Check if user has a valid auth session
         const authUser = await getAuthUser();
         if (authUser) {
@@ -364,13 +367,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('❌ Error initializing auth:', error);
-        // On error, assume user needs to login
-        setUser(null);
-        setIsLoading(false);
+        // On error, assume user needs to login - don't crash the app
+        try {
+          setUser(null);
+          setIsLoading(false);
+        } catch (setStateError) {
+          console.error('❌ Error setting auth state:', setStateError);
+          // Last resort: force loading to false
+          setIsLoading(false);
+        }
       }
     };
     
-    initializeAuth();
+    // Wrap in try-catch to prevent app crash
+    try {
+      initializeAuth();
+    } catch (initError) {
+      console.error('❌ Fatal error in auth initialization:', initError);
+      setIsLoading(false);
+    }
   }, []);
 
   const value: AuthContextType = {

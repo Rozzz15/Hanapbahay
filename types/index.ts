@@ -366,6 +366,7 @@ export interface PropertyRatingRecord {
   userId: string; // Tenant who rated
   rating: number; // 1-5 stars
   review?: string; // Optional text review
+  isAnonymous?: boolean; // Whether the rating is anonymous
   createdAt: string;
   updatedAt: string;
 }

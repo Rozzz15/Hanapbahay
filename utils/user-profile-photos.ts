@@ -208,25 +208,36 @@ export const loadUserProfilePhoto = async (userId: string): Promise<string | nul
     });
     
     if (userPhoto) {
+      const rawData = (userPhoto.photoData || '').trim();
+      const rawUri = (userPhoto.photoUri || '').trim();
       console.log('✅ Found profile photo:', {
         id: userPhoto.id,
         fileName: userPhoto.fileName,
-        hasPhotoData: !!userPhoto.photoData,
-        photoUriLength: userPhoto.photoUri.length
+        hasPhotoData: !!rawData,
+        hasPhotoUri: !!rawUri,
+        photoUriPrefix: rawUri ? rawUri.substring(0, 32) : ''
       });
-      
-      // Return photoData if available (for persistence), otherwise photoUri
-      // If photoData is provided and doesn't already have a data URI prefix, add it
-      if (userPhoto.photoData) {
-        if (userPhoto.photoData.startsWith('data:')) {
-          return userPhoto.photoData;
-        } else {
-          // Add data URI prefix for base64 images
-          return `data:${userPhoto.mimeType || 'image/jpeg'};base64,${userPhoto.photoData}`;
+
+      // Prefer embedded base64 data if available
+      if (rawData && rawData.length > 10) {
+        if (rawData.startsWith('data:')) {
+          return rawData;
         }
+        return `data:${userPhoto.mimeType || 'image/jpeg'};base64,${rawData}`;
       }
-      
-      return userPhoto.photoUri;
+
+      // Fallback to stored URI if present
+      if (rawUri && rawUri.length > 10) {
+        // If it looks like bare base64, add prefix
+        const looksLikeBase64 = !rawUri.startsWith('data:') && !rawUri.startsWith('http') && !rawUri.startsWith('file:') && /[A-Za-z0-9+/=]{100,}/.test(rawUri);
+        if (looksLikeBase64) {
+          return `data:${userPhoto.mimeType || 'image/jpeg'};base64,${rawUri}`;
+        }
+        return rawUri;
+      }
+
+      console.log('⚠️ Photo record found but no usable data/uri.');
+      return null;
     } else {
       console.log('📸 No profile photo found for user:', userId);
       return null;

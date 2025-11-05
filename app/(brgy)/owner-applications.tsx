@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, Alert, Modal, StyleSheet, Dimensions, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, Alert, Modal, StyleSheet, Dimensions, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, clearCache } from '../../utils/db';
@@ -36,6 +36,17 @@ export default function OwnerApplications() {
   const [selectedDocument, setSelectedDocument] = useState<OwnerApplicationDocument | { uri: string; name: string } | null>(null);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  // Confirmation dialog state
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    onConfirm: () => Promise<void>;
+    isDestructive?: boolean;
+    isLoading?: boolean;
+  } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -66,135 +77,164 @@ export default function OwnerApplications() {
       setApplications(barangayApplications);
     } catch (error) {
       console.error('Error loading applications:', error);
-      Alert.alert('Error', 'Failed to load owner applications');
+      if (Platform.OS === 'web') {
+        window.alert('Error\n\nFailed to load owner applications');
+      } else {
+        Alert.alert('Error', 'Failed to load owner applications');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleApprove = async (application: OwnerApplicationRecord) => {
-    Alert.alert(
-      'Approve Application',
-      `Are you sure you want to approve ${application.name}'s owner application?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Approve',
-          onPress: async () => {
-            try {
-              console.log('🔄 Starting approval process for application:', application.id);
-              
-              // Update application status
-              const updatedApplication = {
-                ...application,
-                status: 'approved' as const,
-                reviewedBy: user?.id,
-                reviewedAt: new Date().toISOString(),
-              };
-              
-              await db.upsert('owner_applications', application.id, updatedApplication);
-              console.log('✅ Application status updated to approved');
+    // Use confirmation dialog that works on web
+    setConfirmationDialog({
+      visible: true,
+      title: 'Approve Application',
+      message: `Are you sure you want to approve ${application.name}'s owner application?`,
+      confirmText: 'Approve',
+      cancelText: 'Cancel',
+      isDestructive: false,
+      isLoading: false,
+      onConfirm: async () => {
+        try {
+          setConfirmationDialog(prev => prev ? { ...prev, isLoading: true } : null);
+          console.log('🔄 Starting approval process for application:', application.id);
+          
+          // Update application status
+          const updatedApplication = {
+            ...application,
+            status: 'approved' as const,
+            reviewedBy: user?.id,
+            reviewedAt: new Date().toISOString(),
+          };
+          
+          await db.upsert('owner_applications', application.id, updatedApplication);
+          console.log('✅ Application status updated to approved');
 
-              // Clear cache to ensure fresh data
-              await clearCache();
+          // Clear cache to ensure fresh data
+          await clearCache();
 
-              // Update user role to owner
-              const userRecord = await db.get('users', application.userId);
-              if (userRecord) {
-                const updatedUser = {
-                  ...userRecord,
-                  role: 'owner',
-                  // Also update the roles array if it exists for AuthContext compatibility
-                  roles: ['owner'],
-                  updatedAt: new Date().toISOString(),
-                };
-                await db.upsert('users', application.userId, updatedUser);
-                console.log('✅ User role updated to owner:', updatedUser);
-              } else {
-                console.warn('⚠️ User record not found for userId:', application.userId);
-              }
+          // Update user role to owner
+          const userRecord = await db.get('users', application.userId);
+          if (userRecord) {
+            const updatedUser = {
+              ...userRecord,
+              role: 'owner',
+              // Also update the roles array if it exists for AuthContext compatibility
+              roles: ['owner'],
+              updatedAt: new Date().toISOString(),
+            };
+            await db.upsert('users', application.userId, updatedUser);
+            console.log('✅ User role updated to owner:', updatedUser);
+          } else {
+            console.warn('⚠️ User record not found for userId:', application.userId);
+          }
 
-              // Delete notification
-              const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
-              const notification = notifications.find(
-                notif => notif.ownerApplicationId === application.id && notif.barangay === barangay
-              );
-              
-              if (notification) {
-                await db.remove('brgy_notifications', notification.id);
-                console.log('✅ Notification deleted');
-              }
+          // Delete notification
+          const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
+          const notification = notifications.find(
+            notif => notif.ownerApplicationId === application.id && notif.barangay === barangay
+          );
+          
+          if (notification) {
+            await db.remove('brgy_notifications', notification.id);
+            console.log('✅ Notification deleted');
+          }
 
-              // Close modal first
-              setShowModal(false);
-              
-              // Refresh data
-              await loadData();
-              
-              Alert.alert('Success', 'Application approved successfully!');
-            } catch (error) {
-              console.error('❌ Error approving application:', error);
-              Alert.alert('Error', `Failed to approve application: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            }
-          },
-        },
-      ]
-    );
+          // Close modals
+          setConfirmationDialog(null);
+          setShowModal(false);
+          
+          // Refresh data
+          await loadData();
+          
+          // Show success message
+          if (Platform.OS === 'web') {
+            window.alert('Success\n\nApplication approved successfully!');
+          } else {
+            Alert.alert('Success', 'Application approved successfully!');
+          }
+        } catch (error) {
+          console.error('❌ Error approving application:', error);
+          const errorMessage = `Failed to approve application: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          setConfirmationDialog(null);
+          if (Platform.OS === 'web') {
+            window.alert(`Error\n\n${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      },
+    });
   };
 
   const handleReject = async (application: OwnerApplicationRecord) => {
-    Alert.alert(
-      'Reject Application',
-      `Are you sure you want to reject ${application.name}'s owner application?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reject',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('🔄 Starting rejection process for application:', application.id);
-              
-              // Update application status
-              const updatedApplication = {
-                ...application,
-                status: 'rejected' as const,
-                reviewedBy: user?.id,
-                reviewedAt: new Date().toISOString(),
-              };
-              
-              await db.upsert('owner_applications', application.id, updatedApplication);
-              console.log('✅ Application status updated to rejected');
+    // Use confirmation dialog that works on web
+    setConfirmationDialog({
+      visible: true,
+      title: 'Reject Application',
+      message: `Are you sure you want to reject ${application.name}'s owner application?`,
+      confirmText: 'Reject',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      isLoading: false,
+      onConfirm: async () => {
+        try {
+          setConfirmationDialog(prev => prev ? { ...prev, isLoading: true } : null);
+          console.log('🔄 Starting rejection process for application:', application.id);
+          
+          // Update application status
+          const updatedApplication = {
+            ...application,
+            status: 'rejected' as const,
+            reviewedBy: user?.id,
+            reviewedAt: new Date().toISOString(),
+          };
+          
+          await db.upsert('owner_applications', application.id, updatedApplication);
+          console.log('✅ Application status updated to rejected');
 
-              // Clear cache to ensure fresh data
-              await clearCache();
+          // Clear cache to ensure fresh data
+          await clearCache();
 
-              // Delete notification
-              const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
-              const notification = notifications.find(
-                notif => notif.ownerApplicationId === application.id && notif.barangay === barangay
-              );
-              
-              if (notification) {
-                await db.remove('brgy_notifications', notification.id);
-                console.log('✅ Notification deleted');
-              }
+          // Delete notification
+          const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
+          const notification = notifications.find(
+            notif => notif.ownerApplicationId === application.id && notif.barangay === barangay
+          );
+          
+          if (notification) {
+            await db.remove('brgy_notifications', notification.id);
+            console.log('✅ Notification deleted');
+          }
 
-              // Close modal first
-              setShowModal(false);
-              
-              // Refresh data
-              await loadData();
-              
-              Alert.alert('Success', 'Application rejected.');
-            } catch (error) {
-              console.error('❌ Error rejecting application:', error);
-              Alert.alert('Error', `Failed to reject application: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            }
-          },
-        },
-      ]
-    );
+          // Close modals
+          setConfirmationDialog(null);
+          setShowModal(false);
+          
+          // Refresh data
+          await loadData();
+          
+          // Show success message
+          if (Platform.OS === 'web') {
+            window.alert('Success\n\nApplication rejected.');
+          } else {
+            Alert.alert('Success', 'Application rejected.');
+          }
+        } catch (error) {
+          console.error('❌ Error rejecting application:', error);
+          const errorMessage = `Failed to reject application: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          setConfirmationDialog(null);
+          if (Platform.OS === 'web') {
+            window.alert(`Error\n\n${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      },
+    });
   };
 
   const openModal = (application: OwnerApplicationRecord) => {
@@ -215,24 +255,32 @@ export default function OwnerApplications() {
       if (Platform.OS === 'web') {
         // For web, create a download link
         try {
-          if (typeof window !== 'undefined' && window.URL && document) {
+          if (typeof window !== 'undefined' && window.URL && typeof document !== 'undefined') {
             const response = await fetch(document.uri);
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
+            const link = window.document.createElement('a');
             link.href = url;
             link.download = fileName;
-            document.body.appendChild(link);
+            window.document.body.appendChild(link);
             link.click();
-            document.body.removeChild(link);
+            window.document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-            Alert.alert('Success', 'Document download started');
+            if (Platform.OS === 'web') {
+              // No alert needed for web download
+            } else {
+              Alert.alert('Success', 'Document download started');
+            }
           } else {
             throw new Error('Web APIs not available');
           }
         } catch (error) {
           console.error('Web download error:', error);
-          Alert.alert('Error', 'Failed to download document. Please try again.');
+          if (Platform.OS === 'web') {
+            window.alert('Error\n\nFailed to download document. Please try again.');
+          } else {
+            Alert.alert('Error', 'Failed to download document. Please try again.');
+          }
         }
       } else {
         // For mobile platforms
@@ -259,7 +307,11 @@ export default function OwnerApplications() {
       }
     } catch (error) {
       console.error('Error downloading document:', error);
-      Alert.alert('Error', 'Failed to download document. Please try again.');
+      if (Platform.OS === 'web') {
+        window.alert('Error\n\nFailed to download document. Please try again.');
+      } else {
+        Alert.alert('Error', 'Failed to download document. Please try again.');
+      }
     } finally {
       setIsDownloading(false);
     }
@@ -406,6 +458,55 @@ export default function OwnerApplications() {
         </View>
       </ScrollView>
 
+      {/* Confirmation Dialog Modal */}
+      <Modal
+        visible={confirmationDialog?.visible || false}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setConfirmationDialog(null)}
+      >
+        <View style={styles.confirmationOverlay}>
+          <View style={styles.confirmationDialog}>
+            <Text style={styles.confirmationTitle}>
+              {confirmationDialog?.title}
+            </Text>
+            <Text style={styles.confirmationMessage}>
+              {confirmationDialog?.message}
+            </Text>
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity
+                style={[styles.confirmationButton, styles.confirmationCancelButton]}
+                onPress={() => setConfirmationDialog(null)}
+                disabled={confirmationDialog?.isLoading}
+              >
+                <Text style={styles.confirmationCancelText}>
+                  {confirmationDialog?.cancelText || 'Cancel'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.confirmationButton,
+                  confirmationDialog?.isDestructive
+                    ? styles.confirmationDestructiveButton
+                    : styles.confirmationConfirmButton,
+                  confirmationDialog?.isLoading && styles.confirmationButtonDisabled
+                ]}
+                onPress={confirmationDialog?.onConfirm}
+                disabled={confirmationDialog?.isLoading}
+              >
+                {confirmationDialog?.isLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.confirmationConfirmText}>
+                    {confirmationDialog?.confirmText || 'Confirm'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Application Detail Modal */}
       <Modal
         visible={showModal}
@@ -413,7 +514,7 @@ export default function OwnerApplications() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowModal(false)}
       >
-        {selectedApplication && (
+      {selectedApplication && (
           <ScrollView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
             <View style={{ padding: 24 }}>
               {/* Header */}
@@ -840,5 +941,71 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '500',
+  },
+  confirmationOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  confirmationDialog: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  confirmationTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  confirmationMessage: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 24,
+    lineHeight: 24,
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'flex-end',
+  },
+  confirmationButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmationCancelButton: {
+    backgroundColor: '#F3F4F6',
+  },
+  confirmationConfirmButton: {
+    backgroundColor: '#10B981',
+  },
+  confirmationDestructiveButton: {
+    backgroundColor: '#EF4444',
+  },
+  confirmationButtonDisabled: {
+    opacity: 0.6,
+  },
+  confirmationCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  confirmationConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

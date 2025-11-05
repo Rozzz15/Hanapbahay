@@ -1,41 +1,41 @@
-import { ScrollView, View, Pressable, Animated, Text, TouchableOpacity, Image, StyleSheet, TextInput, Alert } from 'react-native';
+import { ScrollView, View, Pressable, Animated, Text, TouchableOpacity, Image, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react-native';
 import { db, isPublishedListingRecord, clearCache, getAll } from '../../utils/db';
-import { OwnerProfileRecord, DbUserRecord, PublishedListingRecord } from '../../types';
+import { OwnerProfileRecord, DbUserRecord, PublishedListingRecord, PropertyPhotoRecord, PropertyVideoRecord } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 // Removed favorite functionality
-import { loadPropertyMedia } from '../../utils/media-storage';
+//
 import { preloadSingleListingImages } from '../../utils/image-preloader';
+import TenantSmartSearch from '@/components/search/TenantSmartSearch';
+import { SmartSearchParams, filterListings } from '@/utils/search';
 import { getPropertyRatingsMap } from '../../utils/property-ratings';
 import { cleanupTestMessages } from '../../utils/cleanup-test-messages';
 import { trackListingView } from '../../utils/view-tracking';
 import { trackListingInquiry } from '../../utils/inquiry-tracking';
 import { createOrFindConversation } from '../../utils/conversation-utils';
+import { addCustomEventListener } from '../../utils/custom-events';
+ 
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuth();
   const scrollIndicatorOpacity = useRef(new Animated.Value(1)).current;
   const carouselRef = useRef<{ scrollToNext: () => void } | null>(null);
-  const [searchText, setSearchText] = useState('');
-  const [filteredListings, setFilteredListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string }[]>([]);
+  const [filteredListings, setFilteredListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string }[]>([]);
   const [owners, setOwners] = useState<(OwnerProfileRecord & { user?: DbUserRecord })[]>([]);
-  const [ownerListings, setOwnerListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string }[]>([]);
+  const [ownerListings, setOwnerListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string }[]>([]);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [isScrolling, setIsScrolling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
-  const [activeFilters, setActiveFilters] = useState<{
-    propertyType?: string;
-    priceRange?: { min: number; max: number };
-    barangay?: string;
-  }>({});
   // Removed favorite state
+  const [searchParams, setSearchParams] = useState<SmartSearchParams>({});
+  
+  
 
   // Helper function for showing alerts
   const showAlert = (title: string, message: string) => {
@@ -48,6 +48,8 @@ export default function DashboardScreen() {
   const featuredListings = filteredListings.slice(0, 5);
   
   // Removed favorite listings functionality
+
+  
 
   // Handle scroll events for the carousel
   const handleCarouselScroll = (event: any) => {
@@ -66,7 +68,7 @@ export default function DashboardScreen() {
   const syncOwnerMediaToDatabase = useCallback(async () => {
     try {
       console.log('🔄 Syncing owner media to database tables...');
-      const publishedListings = await db.list('published_listings');
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       const { savePropertyMedia } = await import('@/utils/media-storage');
       
       console.log(`📊 Found ${publishedListings.length} published listings to check for media sync`);
@@ -116,7 +118,7 @@ export default function DashboardScreen() {
   const testMediaFlow = useCallback(async () => {
     try {
       console.log('🧪 Testing complete media flow...');
-      const publishedListings = await db.list('published_listings');
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       console.log(`📊 Found ${publishedListings.length} published listings`);
       
       let totalMediaFound = 0;
@@ -175,6 +177,9 @@ export default function DashboardScreen() {
   // One-time cleanup for previously seeded default/sample listings
   const removeDefaultSeededListings = useCallback(async () => {
     try {
+      if (process.env.EXPO_PUBLIC_ALLOW_DATA_CLEAR !== 'true') {
+        return;
+      }
       const seededOwnerIds = new Set(['owner-1', 'owner-2']);
       const seededImageHints = [
         'images.unsplash.com/photo-1564013799919-ab600027ffc6',
@@ -185,7 +190,7 @@ export default function DashboardScreen() {
       const publishedListings = rawListings.filter(isPublishedListingRecord);
       const toDelete = publishedListings.filter((p: PublishedListingRecord) => {
         const isSeedOwner = seededOwnerIds.has(p?.userId);
-        const hasSeedImage = typeof p?.coverPhoto === 'string' && seededImageHints.some(h => p.coverPhoto.includes(h));
+        const hasSeedImage = typeof p?.coverPhoto === 'string' && seededImageHints.some(h => (p.coverPhoto ?? '').includes(h));
         const hasSampleAddress = typeof p?.address === 'string' && /Sample/i.test(p.address);
         return isSeedOwner || hasSeedImage || hasSampleAddress;
       });
@@ -194,6 +199,7 @@ export default function DashboardScreen() {
         console.log(`🧹 Removing ${toDelete.length} default/sample listings...`);
         for (const listing of toDelete) {
           await db.remove('published_listings', listing.id);
+          console.log(`🗑️ Removed default listing: ${listing.id}`);
         }
       }
     } catch (cleanupError) {
@@ -231,7 +237,10 @@ export default function DashboardScreen() {
       console.log('🧹 Cleaning up any existing default listings...');
       
       const { db } = await import('@/utils/db');
-      const publishedListings = await db.list('published_listings');
+      if (process.env.EXPO_PUBLIC_ALLOW_DATA_CLEAR !== 'true') {
+        return;
+      }
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       
       // Remove default property IDs
       const defaultPropertyIds = ['property_001', 'property_002', 'property_003'];
@@ -239,11 +248,14 @@ export default function DashboardScreen() {
       
       let removedCount = 0;
       
-      for (const listing of publishedListings) {
+      for (const listing of (publishedListings as PublishedListingRecord[])) {
+        if (!listing.id) {
+          continue;
+        }
         if (defaultPropertyIds.includes(listing.id) || 
             defaultOwnerIds.includes(listing.userId) ||
-            defaultOwnerIds.includes(listing.ownerUserId)) {
-          await db.remove('published_listings', listing.id);
+            defaultOwnerIds.includes(listing.ownerUserId ?? '')) {
+          await db.remove('published_listings', listing.id as string);
           console.log(`🗑️ Removed default listing: ${listing.id}`);
           removedCount++;
         }
@@ -265,7 +277,7 @@ export default function DashboardScreen() {
       console.log('🧪 Testing database storage and retrieval...');
       
       // Test 1: Check if published_listings collection exists and is accessible
-      const rawListingsForTest = await db.list('published_listings');
+      const rawListingsForTest = await db.list<PublishedListingRecord>('published_listings');
       const publishedListings = rawListingsForTest.filter(isPublishedListingRecord);
       console.log('📊 Database Storage Test Results:', {
         totalListings: publishedListings.length,
@@ -290,17 +302,17 @@ export default function DashboardScreen() {
         if (sampleCount > 0) {
           console.log('✅ Sample listings created successfully');
           // Re-test after creating samples
-          const newListings = await db.list('published_listings');
+          const newListings = await db.list<PublishedListingRecord>('published_listings');
           console.log(`📊 After creating samples: ${newListings.length} listings found`);
         }
       }
       
       // Test 2: Verify individual listing retrieval
       let successfulRetrievals = 0;
-      const finalListings = await db.list('published_listings');
+      const finalListings = await db.list<PublishedListingRecord>('published_listings');
       for (const listing of finalListings) {
         try {
-          const retrievedListing = await db.get('published_listings', listing.id);
+          const retrievedListing = await db.get<PublishedListingRecord>('published_listings', listing.id);
           if (retrievedListing && retrievedListing.id === listing.id) {
             successfulRetrievals++;
           }
@@ -356,7 +368,7 @@ export default function DashboardScreen() {
       console.log('🧪 Testing media persistence...');
       
       // Get current listings count and media status
-      const publishedListings = await db.list('published_listings');
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       let initialMediaCount = 0;
       
       for (const listing of publishedListings) {
@@ -401,7 +413,7 @@ export default function DashboardScreen() {
       });
       
       // Check database
-      const publishedListings = await db.list('published_listings');
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       console.log('📊 Database status:', {
         totalListings: publishedListings.length,
         listingsData: publishedListings.map(l => ({
@@ -562,15 +574,15 @@ export default function DashboardScreen() {
       }
 
       // Get all published listings
-      const rawListings = await db.list('published_listings');
-      console.log('📋 Found published listings:', rawListings.length);
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
+      console.log('📋 Found published listings:', publishedListings.length);
       
       // Filter and type the listings properly
-      const publishedListings = rawListings.filter(isPublishedListingRecord);
-      console.log('📋 Valid published listings after filtering:', publishedListings.length);
+      const typedPublishedListings = publishedListings.filter(isPublishedListingRecord);
+      console.log('📋 Valid published listings after filtering:', typedPublishedListings.length);
       
       // Log each listing's basic info for debugging
-      publishedListings.forEach((listing: PublishedListingRecord, index: number) => {
+      typedPublishedListings.forEach((listing: PublishedListingRecord, index: number) => {
         console.log(`📋 Listing ${index + 1}:`, {
           id: listing.id,
           propertyType: listing.propertyType || 'MISSING',
@@ -583,13 +595,13 @@ export default function DashboardScreen() {
       });
 
       // No auto-creation of test listings - only show real owner listings
-      if (publishedListings.length === 0) {
+      if (typedPublishedListings.length === 0) {
         console.log('📋 No published listings found - showing empty state');
       }
       
       // Debug: Check if any listings have the correct structure
-      if (publishedListings.length > 0) {
-        const firstListing = publishedListings[0];
+      if (typedPublishedListings.length > 0) {
+        const firstListing = typedPublishedListings[0];
         console.log('🔍 First listing structure:', {
           id: firstListing.id,
           userId: firstListing.userId,
@@ -609,11 +621,15 @@ export default function DashboardScreen() {
       console.log('📋 All listings in database:', allListings.length);
       console.log('📋 All listings data:', allListings);
 
-        // Get all photos and videos from database
-        const allPhotos = await getAll('property_photos');
-        const allVideos = await getAll('property_videos');
-        console.log('📸 Database photos:', allPhotos.length);
-        console.log('🎥 Database videos:', allVideos.length);
+      // Get all photos and videos from database
+      const allPhotos = await getAll<PropertyPhotoRecord>('property_photos');
+      const allVideos = await getAll<PropertyVideoRecord>('property_videos');
+      console.log('📸 Database photos:', allPhotos.length);
+      console.log('🎥 Database videos:', allVideos.length);
+      
+      // Get all users to populate missing barangay fields
+      const allUsers = await db.list<DbUserRecord>('users');
+      console.log('👥 Loaded users for barangay fallback:', allUsers.length);
         
         // Debug: Log some sample photos and videos
         if (allPhotos.length > 0) {
@@ -635,7 +651,7 @@ export default function DashboardScreen() {
 
       // Filter out invalid listings and map with fresh media data
       // SIMPLIFIED FILTER - Only check for ID (status check removed for debugging)
-      const validListings = publishedListings.filter((p: PublishedListingRecord) => {
+      const validListings = typedPublishedListings.filter((p: PublishedListingRecord) => {
         // Only require ID - this is the most basic check
         const hasId = p && p.id;
         const statusCheck = p && p.status;
@@ -670,14 +686,14 @@ export default function DashboardScreen() {
         return true;
       });
       
-      console.log(`📋 Valid listings after filtering: ${validListings.length} out of ${publishedListings.length}`);
+      console.log(`📋 Valid listings after filtering: ${validListings.length} out of ${typedPublishedListings.length}`);
       
       // EMERGENCY FALLBACK: If no valid listings but we have listings in DB, show them anyway
       let listingsToProcess = validListings;
-      if (validListings.length === 0 && publishedListings.length > 0) {
+      if (validListings.length === 0 && typedPublishedListings.length > 0) {
         console.warn('⚠️ EMERGENCY FALLBACK: No valid listings found, but database has listings!');
         console.warn('⚠️ Showing ALL listings regardless of status to help debug...');
-        listingsToProcess = publishedListings;
+        listingsToProcess = typedPublishedListings;
       }
       
       console.log(`📋 Processing ${listingsToProcess.length} listings...`);
@@ -794,14 +810,33 @@ export default function DashboardScreen() {
           console.log(`📸 No cover photo found for listing ${p.id}, will show home icon fallback`);
         }
         
-        const ownerUserId = p.ownerUserId || p.userId || '';
+        // Ensure ownerUserId is always set from userId if missing
+        const ownerUserId = (p.ownerUserId && p.ownerUserId.trim() !== '') 
+          ? p.ownerUserId 
+          : (p.userId && p.userId.trim() !== '' ? p.userId : '');
+        
+        // Use listing's barangay field (don't populate from owner - let filter handle fallback)
+        // This ensures filtering uses the actual listing barangay, not owner's barangay
+        const listingBarangay = p.barangay || '';
+        
+        // Log if barangay is missing (for debugging)
+        if (!listingBarangay || !listingBarangay.trim()) {
+          console.log(`⚠️ Listing ${p.id} has no barangay field - filter will use owner's barangay as fallback`);
+        }
+        
         console.log(`🔍 Listing ${p.id} owner data:`, {
           ownerUserId: p.ownerUserId,
           userId: p.userId,
           finalOwnerUserId: ownerUserId,
           businessName: p.businessName,
-          ownerName: p.ownerName
+          ownerName: p.ownerName,
+          barangay: listingBarangay || 'NOT SET'
         });
+        
+        // Warn if ownerUserId is still missing
+        if (!ownerUserId || ownerUserId.trim() === '') {
+          console.warn(`⚠️ Warning: Listing ${p.id} has no ownerUserId or userId!`);
+        }
         
         const finalImage = coverPhotoUri || p.coverPhoto || '';
         
@@ -841,7 +876,8 @@ export default function DashboardScreen() {
           businessName: p.businessName || '',
           ownerName: p.ownerName || 'Owner',
           propertyType: p.propertyType || 'Property',
-          ownerUserId: ownerUserId
+          ownerUserId: ownerUserId,
+          barangay: listingBarangay || ''
         };
       }));
 
@@ -866,14 +902,7 @@ export default function DashboardScreen() {
       // Ensure we have valid mapped data
       if (sortedListings.length > 0) {
         setOwnerListings(sortedListings);
-        
-        // Apply current filters if any are active
-        if (Object.keys(activeFilters).length > 0) {
-          console.log('🔍 Applying active filters to loaded listings:', activeFilters);
-          applyFilters(sortedListings, activeFilters);
-        } else {
-          setFilteredListings(sortedListings);
-        }
+        // Filtered listings will be set by useEffect that applies search and filters
         
         // Preload images for better performance
         try {
@@ -897,14 +926,11 @@ export default function DashboardScreen() {
           console.log('⚠️ Image preloading error:', preloadError);
         }
         
-        // Force a re-render to ensure media is displayed
-        setTimeout(() => {
-          setFilteredListings([...sortedListings]);
-        }, 100);
+        // Filtered listings will be updated by useEffect that applies search and filters
       } else {
         console.warn('⚠️ No valid listings to display');
         setOwnerListings([]);
-        setFilteredListings([]);
+        // Filtered listings will be set to empty by useEffect
       }
     } catch (error) {
       console.error('❌ Error loading published listings:', error);
@@ -919,34 +945,42 @@ export default function DashboardScreen() {
         console.log('🔄 Recovery attempt found:', simpleListings.length, 'listings');
         
         if (simpleListings.length > 0) {
-          const basicMapped = simpleListings.map((p: any) => ({
-            id: p.id || 'unknown',
-            image: p.coverPhoto || '',
-            coverPhoto: p.coverPhoto || '',
-            title: p.title || p.propertyType || 'Property',
-            location: p.location || p.address?.split(',')[0] || 'Unknown',
-            address: p.address || '',
-            description: p.description || '',
-            rating: p.rating || 4.5,
-            reviews: p.reviews || 0,
-            rooms: p.rooms || p.bedrooms || 1,
-            size: p.size || 0,
-            price: p.price || p.monthlyRent || 0,
-            businessName: p.businessName || '',
-            ownerName: p.ownerName || '',
-            propertyType: p.propertyType || 'Property',
-            ownerUserId: p.ownerUserId || p.userId || ''
-          }));
+          const basicMapped = simpleListings.map((p: any) => {
+            // Ensure ownerUserId is always set from userId if missing
+            const ownerUserId = (p.ownerUserId && p.ownerUserId.trim() !== '') 
+              ? p.ownerUserId 
+              : (p.userId && p.userId.trim() !== '' ? p.userId : '');
+            
+            return {
+              id: p.id || 'unknown',
+              image: p.coverPhoto || '',
+              coverPhoto: p.coverPhoto || '',
+              title: p.title || p.propertyType || 'Property',
+              location: p.location || p.address?.split(',')[0] || 'Unknown',
+              address: p.address || '',
+              description: p.description || '',
+              rating: p.rating || 4.5,
+              reviews: p.reviews || 0,
+              rooms: p.rooms || p.bedrooms || 1,
+              size: p.size || 0,
+              price: p.price || p.monthlyRent || 0,
+              businessName: p.businessName || '',
+              ownerName: p.ownerName || '',
+              propertyType: p.propertyType || 'Property',
+              ownerUserId: ownerUserId,
+              barangay: p.barangay || ''
+            };
+          });
           
           setOwnerListings(basicMapped);
-          setFilteredListings(basicMapped);
+          // Filtered listings will be set by useEffect that applies search and filters
           console.log('✅ Recovery successful - basic listings loaded');
         }
       } catch (recoveryError) {
         console.error('❌ Recovery attempt failed:', recoveryError);
         // Set empty state as last resort
         setOwnerListings([]);
-        setFilteredListings([]);
+        // Filtered listings will be set to empty by useEffect
       }
     }
   }, [isAuthenticated, user?.id]); // Remove activeFilters and applyFilters dependencies
@@ -955,7 +989,7 @@ export default function DashboardScreen() {
   const clearAllPublishedListings = useCallback(async () => {
     try {
       console.log('🧹 Clearing all published listings...');
-      const publishedListings = await db.list('published_listings');
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       console.log('📋 Found published listings to clear:', publishedListings.length);
       
       for (const listing of publishedListings) {
@@ -981,16 +1015,16 @@ export default function DashboardScreen() {
       console.log('🗑️ Cache cleared');
 
       // Get all published listings
-      const publishedListings = await db.list('published_listings');
+      const publishedListings = await db.list<PublishedListingRecord>('published_listings');
       console.log('📋 Found published listings for media refresh:', publishedListings.length);
 
       // Get all photos and videos from database
-      const allPhotos = await getAll('property_photos');
-      const allVideos = await getAll('property_videos');
+      const allPhotos = await getAll<PropertyPhotoRecord>('property_photos');
+      const allVideos = await getAll<PropertyVideoRecord>('property_videos');
       console.log('📸 Database media check - Photos:', allPhotos.length, 'Videos:', allVideos.length);
 
       // Log media details by listing
-      publishedListings.forEach((listing: PublishedListingRecord) => {
+      publishedListings.forEach((listing) => {
         const listingPhotos = allPhotos.filter(photo => photo.listingId === listing.id);
         const listingVideos = allVideos.filter(video => video.listingId === listing.id);
         console.log(`📊 Listing ${listing.id}: ${listingPhotos.length} photos, ${listingVideos.length} videos`);
@@ -1129,6 +1163,8 @@ export default function DashboardScreen() {
     }, refreshDelay);
   }, []); // Remove function dependencies
 
+  
+
   // Listen for listing changes to auto-refresh tenant dashboard
   useEffect(() => {
     const handlePropertyMediaRefreshed = (event: Event) => {
@@ -1144,47 +1180,32 @@ export default function DashboardScreen() {
       }, 500);
     };
 
-    const handleFiltersApplied = (event: Event) => {
-      const filterDetail = (event as any).detail;
-      console.log('🔍 Filters applied, updating listings...', filterDetail);
-      console.log('📊 Current ownerListings count:', ownerListings.length);
-      console.log('📋 Current ownerListings sample:', ownerListings.slice(0, 2).map(l => ({
-        id: l.id,
-        title: l.title,
-        propertyType: l.propertyType,
-        price: l.price,
-        address: l.address
-      })));
-      
-      // Update active filters state
-      setActiveFilters({
-        propertyType: filterDetail.propertyType,
-        priceRange: filterDetail.priceRange,
-        barangay: filterDetail.barangay
-      });
-      
-      // Apply filters to current listings
-      applyFilters(ownerListings, filterDetail);
-    };
-
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('listingChanged', handleListingChanged);
       window.addEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
       window.addEventListener('userLoggedIn', handleUserLoggedIn);
-      window.addEventListener('filtersApplied', handleFiltersApplied);
-      console.log('👂 Tenant dashboard: Added listing change, media refresh, user login, and filter listeners');
+      console.log('👂 Tenant dashboard: Added listing change, media refresh, and user login listeners');
       
       return () => {
         if (typeof window !== 'undefined' && window.removeEventListener) {
           window.removeEventListener('listingChanged', handleListingChanged);
           window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
           window.removeEventListener('userLoggedIn', handleUserLoggedIn);
-          window.removeEventListener('filtersApplied', handleFiltersApplied);
-          console.log('🔇 Tenant dashboard: Removed listing change, media refresh, user login, and filter listeners');
+          console.log('🔇 Tenant dashboard: Removed listing change, media refresh, and user login listeners');
         }
       };
     }
-  }, [isAuthenticated, user?.id]); // Remove function dependencies
+  }, [isAuthenticated, user?.id, loadPublishedListings, handleListingChanged]);
+
+  // Keep filtered listings in sync with owner listings and search params
+  useEffect(() => {
+    if (ownerListings.length > 0) {
+      const next = filterListings(ownerListings as any, searchParams);
+      setFilteredListings(next as any);
+    } else {
+      setFilteredListings([]);
+    }
+  }, [ownerListings, searchParams]);
 
   // Refresh listings when screen comes into focus
   useFocusEffect(
@@ -1246,16 +1267,26 @@ export default function DashboardScreen() {
     // Get owner display name (business name or owner name)
     const ownerDisplayName = listing.businessName || listing.ownerName || 'Property Owner';
     
-    // Check if ownerUserId is valid first
-    if (!listing.ownerUserId) {
+    // Get ownerUserId - try multiple fields to ensure we have it
+    const ownerUserId = listing.ownerUserId || listing.userId || '';
+    
+    // Check if ownerUserId is valid (not empty string)
+    if (!ownerUserId || ownerUserId.trim() === '') {
       console.error('❌ No ownerUserId found in listing');
-      console.log('❌ Listing data:', listing);
+      console.log('❌ Listing data:', {
+        id: listing.id,
+        title: listing.title,
+        ownerUserId: listing.ownerUserId,
+        userId: listing.userId,
+        businessName: listing.businessName,
+        ownerName: listing.ownerName
+      });
       showAlert('Error', 'Unable to identify property owner. Please try again.');
       return;
     }
     
     try {
-      console.log('💬 Starting conversation with owner:', listing.ownerUserId);
+      console.log('💬 Starting conversation with owner:', ownerUserId);
       console.log('💬 Listing data:', listing);
       
       // Track inquiry
@@ -1263,7 +1294,7 @@ export default function DashboardScreen() {
       
       // Create or find conversation using utility
       const conversationId = await createOrFindConversation({
-        ownerId: listing.ownerUserId,
+        ownerId: ownerUserId,
         tenantId: user.id,
         ownerName: ownerDisplayName,
         tenantName: user.name || 'Tenant',
@@ -1302,101 +1333,6 @@ export default function DashboardScreen() {
     }
   }, [user?.id, router]);
 
-  // Apply filters to listings
-  const applyFilters = useCallback((listings: any[], filters: any) => {
-    console.log('🔍 Applying filters:', filters);
-    console.log('📊 Original listings count:', listings.length);
-    
-    // Debug: Log sample listing data structure
-    if (listings.length > 0) {
-      console.log('📋 Sample listing data structure:', {
-        id: listings[0].id,
-        propertyType: listings[0].propertyType,
-        price: listings[0].price,
-        monthlyRent: listings[0].monthlyRent,
-        address: listings[0].address,
-        location: listings[0].location
-      });
-    }
-    
-    let filtered = [...listings];
-    
-    // Filter by property type
-    if (filters.propertyType && filters.propertyType !== 'any') {
-      console.log(`🏠 Filtering by property type: "${filters.propertyType}"`);
-      console.log('📋 Available property types in data:', [...new Set(listings.map(l => l.propertyType))]);
-      
-      filtered = filtered.filter(listing => {
-        const listingType = listing.propertyType?.toLowerCase();
-        const filterType = filters.propertyType.toLowerCase();
-        const matches = listingType === filterType;
-        
-        console.log(`   - "${listing.title}" (${listing.propertyType}) -> ${matches ? '✅' : '❌'}`);
-        return matches;
-      });
-      console.log(`🏠 After property type filter: ${filtered.length} results`);
-    }
-    
-    // Filter by price range
-    if (filters.priceRange) {
-      console.log(`💰 Filtering by price range: ₱${filters.priceRange.min} - ₱${filters.priceRange.max}`);
-      
-      filtered = filtered.filter(listing => {
-        const price = listing.price || listing.monthlyRent || 0;
-        const matches = price >= filters.priceRange.min && price <= filters.priceRange.max;
-        
-        console.log(`   - "${listing.title}" (₱${price}) -> ${matches ? '✅' : '❌'}`);
-        return matches;
-      });
-      console.log(`💰 After price range filter: ${filtered.length} results`);
-    }
-    
-    // Filter by barangay
-    if (filters.barangay && filters.barangay.trim()) {
-      console.log(`📍 Filtering by barangay: "${filters.barangay}"`);
-      
-      filtered = filtered.filter(listing => {
-        const address = listing.address || listing.location || '';
-        const matches = address.toLowerCase().includes(filters.barangay.toLowerCase());
-        
-        console.log(`   - "${listing.title}" (${address}) -> ${matches ? '✅' : '❌'}`);
-        return matches;
-      });
-      console.log(`📍 After barangay filter: ${filtered.length} results`);
-    }
-    
-    console.log('✅ Final filtered listings count:', filtered.length);
-    console.log('📋 Filtered results:', filtered.map(l => l.title));
-    setFilteredListings(filtered);
-  }, []);
-
-  // Handle search
-  const handleSearch = useCallback((text: string) => {
-    setSearchText(text);
-    if (!text.trim()) {
-      // If no search text, apply current filters to all listings
-      if (Object.keys(activeFilters).length > 0) {
-        applyFilters(ownerListings, activeFilters);
-      } else {
-        setFilteredListings(ownerListings);
-      }
-      return;
-    }
-
-    // Apply search to current filtered results or all listings
-    const baseListings = Object.keys(activeFilters).length > 0 ? filteredListings : ownerListings;
-    const filtered = baseListings.filter(listing =>
-      listing.title.toLowerCase().includes(text.toLowerCase()) ||
-      listing.location.toLowerCase().includes(text.toLowerCase()) ||
-      listing.description?.toLowerCase().includes(text.toLowerCase())
-    );
-    setFilteredListings(filtered);
-  }, [ownerListings, activeFilters, filteredListings, applyFilters]);
-
-  // Handle filter
-  const handleFilter = useCallback(() => {
-    router.push('/filter');
-  }, [router]);
 
       // Load data on component mount
   // Removed - consolidated into the main effect above
@@ -1469,7 +1405,7 @@ export default function DashboardScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {/* Notification */}
       {notification && (
         <View style={[
@@ -1511,60 +1447,12 @@ export default function DashboardScreen() {
                 </View>
               )}
             </View>
-
-            {/* Modern Search Bar */}
-            <View style={styles.searchWrapper}>
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={20} color="#3B82F6" />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search by location, type, or price..."
-                  value={searchText}
-                  onChangeText={handleSearch}
-                  placeholderTextColor="#9CA3AF"
-                />
-                <Pressable
-                  onPress={handleFilter}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open filters"
-                  style={styles.searchFilterButton}
-                >
-                  <LinearGradient
-                    colors={['#3B82F6', '#2563EB']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.filterGradient}
-                  >
-                    <Ionicons name="options" size={18} color="#FFFFFF" />
-                  </LinearGradient>
-                </Pressable>
-              </View>
-            </View>
+            {/* Inline Smart Search */}
+            <TenantSmartSearch value={searchParams} onChange={setSearchParams} />
           </View>
         </LinearGradient>
       </View>
 
-      {/* Filter Status Indicator */}
-      {Object.keys(activeFilters).length > 0 && (
-        <View style={styles.filterStatusContainer}>
-          <View style={styles.filterStatusContent}>
-            <Ionicons name="filter" size={16} color="#3B82F6" />
-            <Text style={styles.filterStatusText}>
-              Filters Active ({Object.keys(activeFilters).length} applied)
-            </Text>
-            <TouchableOpacity
-              onPress={() => {
-                setActiveFilters({});
-                setFilteredListings(ownerListings);
-                console.log('🧹 Filters cleared');
-              }}
-              style={styles.clearFiltersButton}
-            >
-              <Text style={styles.clearFiltersText}>Clear</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Featured Properties - Only show if there are filtered results */}
@@ -1613,7 +1501,7 @@ export default function DashboardScreen() {
                         )}
                       </View>
                   <View style={styles.featuredContent}>
-                    <Text style={styles.featuredTitle}>{listing.title}</Text>
+                    <Text style={styles.featuredTitle} numberOfLines={2}>{listing.title}</Text>
                     <Text style={styles.featuredDescription} numberOfLines={2}>{listing.description}</Text>
                     <Text style={styles.featuredPrice}>₱{listing.price.toLocaleString()}</Text>
                     <View style={styles.featuredRating}>
@@ -1634,96 +1522,129 @@ export default function DashboardScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>All Properties</Text>
-            <Text style={styles.sectionSubtitle}>{filteredListings.length} properties</Text>
+            <Text style={styles.sectionSubtitle}>
+              {filteredListings.length} {filteredListings.length === 1 ? 'property' : 'properties'}
+            </Text>
           </View>
           
           {filteredListings.length > 0 ? (
             filteredListings.map((listing) => (
               <View key={listing.id} style={styles.propertyCard}>
-                      <View style={styles.imageContainer}>
-                        {(listing.coverPhoto || listing.image) ? (
-                          <Image 
-                            source={{ uri: listing.coverPhoto || listing.image }}
-                            style={styles.propertyImage}
-                            onError={(error) => {
-                              console.log('❌ Image load error for listing:', listing.id, 'URI:', listing.coverPhoto || listing.image, error);
-                            }}
-                            onLoad={() => console.log('✅ Image loaded for listing:', listing.id, 'URI:', listing.coverPhoto || listing.image)}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <View style={styles.noImageContainer}>
-                            <Text style={styles.noImageText}>🏠 Property Image</Text>
-                          </View>
-                        )}
-                      </View>
+              <View style={styles.imageContainer}>
+                {(listing.coverPhoto || listing.image) ? (
+                  <Image 
+                    source={{ uri: listing.coverPhoto || listing.image }}
+                    style={styles.propertyImage}
+                    onError={(error) => {
+                      console.log('❌ Image load error for listing:', listing.id, 'URI:', listing.coverPhoto || listing.image, error);
+                    }}
+                    onLoad={() => console.log('✅ Image loaded for listing:', listing.id, 'URI:', listing.coverPhoto || listing.image)}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.noImageContainer}>
+                    <Text style={styles.noImageText}>🏠 Property Image</Text>
+                  </View>
+                )}
+                {/* Rating Badge Overlay */}
+                {listing.rating > 0 && (
+                  <View style={styles.ratingBadge}>
+                    <Ionicons name="star" size={14} color="#F59E0B" />
+                    <Text style={styles.ratingBadgeText}>{listing.rating.toFixed(1)}</Text>
+                  </View>
+                )}
+                {/* Property Type Badge */}
+                {listing.propertyType && (
+                  <View style={styles.propertyTypeBadge}>
+                    <Text style={styles.propertyTypeText}>{listing.propertyType}</Text>
+                  </View>
+                )}
+              </View>
                 
-                <View style={styles.propertyContent}>
-                  <Text style={styles.propertyTitle}>{listing.title}</Text>
-                  <Text style={styles.propertyDescription} numberOfLines={2}>{listing.description}</Text>
+              <View style={styles.propertyContent}>
+                {/* Title and Price Row */}
+                <View style={styles.titlePriceRow}>
+                  <View style={styles.titleContainer}>
+                    <Text style={styles.propertyTitle} numberOfLines={2}>{listing.title}</Text>
+                  </View>
                   <Text style={styles.propertyPrice}>₱{listing.price.toLocaleString()}</Text>
-                  
-                  <View style={styles.propertyDetails}>
-                    <View style={styles.detailItem}>
-                      <Ionicons name="bed" size={16} color="#6B7280" />
-                      <Text style={styles.detailText}>{listing.rooms} rooms</Text>
-                    </View>
-                    <View style={styles.detailItem}>
-                      <Ionicons name="water" size={16} color="#6B7280" />
-                      <Text style={styles.detailText}>{listing.bathrooms || 0} {(listing.bathrooms || 0) === 1 ? 'Bathroom' : 'Bathrooms'}</Text>
-                    </View>
-                    <View style={styles.detailItem}>
-                      <Ionicons name="star" size={16} color={listing.rating > 0 ? "#F59E0B" : "#D1D5DB"} />
-                      <Text style={styles.detailText}>
-                        {listing.rating > 0 ? listing.rating.toFixed(1) : 'No ratings'}{listing.rating > 0 && ` (${listing.reviews})`}
-                      </Text>
+                </View>
+                
+                {/* Location */}
+                {(listing.location || listing.address) && (
+                  <View style={styles.locationRow}>
+                    <Ionicons name="location" size={14} color="#64748B" />
+                    <Text style={styles.locationText} numberOfLines={1}>
+                      {listing.location || listing.address?.split(',')[0] || 'Location not specified'}
+                    </Text>
+                  </View>
+                )}
+                
+                {/* Description */}
+                {listing.description && (
+                  <Text style={styles.propertyDescription} numberOfLines={2}>
+                    {listing.description}
+                  </Text>
+                )}
+                
+                {/* Property Details */}
+                <View style={styles.propertyDetails}>
+                  <View style={styles.detailItem}>
+                    <Ionicons name="bed-outline" size={18} color="#3B82F6" />
+                    <View style={styles.detailItemContent}>
+                      <Text style={styles.detailText}>{listing.rooms || 0}</Text>
+                      <Text style={styles.detailLabel}>Bed</Text>
                     </View>
                   </View>
+                  <View style={styles.detailDivider} />
+                  <View style={styles.detailItem}>
+                    <Ionicons name="water-outline" size={18} color="#3B82F6" />
+                    <View style={styles.detailItemContent}>
+                      <Text style={styles.detailText}>{listing.bathrooms || 0}</Text>
+                      <Text style={styles.detailLabel}>Bath</Text>
+                    </View>
+                  </View>
+                  {listing.barangay && (
+                    <>
+                      <View style={styles.detailDivider} />
+                      <View style={styles.detailItem}>
+                        <Ionicons name="map-outline" size={18} color="#3B82F6" />
+                        <View style={styles.detailItemContent}>
+                          <Text style={styles.detailLabel} numberOfLines={1}>{listing.barangay}</Text>
+                        </View>
+                      </View>
+                    </>
+                  )}
+                </View>
                     
-                  <View style={styles.propertyActions}>
+                {/* Action Buttons */}
+                <View style={styles.propertyActions}>
+                  {((listing.ownerUserId && listing.ownerUserId.trim() !== '') || (listing.userId && listing.userId.trim() !== '')) && (
                     <Pressable 
-                        style={styles.messageButton}
-                        onPress={() => handleMessageOwner(listing)}
-                      >
-                      <Ionicons name="chatbubble" size={16} color="#FFFFFF" />
-                        <Text style={styles.messageButtonText}>Message Owner</Text>
-                    </Pressable>
-                    
-                    <Pressable 
-                      style={styles.viewButton}
-                      onPress={() => handlePropertyView(listing)}
+                      style={styles.messageButton}
+                      onPress={() => handleMessageOwner(listing)}
                     >
-                      <Ionicons name="eye" size={16} color="#FFFFFF" />
-                      <Text style={styles.viewButtonText}>View Details</Text>
+                      <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
+                      <Text style={styles.messageButtonText}>Message</Text>
                     </Pressable>
-                    </View>
-                  </View>
+                  )}
+                  
+                  <Pressable 
+                    style={styles.viewButton}
+                    onPress={() => handlePropertyView(listing)}
+                  >
+                    <Ionicons name="eye" size={18} color="#FFFFFF" />
+                    <Text style={styles.viewButtonText}>View Details</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
             ))
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="home" size={48} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>
-                {Object.keys(activeFilters).length > 0 ? 'No Properties Match Your Filters' : 'No Properties Found'}
-              </Text>
-              <Text style={styles.emptySubtitle}>
-                {Object.keys(activeFilters).length > 0 
-                  ? 'Try adjusting your filters or clear them to see all properties'
-                  : 'Try adjusting your search or check back later'
-                }
-              </Text>
-              {Object.keys(activeFilters).length > 0 && (
-                <Pressable
-                  style={styles.clearFiltersEmptyButton}
-                  onPress={() => {
-                    setActiveFilters({});
-                    setFilteredListings(ownerListings);
-                    console.log('🧹 Filters cleared from empty state');
-                  }}
-                >
-                  <Text style={styles.clearFiltersEmptyText}>Clear All Filters</Text>
-                </Pressable>
-              )}
+              <Text style={styles.emptyTitle}>No Properties Found</Text>
+              <Text style={styles.emptySubtitle}>Check back later for new property listings</Text>
             </View>
           )}
         </View>
@@ -1821,39 +1742,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  searchWrapper: {
-    paddingBottom: 4,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#111827',
-    marginLeft: 12,
-    marginRight: 12,
-  },
-  searchFilterButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  filterGradient: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   content: {
     flex: 1,
     backgroundColor: '#F8FAFC',
@@ -1889,7 +1777,7 @@ const styles = StyleSheet.create({
   },
   featuredScrollWrapper: {
     width: '100%',
-    height: 280, // Reduced from 320
+    height: 300, // Increased to accommodate longer titles
   },
   featuredScroll: {
     marginHorizontal: -16, // Reduced from -20
@@ -1910,6 +1798,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    flexDirection: 'column',
   },
   featuredImage: {
     width: '100%',
@@ -1917,13 +1806,15 @@ const styles = StyleSheet.create({
   },
   featuredContent: {
     padding: 12, // Reduced from 14
+    minHeight: 140,
   },
   featuredTitle: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1E293B',
-    marginBottom: 4,
+    marginBottom: 6,
     letterSpacing: 0.2,
+    lineHeight: 20,
   },
   featuredDescription: {
     fontSize: 12,
@@ -1944,33 +1835,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 8,
+    gap: 4,
   },
   ratingText: {
     fontSize: 13,
     color: '#92400E',
-    marginLeft: 4,
     fontWeight: '600',
+    lineHeight: 16,
   },
   propertyCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 12, // Reduced from 16
-    shadowColor: '#1E3A8A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    borderRadius: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 5,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#F1F5F9',
   },
   imageContainer: {
     position: 'relative',
     width: '100%',
-    height: 160, // Reduced from 180
+    height: 200,
     overflow: 'hidden',
+    backgroundColor: '#F8FAFC',
   },
   featuredImageContainer: {
     position: 'relative',
@@ -1980,7 +1873,49 @@ const styles = StyleSheet.create({
   },
   propertyImage: {
     width: '100%',
-    height: 160, // Reduced from 180
+    height: 200,
+  },
+  ratingBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  ratingBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  propertyTypeBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    backgroundColor: 'rgba(59, 130, 246, 0.95)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  propertyTypeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textTransform: 'capitalize',
   },
   noImageContainer: {
     position: 'absolute',
@@ -1988,7 +1923,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#6366F1',
+    backgroundColor: '#E2E8F0',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2015,98 +1950,142 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   propertyContent: {
-    padding: 14, // Reduced from 16
+    padding: 18,
+  },
+  titlePriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+    gap: 12,
+  },
+  titleContainer: {
+    flex: 1,
   },
   propertyTitle: {
-    fontSize: 16, // Reduced from 17
+    fontSize: 18,
     fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 4,
+    color: '#0F172A',
     letterSpacing: 0.2,
-  },
-  propertyDescription: {
-    fontSize: 13,
-    color: '#64748B',
-    marginBottom: 10,
-    fontWeight: '400',
-    lineHeight: 18,
+    lineHeight: 24,
   },
   propertyPrice: {
-    fontSize: 18, // Reduced from 20
+    fontSize: 20,
     fontWeight: '800',
     color: '#059669',
-    marginBottom: 10, // Reduced from 12
+    letterSpacing: 0.3,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 6,
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
+    flex: 1,
+  },
+  propertyDescription: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 16,
+    fontWeight: '400',
+    lineHeight: 20,
   },
   propertyDetails: {
     flexDirection: 'row',
-    gap: 12, // Reduced from 16
-    marginBottom: 12, // Reduced from 14
-    paddingVertical: 8, // Reduced from 10
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    gap: 0,
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    gap: 8,
+    flex: 1,
+    justifyContent: 'center',
+    minWidth: 70,
+    maxWidth: 120,
+  },
+  detailItemContent: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 2,
   },
   detailText: {
-    fontSize: 12,
-    color: '#475569',
-    marginLeft: 4,
-    fontWeight: '600',
+    fontSize: 16,
+    color: '#1E293B',
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '500',
+    lineHeight: 14,
+  },
+  detailDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'center',
+    marginHorizontal: 4,
   },
   propertyActions: {
     flexDirection: 'row',
-    gap: 8, // Reduced from 10
+    gap: 10,
   },
   messageButton: {
     flex: 1,
-    backgroundColor: '#059669',
-    paddingVertical: 10, // Reduced from 12
-    paddingHorizontal: 14, // Reduced from 16
+    backgroundColor: '#10B981',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#059669',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
+    gap: 6,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   messageButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    marginLeft: 6,
-    fontSize: 13,
-    letterSpacing: 0.2,
+    fontSize: 14,
+    letterSpacing: 0.3,
   },
   viewButton: {
     flex: 1,
     backgroundColor: '#3B82F6',
-    paddingVertical: 10, // Reduced from 12
-    paddingHorizontal: 14, // Reduced from 16
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
     shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   viewButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    marginLeft: 6,
-    fontSize: 13,
-    letterSpacing: 0.2,
+    fontSize: 14,
+    letterSpacing: 0.3,
   },
   emptyState: {
     alignItems: 'center',
@@ -2127,46 +2106,86 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-  filterStatusContainer: {
-    backgroundColor: '#F0F9FF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E7FF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  filterStatusContent: {
+  searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    marginTop: 16,
+    gap: 12,
   },
-  filterStatusText: {
+  searchBar: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1E40AF',
-    marginLeft: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  clearFiltersButton: {
-    backgroundColor: '#3B82F6',
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1F2937',
+    padding: 0,
+  },
+  clearButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  filterButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+  },
+  activeFiltersContainer: {
+    marginTop: 12,
+    paddingBottom: 4,
+  },
+  activeFiltersScroll: {
+    flexDirection: 'row',
+  },
+  filterTag: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  clearFiltersText: {
+  filterTagText: {
     color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterCountText: {
     fontSize: 12,
-    fontWeight: '600',
-  },
-  clearFiltersEmptyButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  clearFiltersEmptyText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    color: '#64748B',
+    fontWeight: '400',
   },
 });
