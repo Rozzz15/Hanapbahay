@@ -220,14 +220,38 @@ export const loadUserProfilePhoto = async (userId: string): Promise<string | nul
 
       // Prefer embedded base64 data if available
       if (rawData && rawData.length > 10) {
+        // Check for malformed URI (contains both data: and file://)
+        if (rawData.includes('data:') && rawData.includes('file://')) {
+          console.warn('⚠️ Malformed photo data detected (contains both data: and file://), skipping');
+          return null;
+        }
+        
         if (rawData.startsWith('data:')) {
+          // Validate data URI format
+          if (rawData.includes('file://')) {
+            console.warn('⚠️ Malformed data URI detected (contains file://), skipping');
+            return null;
+          }
           return rawData;
         }
+        
+        // Ensure base64 data doesn't contain file://
+        if (rawData.includes('file://')) {
+          console.warn('⚠️ Photo data contains file://, skipping');
+          return null;
+        }
+        
         return `data:${userPhoto.mimeType || 'image/jpeg'};base64,${rawData}`;
       }
 
       // Fallback to stored URI if present
       if (rawUri && rawUri.length > 10) {
+        // Check for malformed URI (contains both data: and file://)
+        if (rawUri.includes('data:') && rawUri.includes('file://')) {
+          console.warn('⚠️ Malformed photo URI detected (contains both data: and file://), skipping');
+          return null;
+        }
+        
         // If it looks like bare base64, add prefix
         const looksLikeBase64 = !rawUri.startsWith('data:') && !rawUri.startsWith('http') && !rawUri.startsWith('file:') && /[A-Za-z0-9+/=]{100,}/.test(rawUri);
         if (looksLikeBase64) {

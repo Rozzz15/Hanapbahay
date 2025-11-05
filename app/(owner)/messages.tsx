@@ -36,6 +36,49 @@ interface Conversation {
     paymentStatus?: 'pending' | 'partial' | 'paid' | 'refunded';
 }
 
+/**
+ * Validates if an image URI is valid and properly formatted
+ * Filters out malformed URIs like data:image/jpeg;base64,file:///...
+ */
+function isValidImageUri(uri: string | null | undefined): boolean {
+    if (!uri || typeof uri !== 'string' || uri.trim() === '') {
+        return false;
+    }
+    
+    const trimmedUri = uri.trim();
+    
+    // Reject malformed URIs that have both data: and file:// prefixes
+    if (trimmedUri.includes('data:') && trimmedUri.includes('file://')) {
+        return false;
+    }
+    
+    // Valid data URI format: data:image/type;base64,base64data
+    if (trimmedUri.startsWith('data:image/')) {
+        const base64Part = trimmedUri.split(',')[1];
+        if (!base64Part || base64Part.length < 10) {
+            return false;
+        }
+        // Ensure it doesn't contain file://
+        if (base64Part.includes('file://')) {
+            return false;
+        }
+        return true;
+    }
+    
+    // Valid file URI format: file:///...
+    if (trimmedUri.startsWith('file://')) {
+        return true;
+    }
+    
+    // Valid HTTP/HTTPS URI
+    if (trimmedUri.startsWith('http://') || trimmedUri.startsWith('https://')) {
+        return true;
+    }
+    
+    // Reject anything else
+    return false;
+}
+
 export default function OwnerMessages() {
     const router = useRouter();
     const { user } = useAuth();
@@ -455,17 +498,12 @@ export default function OwnerMessages() {
                                         {/* Avatar */}
                                         <View style={styles.avatarContainer}>
                                             <View style={styles.avatar}>
-                                                {conversation.tenantAvatar && conversation.tenantAvatar.trim() !== '' ? (
+                                                {conversation.tenantAvatar && conversation.tenantAvatar.trim() !== '' && isValidImageUri(conversation.tenantAvatar) && !imageErrors.has(conversation.id) ? (
                                                     <Image 
                                                         source={{ uri: conversation.tenantAvatar }} 
                                                         style={styles.avatarImage}
-                                                        onLoad={() => {
-                                                            console.log('✅ Successfully loaded avatar image for:', conversation.tenantName);
-                                                        }}
-                                                        onError={(error) => {
-                                                            console.log('❌ Error loading image for tenant:', conversation.tenantName);
-                                                            console.log('❌ Error details:', error);
-                                                            console.log('❌ Avatar URI:', conversation.tenantAvatar?.substring(0, 100));
+                                                        onError={() => {
+                                                            setImageErrors(prev => new Set(prev).add(conversation.id));
                                                         }}
                                                     />
                                                 ) : (
@@ -491,19 +529,14 @@ export default function OwnerMessages() {
                                                     <View style={styles.smallAvatarContainer}>
                                                         {conversation.tenantAvatar && 
                                                          conversation.tenantAvatar.trim() !== '' && 
-                                                         conversation.tenantAvatar.length > 10 &&
+                                                         isValidImageUri(conversation.tenantAvatar) &&
                                                          !imageErrors.has(conversation.id) ? (
                                                             <Image 
                                                                 source={{ uri: conversation.tenantAvatar }} 
                                                                 style={styles.smallAvatarImage}
                                                                 resizeMode="cover"
-                                                                onError={(error) => {
-                                                                    console.log('❌ Failed to load small avatar for conversation:', conversation.id, conversation.tenantName);
-                                                                    console.log('❌ Avatar URI preview:', conversation.tenantAvatar?.substring(0, 50));
+                                                                onError={() => {
                                                                     setImageErrors(prev => new Set(prev).add(conversation.id));
-                                                                }}
-                                                                onLoad={() => {
-                                                                    console.log('✅ Successfully loaded small avatar for:', conversation.tenantName);
                                                                 }}
                                                             />
                                                         ) : (
