@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
 import { 
   User, 
   LogOut, 
@@ -11,15 +12,20 @@ import {
   HelpCircle,
   ChevronRight,
   Mail,
-  Phone
+  Phone,
+  Camera
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
+import { saveUserProfilePhoto, loadUserProfilePhoto } from '../../utils/user-profile-photos';
 
 export default function OwnerProfile() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [loadingPhoto, setLoadingPhoto] = useState(true);
+  const [savingPhoto, setSavingPhoto] = useState(false);
 
   const handleLogout = () => {
     console.log('🔘 Logout button clicked');
@@ -55,6 +61,122 @@ export default function OwnerProfile() {
         }
       ]
     );
+  };
+
+  // Load profile photo on mount
+  useEffect(() => {
+    if (user?.id) {
+      loadOwnerProfilePhoto();
+    }
+  }, [user?.id]);
+
+  const loadOwnerProfilePhoto = async () => {
+    if (!user?.id) return;
+    
+    try {
+      setLoadingPhoto(true);
+      const photoUri = await loadUserProfilePhoto(user.id);
+      if (photoUri) {
+        setProfilePhoto(photoUri);
+        console.log('✅ Loaded owner profile photo');
+      } else {
+        setProfilePhoto(null);
+        console.log('📸 No profile photo found for owner');
+      }
+    } catch (error) {
+      console.error('❌ Error loading owner profile photo:', error);
+      setProfilePhoto(null);
+    } finally {
+      setLoadingPhoto(false);
+    }
+  };
+
+  const handlePhotoAction = async (action: 'gallery' | 'remove') => {
+    if (action === 'remove') {
+      Alert.alert(
+        'Remove Photo',
+        'Are you sure you want to remove your profile photo?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                setSavingPhoto(true);
+                // Remove photo from database
+                const { deleteUserProfilePhoto } = await import('../../utils/user-profile-photos');
+                await deleteUserProfilePhoto(user?.id || '');
+                setProfilePhoto(null);
+                showAlert('Success', 'Profile photo removed successfully');
+              } catch (error) {
+                console.error('❌ Error removing photo:', error);
+                showAlert('Error', 'Failed to remove photo');
+              } finally {
+                setSavingPhoto(false);
+              }
+            }
+          }
+        ]
+      );
+    } else {
+      try {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        
+        if (!permissionResult.granted) {
+          showAlert('Permission Required', 'Please grant permission to access your photos');
+          return;
+        }
+        
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1] as [number, number],
+          quality: 0.7,
+          base64: true,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const selectedImage = result.assets[0];
+          
+          let imageUri = selectedImage.uri;
+          if (Platform.OS === 'web' && selectedImage.base64) {
+            imageUri = `data:${selectedImage.type || 'image/jpeg'};base64,${selectedImage.base64}`;
+          }
+          
+          // Save to database
+          try {
+            setSavingPhoto(true);
+            const photoSize = imageUri.length;
+            const fileName = `profile_photo_${user?.id}_${Date.now()}.jpg`;
+            const mimeType = imageUri.startsWith('data:') 
+              ? imageUri.split(';')[0].split(':')[1] 
+              : 'image/jpeg';
+            
+            await saveUserProfilePhoto(
+              user?.id || '',
+              imageUri,
+              imageUri, // Store as both URI and data
+              fileName,
+              photoSize,
+              mimeType
+            );
+            
+            setProfilePhoto(imageUri);
+            showAlert('Success', 'Profile photo updated successfully');
+            console.log('✅ Owner profile photo saved to database');
+          } catch (saveError) {
+            console.error('❌ Error saving photo:', saveError);
+            showAlert('Error', 'Failed to save photo');
+          } finally {
+            setSavingPhoto(false);
+          }
+        }
+      } catch (error) {
+        console.error('Error selecting photo:', error);
+        showAlert('Error', 'Failed to select photo');
+      }
+    }
   };
 
   const profileMenuItems = [
@@ -107,9 +229,52 @@ export default function OwnerProfile() {
           {/* User Info Card */}
           <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 60, height: 60, borderRadius: 30 }]}>
-                <User size={32} color="#3B82F6" />
-              </View>
+              <TouchableOpacity
+                onPress={() => handlePhotoAction('gallery')}
+                disabled={savingPhoto || loadingPhoto}
+                activeOpacity={0.7}
+                style={{ position: 'relative' }}
+              >
+                {loadingPhoto ? (
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center' }]}>
+                    <ActivityIndicator size="small" color="#3B82F6" />
+                  </View>
+                ) : profilePhoto ? (
+                  <View style={{ width: 60, height: 60, borderRadius: 30, overflow: 'hidden', borderWidth: 2, borderColor: designTokens.colors.info }}>
+                    <Image 
+                      source={{ uri: profilePhoto }} 
+                      style={{ width: 60, height: 60 }}
+                      resizeMode="cover"
+                    />
+                    <View style={{ 
+                      position: 'absolute', 
+                      bottom: 0, 
+                      right: 0, 
+                      backgroundColor: 'rgba(0,0,0,0.6)', 
+                      borderRadius: 12,
+                      padding: 4
+                    }}>
+                      <Camera size={12} color="white" />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 60, height: 60, borderRadius: 30, position: 'relative' }]}>
+                    <User size={32} color="#3B82F6" />
+                    <View style={{ 
+                      position: 'absolute', 
+                      bottom: 0, 
+                      right: 0, 
+                      backgroundColor: designTokens.colors.info, 
+                      borderRadius: 12,
+                      padding: 4,
+                      borderWidth: 2,
+                      borderColor: 'white'
+                    }}>
+                      <Camera size={12} color="white" />
+                    </View>
+                  </View>
+                )}
+              </TouchableOpacity>
               <View style={{ marginLeft: designTokens.spacing.lg, flex: 1 }}>
                 <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xl, marginBottom: 4 }]}>
                   {user?.name || 'Property Owner'}
@@ -128,6 +293,17 @@ export default function OwnerProfile() {
                     Owner Account
                   </Text>
                 </View>
+                {profilePhoto && (
+                  <TouchableOpacity
+                    onPress={() => handlePhotoAction('remove')}
+                    disabled={savingPhoto}
+                    style={{ marginTop: 8, alignSelf: 'flex-start' }}
+                  >
+                    <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.error, fontSize: 12 }]}>
+                      Remove Photo
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>

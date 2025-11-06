@@ -11,7 +11,8 @@ import {
     KeyboardAvoidingView,
     Platform,
     Animated,
-    Dimensions
+    Dimensions,
+    Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -60,6 +61,8 @@ export default function ChatRoomNew() {
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
+    const [viewingImageUri, setViewingImageUri] = useState<string | null>(null);
     
     // Add try-catch around participantInfo initialization
     let initialParticipantInfo;
@@ -144,8 +147,8 @@ export default function ChatRoomNew() {
             }
 
             // Store owner ID and determine if current user is owner
-            const conversationOwnerId = conversation.ownerId || conversation.owner_id;
-            const conversationTenantId = conversation.tenantId || conversation.tenant_id;
+            const conversationOwnerId = conversation.ownerId || conversation.owner_id || null;
+            const conversationTenantId = conversation.tenantId || conversation.tenant_id || null;
             setOwnerId(conversationOwnerId);
             setTenantId(conversationTenantId);
             setIsCurrentUserOwner(user.id === conversationOwnerId);
@@ -355,9 +358,10 @@ export default function ChatRoomNew() {
     useFocusEffect(
         useCallback(() => {
             if (conversationId && user?.id) {
+                loadParticipantInfo(); // Refresh participant info to get latest profile photo
                 loadMessages();
             }
-        }, [loadMessages, conversationId, user?.id])
+        }, [loadMessages, loadParticipantInfo, conversationId, user?.id])
     );
 
     const pickImage = async () => {
@@ -635,7 +639,8 @@ export default function ChatRoomNew() {
 
         // Check if message is from current user (not just if it's from owner)
         const isCurrentUser = message.senderId === user?.id;
-        const isImageMessage = message.type === 'image' && message.imageUri;
+        // Check if message is an image - check both type and presence of imageUri
+        const isImageMessage = (message.type === 'image' || message.imageUri) && !!message.imageUri;
         const canDelete = user?.id === message.senderId;
 
         return (
@@ -674,13 +679,30 @@ export default function ChatRoomNew() {
                     activeOpacity={canDelete ? 0.7 : 1}
                 >
                     {isImageMessage ? (
-                        <View style={styles.imageContainer}>
+                        <TouchableOpacity
+                            style={styles.imageContainer}
+                            onPress={() => {
+                                if (message.imageUri) {
+                                    console.log('🖼️ Image tapped, opening viewer:', message.imageUri);
+                                    setViewingImageUri(message.imageUri);
+                                    setImageViewerVisible(true);
+                                }
+                            }}
+                            onLongPress={() => {
+                                if (canDelete) {
+                                    setSelectedMessage(message);
+                                    showDeleteConfirmation(message);
+                                }
+                            }}
+                            delayLongPress={500}
+                            activeOpacity={0.9}
+                        >
                             <Image 
                                 source={{ uri: message.imageUri }} 
                                 style={styles.messageImage}
                                 resizeMode="cover"
                             />
-                        </View>
+                        </TouchableOpacity>
                     ) : (
                         <Text style={[styles.messageText, isCurrentUser ? styles.currentUserMessageText : styles.otherUserMessageText]}>
                             {message.text || ''}
@@ -831,6 +853,49 @@ export default function ChatRoomNew() {
                     </View>
                 </View>
             </KeyboardAvoidingView>
+
+            {/* Full-Screen Image Viewer Modal */}
+            <Modal
+                visible={imageViewerVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => {
+                    console.log('🖼️ Modal close requested');
+                    setImageViewerVisible(false);
+                    setViewingImageUri(null);
+                }}
+            >
+                <SafeAreaView style={styles.imageViewerContainer}>
+                    <TouchableOpacity
+                        style={styles.imageViewerCloseButton}
+                        onPress={() => {
+                            console.log('🖼️ Close button pressed');
+                            setImageViewerVisible(false);
+                            setViewingImageUri(null);
+                        }}
+                    >
+                        <Ionicons name="close" size={28} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    {viewingImageUri ? (
+                        <Image
+                            source={{ uri: viewingImageUri }}
+                            style={styles.imageViewerImage}
+                            resizeMode="contain"
+                            onError={(error) => {
+                                console.error('❌ Error loading image in viewer:', error);
+                                showAlert('Error', 'Failed to load image');
+                            }}
+                            onLoad={() => {
+                                console.log('✅ Image loaded in viewer:', viewingImageUri);
+                            }}
+                        />
+                    ) : (
+                        <View style={styles.imageViewerPlaceholder}>
+                            <Text style={styles.imageViewerPlaceholderText}>No image to display</Text>
+                        </View>
+                    )}
+                </SafeAreaView>
+            </Modal>
         </SafeAreaView>
         );
     } catch (renderError) {
@@ -1109,4 +1174,36 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '500',
     },
+    imageViewerContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.95)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerCloseButton: {
+        position: 'absolute',
+        top: 16,
+        right: 16,
+        zIndex: 1000,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerImage: {
+        width: Dimensions.get('window').width,
+        height: Dimensions.get('window').height,
+    },
+    imageViewerPlaceholder: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerPlaceholderText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+    },
 });
+

@@ -54,11 +54,12 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
       setImageError(false); // Reset image error when opening modal
       loadTenantProfile();
     }
-  }, [visible, tenantId]);
+  }, [visible, tenantId, tenantAvatar]); // Also reload if tenantAvatar prop changes
 
   const loadTenantProfile = async () => {
     try {
       setLoading(true);
+      setImageError(false); // Reset image error when loading
       
       // Try to load user data first
       const user = await db.get('users', tenantId);
@@ -66,47 +67,98 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
       // Load profile photo - Use provided tenantAvatar if available, otherwise load it
       let profilePhoto = '';
       
-      // First, use the provided tenantAvatar if available
+      // First, use the provided tenantAvatar if available and valid
       if (tenantAvatar && tenantAvatar.trim() && tenantAvatar.length > 10) {
         profilePhoto = tenantAvatar.trim();
         console.log('✅ Using provided tenant profile photo');
-      } else {
-        // Try to load profile photo from database
+        console.log('📸 Provided photo length:', profilePhoto.length);
+        console.log('📸 Provided photo preview:', profilePhoto.substring(0, 50));
+      }
+      
+      // If no valid photo from prop, try to load from database
+      if (!profilePhoto || profilePhoto.length <= 10) {
         try {
           const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
           const photoUri = await loadUserProfilePhoto(tenantId);
           if (photoUri && photoUri.trim() && photoUri.length > 10) {
             profilePhoto = photoUri.trim();
             console.log('✅ Loaded tenant profile photo from database');
+            console.log('📸 Database photo length:', profilePhoto.length);
+            console.log('📸 Database photo preview:', profilePhoto.substring(0, 50));
+          } else {
+            console.log('⚠️ No valid photo from loadUserProfilePhoto');
           }
         } catch (error) {
-          console.log('⚠️ Could not load profile photo:', error);
-          
-          // Try direct database query as fallback
-          try {
-            const allPhotos = await db.list('user_profile_photos');
-            const tenantPhoto = allPhotos.find((photo: any) => {
-              const photoUserId = photo.userId || photo.userid;
-              return photoUserId === tenantId && (photo as any).photoData && (photo as any).photoData.trim();
-            }) as any;
-            
-            if (tenantPhoto) {
-              const photoData = tenantPhoto.photoData;
-              if (photoData && photoData.trim()) {
-                if (photoData.startsWith('data:')) {
-                  profilePhoto = photoData.trim();
-                } else {
-                  const mimeType = tenantPhoto.mimeType || 'image/jpeg';
-                  profilePhoto = `data:${mimeType};base64,${photoData.trim()}`;
-                }
-                console.log('✅ Loaded profile photo via direct query');
-              }
-            }
-          } catch (fallbackError) {
-            console.log('⚠️ Fallback photo loading failed:', fallbackError);
-          }
+          console.error('❌ Error loading profile photo:', error);
         }
       }
+      
+      // If still no photo, try direct database query as fallback
+      if (!profilePhoto || profilePhoto.length <= 10) {
+        try {
+          console.log('🔍 Fallback: Querying database directly for tenant photo');
+          const allPhotos = await db.list('user_profile_photos');
+          console.log('🔍 Total photos in database:', allPhotos.length);
+          
+          const tenantPhoto = allPhotos.find((photo: any) => {
+            if (!photo || typeof photo !== 'object') return false;
+            const photoUserId = photo.userId || photo.userid || '';
+            const hasPhotoData = photo.photoData && photo.photoData.trim() !== '';
+            const hasPhotoUri = photo.photoUri && photo.photoUri.trim() !== '';
+            return photoUserId === tenantId && (hasPhotoData || hasPhotoUri);
+          }) as any;
+          
+          if (tenantPhoto) {
+            console.log('✅ Found tenant photo record in database');
+            let photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
+            
+            if (photoData && photoData.trim() !== '') {
+              const trimmedData = photoData.trim();
+              
+              // Check if it's already a valid URI format
+              if (trimmedData.startsWith('data:')) {
+                // Already a data URI, use it directly
+                profilePhoto = trimmedData;
+                console.log('✅ Using existing data URI format');
+              } else if (trimmedData.startsWith('file://')) {
+                // It's a file URI, use it directly (don't construct data URI)
+                profilePhoto = trimmedData;
+                console.log('✅ Using file URI format');
+              } else if (trimmedData.startsWith('http://') || trimmedData.startsWith('https://')) {
+                // It's an HTTP/HTTPS URI, use it directly
+                profilePhoto = trimmedData;
+                console.log('✅ Using HTTP/HTTPS URI format');
+              } else {
+                // Assume it's base64 data and construct data URI
+                // But first check it doesn't contain file:// (malformed)
+                if (trimmedData.includes('file://')) {
+                  console.warn('⚠️ Photo data contains file:// but is not a valid file URI, skipping');
+                  profilePhoto = '';
+                } else {
+                  const mimeType = tenantPhoto.mimeType || 'image/jpeg';
+                  profilePhoto = `data:${mimeType};base64,${trimmedData}`;
+                  console.log('✅ Constructed data URI from base64 data');
+                }
+              }
+              
+              console.log('📸 Fallback photo length:', profilePhoto.length);
+              console.log('📸 Fallback photo preview:', profilePhoto.substring(0, 50));
+            } else {
+              console.warn('⚠️ Tenant photo record found but no photo data');
+            }
+          } else {
+            console.log('⚠️ No tenant photo record found in database for:', tenantId);
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback photo loading failed:', fallbackError);
+        }
+      }
+      
+      console.log('📸 Final profile photo status:', {
+        hasPhoto: !!profilePhoto,
+        photoLength: profilePhoto?.length || 0,
+        photoPreview: profilePhoto?.substring(0, 50) || 'none'
+      });
 
       if (user) {
         // Get tenant-specific data
@@ -166,15 +218,44 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
       let errorPhoto = '';
       if (tenantAvatar && tenantAvatar.trim() && tenantAvatar.length > 10) {
         errorPhoto = tenantAvatar.trim();
+        console.log('✅ Using provided tenantAvatar in error handler');
       } else {
         try {
           const { loadUserProfilePhoto } = await import('../utils/user-profile-photos');
           const photoUri = await loadUserProfilePhoto(tenantId);
           if (photoUri && photoUri.trim() && photoUri.length > 10) {
             errorPhoto = photoUri.trim();
+            console.log('✅ Loaded photo in error handler');
           }
         } catch (photoError) {
           console.log('⚠️ Could not load photo on error:', photoError);
+          
+          // Final fallback: direct database query
+          try {
+            const allPhotos = await db.list('user_profile_photos');
+            const tenantPhoto = allPhotos.find((photo: any) => {
+              if (!photo || typeof photo !== 'object') return false;
+              const photoUserId = photo.userId || photo.userid || '';
+              const hasPhotoData = photo.photoData && photo.photoData.trim() !== '';
+              const hasPhotoUri = photo.photoUri && photo.photoUri.trim() !== '';
+              return photoUserId === tenantId && (hasPhotoData || hasPhotoUri);
+            });
+            
+            if (tenantPhoto) {
+              let photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
+              if (photoData && photoData.trim() !== '') {
+                if (photoData.startsWith('data:')) {
+                  errorPhoto = photoData.trim();
+                } else {
+                  const mimeType = tenantPhoto.mimeType || 'image/jpeg';
+                  errorPhoto = `data:${mimeType};base64,${photoData.trim()}`;
+                }
+                console.log('✅ Loaded photo via final fallback in error handler');
+              }
+            }
+          } catch (finalError) {
+            console.error('❌ Final fallback also failed:', finalError);
+          }
         }
       }
       
@@ -228,12 +309,20 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
                     source={{ uri: tenantProfile.profilePhoto }}
                     style={styles.avatar}
                     onError={(error) => {
-                      console.warn('⚠️ Profile photo failed to load', error.nativeEvent?.error || 'Unknown error');
+                      console.error('❌ Profile photo failed to load in modal:', error.nativeEvent?.error || 'Unknown error');
+                      console.error('❌ Photo URI that failed:', tenantProfile.profilePhoto?.substring(0, 100));
                       setImageError(true);
+                      // Try to reload the photo
+                      setTimeout(() => {
+                        loadTenantProfile();
+                      }, 1000);
                     }}
                     onLoad={() => {
-                      console.log('✅ Profile photo loaded successfully');
+                      console.log('✅ Profile photo loaded successfully in modal');
                       setImageError(false);
+                    }}
+                    onLoadStart={() => {
+                      console.log('🔄 Profile photo loading started in modal');
                     }}
                     resizeMode="cover"
                   />

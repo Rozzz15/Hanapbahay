@@ -11,7 +11,8 @@ import {
     KeyboardAvoidingView,
     Platform,
     Animated,
-    Dimensions
+    Dimensions,
+    Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -21,6 +22,7 @@ import { useAuth } from '@/context/AuthContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
 import PaymentMethodsDisplay from '@/components/chat/PaymentMethodsDisplay';
+import TenantInfoModal from '@/components/TenantInfoModal';
 
 interface Message {
     id: string;
@@ -43,6 +45,8 @@ export default function OwnerChatRoom() {
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
+    const [viewingImageUri, setViewingImageUri] = useState<string | null>(null);
     const [participantInfo, setParticipantInfo] = useState<{
         otherParticipantName: string;
         otherParticipantAvatar: string;
@@ -54,6 +58,9 @@ export default function OwnerChatRoom() {
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
     const [paymentBannerVisible, setPaymentBannerVisible] = useState(false);
+    const [tenantInfoModalVisible, setTenantInfoModalVisible] = useState(false);
+    const [tenantEmail, setTenantEmail] = useState<string>('');
+    const [tenantPhone, setTenantPhone] = useState<string>('');
     const scrollViewRef = useRef<ScrollView>(null);
 
     const loadParticipantInfo = useCallback(async () => {
@@ -62,7 +69,10 @@ export default function OwnerChatRoom() {
         try {
             // Get conversation to find the other participant
             const conversation = await db.get('conversations', conversationId as string);
-            if (!conversation) return;
+            if (!conversation) {
+                console.warn('⚠️ Conversation not found:', conversationId);
+                return;
+            }
 
             // Store owner ID and determine if current user is owner
             const conversationOwnerId = conversation.ownerId || conversation.owner_id;
@@ -79,36 +89,140 @@ export default function OwnerChatRoom() {
                 // Get the other participant's details from users table
                 const otherParticipant = await db.get('users', otherParticipantId);
                 if (otherParticipant) {
-                    const participantName = (otherParticipant as any).name || 
-                                         (otherParticipant as any).businessName || 
-                                         'Unknown User';
+                    // Prioritize business name over owner name, with proper capitalization
+                    const businessName = (otherParticipant as any).businessName;
+                    const ownerName = (otherParticipant as any).name;
+                    
+                    let participantName = 'Unknown User';
+                    if (businessName && businessName.trim()) {
+                        // Use business name if available
+                        participantName = businessName.trim();
+                    } else if (ownerName && ownerName.trim()) {
+                        // Fall back to owner name if no business name
+                        participantName = ownerName.trim();
+                    }
+                    
+                    // Capitalize the name properly
+                    participantName = participantName
+                        .split(' ')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ');
+                    
+                    // Load tenant email and phone for tenant info modal
+                    // Only load if current user is owner (checking conversationOwnerId directly)
+                    if (user.id === conversationOwnerId && conversationTenantId && otherParticipantId === conversationTenantId) {
+                        const tenantEmailValue = (otherParticipant as any).email || '';
+                        const tenantPhoneValue = (otherParticipant as any).phone || '';
+                        setTenantEmail(tenantEmailValue);
+                        setTenantPhone(tenantPhoneValue);
+                        
+                        // Try to get phone from tenant profile if not in users table
+                        if (!tenantPhoneValue) {
+                            try {
+                                const tenantProfile = await db.get('tenants', conversationTenantId);
+                                if (tenantProfile) {
+                                    const phoneFromProfile = (tenantProfile as any).contactNumber || '';
+                                    if (phoneFromProfile) {
+                                        setTenantPhone(phoneFromProfile);
+                                    }
+                                }
+                            } catch (error) {
+                                console.log('⚠️ Could not load tenant profile for phone:', error);
+                            }
+                        }
+                    }
                     
                     // Load profile photo from user_profile_photos table
                     let participantAvatar = '';
                     try {
                         const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
                         const photoUri = await loadUserProfilePhoto(otherParticipantId);
-                        if (photoUri) {
-                            participantAvatar = photoUri;
+                        if (photoUri && photoUri.trim() && photoUri.length > 10) {
+                            participantAvatar = photoUri.trim();
                             console.log('✅ Loaded participant profile photo for:', otherParticipantId);
                             console.log('📸 Photo URI type:', typeof photoUri, 'starts with:', photoUri.substring(0, 50));
                         } else {
                             console.log('⚠️ No profile photo found for participant:', otherParticipantId);
                         }
                     } catch (photoError) {
-                        console.log('⚠️ Could not load participant profile photo:', photoError);
+                        console.error('❌ Error loading participant profile photo:', photoError);
+                        // Try fallback: query database directly
+                        try {
+                            const allPhotos = await db.list('user_profile_photos');
+                            const tenantPhoto = allPhotos.find((photo: any) => {
+                                const photoUserId = photo.userId || photo.userid || '';
+                                return photoUserId === otherParticipantId && photo.photoData && photo.photoData.trim() !== '';
+                            });
+                            
+                            if (tenantPhoto) {
+                                const photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
+                                if (photoData && photoData.trim() !== '') {
+                                    const trimmedData = photoData.trim();
+                                    
+                                    // Check if it's already a valid URI format
+                                    if (trimmedData.startsWith('data:')) {
+                                        // Already a data URI, use it directly
+                                        participantAvatar = trimmedData;
+                                        console.log('✅ Using existing data URI format');
+                                    } else if (trimmedData.startsWith('file://')) {
+                                        // It's a file URI, use it directly (don't construct data URI)
+                                        participantAvatar = trimmedData;
+                                        console.log('✅ Using file URI format');
+                                    } else if (trimmedData.startsWith('http://') || trimmedData.startsWith('https://')) {
+                                        // It's an HTTP/HTTPS URI, use it directly
+                                        participantAvatar = trimmedData;
+                                        console.log('✅ Using HTTP/HTTPS URI format');
+                                    } else {
+                                        // Assume it's base64 data and construct data URI
+                                        // But first check it doesn't contain file:// (malformed)
+                                        if (trimmedData.includes('file://')) {
+                                            console.warn('⚠️ Photo data contains file:// but is not a valid file URI, skipping');
+                                            participantAvatar = '';
+                                        } else {
+                                            participantAvatar = `data:${tenantPhoto.mimeType || 'image/jpeg'};base64,${trimmedData}`;
+                                            console.log('✅ Constructed data URI from base64 data');
+                                        }
+                                    }
+                                    console.log('✅ Found tenant photo via fallback query');
+                                }
+                            }
+                        } catch (fallbackError) {
+                            console.log('⚠️ Fallback photo loading also failed:', fallbackError);
+                        }
                     }
 
                     setParticipantInfo({
                         otherParticipantName: participantName,
                         otherParticipantAvatar: participantAvatar
                     });
+                } else {
+                    console.warn('⚠️ Other participant not found in users table:', otherParticipantId);
+                    // Use fallback name from URL parameters
+                    const fallbackName = Array.isArray(tenantName) ? (tenantName[0] || 'Unknown') : (tenantName || 'Unknown');
+                    setParticipantInfo({
+                        otherParticipantName: fallbackName,
+                        otherParticipantAvatar: ''
+                    });
                 }
+            } else {
+                console.warn('⚠️ Could not determine other participant ID');
+                // Use fallback name from URL parameters
+                const fallbackName = Array.isArray(tenantName) ? (tenantName[0] || 'Unknown') : (tenantName || 'Unknown');
+                setParticipantInfo({
+                    otherParticipantName: fallbackName,
+                    otherParticipantAvatar: ''
+                });
             }
         } catch (error) {
-            console.error('Error loading participant info:', error);
+            console.error('❌ Error loading participant info:', error);
+            // Use fallback name from URL parameters
+            const fallbackName = Array.isArray(tenantName) ? (tenantName[0] || 'Unknown') : (tenantName || 'Unknown');
+            setParticipantInfo({
+                otherParticipantName: fallbackName,
+                otherParticipantAvatar: ''
+            });
         }
-    }, [conversationId, user?.id]);
+    }, [conversationId, user?.id, tenantName]);
 
     const loadMessages = useCallback(async () => {
         if (!conversationId || !user?.id) {
@@ -178,9 +292,10 @@ export default function OwnerChatRoom() {
     useFocusEffect(
         useCallback(() => {
             if (conversationId && user?.id) {
+                loadParticipantInfo(); // Refresh participant info to get latest profile photo
                 loadMessages();
             }
-        }, [loadMessages, conversationId, user?.id])
+        }, [loadMessages, loadParticipantInfo, conversationId, user?.id])
     );
 
     const pickImage = async () => {
@@ -431,9 +546,16 @@ export default function OwnerChatRoom() {
     };
 
     const renderMessage = (message: Message, index: number) => {
+        // Add defensive checks for message and array access
+        if (!message || !message.id) {
+            console.warn('⚠️ Invalid message in renderMessage:', message);
+            return null;
+        }
+
         // Check if message is from current user (not just if it's from owner)
         const isCurrentUser = message.senderId === user?.id;
-        const isImageMessage = message.type === 'image' && message.imageUri;
+        // Check if message is an image - check both type and presence of imageUri
+        const isImageMessage = (message.type === 'image' || message.imageUri) && !!message.imageUri;
         const canDelete = user?.id === message.senderId;
 
         return (
@@ -472,13 +594,30 @@ export default function OwnerChatRoom() {
                     activeOpacity={canDelete ? 0.7 : 1}
                 >
                     {isImageMessage ? (
-                        <View style={styles.imageContainer}>
+                        <TouchableOpacity
+                            style={styles.imageContainer}
+                            onPress={() => {
+                                if (message.imageUri) {
+                                    console.log('🖼️ Image tapped, opening viewer:', message.imageUri);
+                                    setViewingImageUri(message.imageUri);
+                                    setImageViewerVisible(true);
+                                }
+                            }}
+                            onLongPress={() => {
+                                if (canDelete) {
+                                    setSelectedMessage(message);
+                                    showDeleteConfirmation(message);
+                                }
+                            }}
+                            delayLongPress={500}
+                            activeOpacity={0.9}
+                        >
                             <Image 
                                 source={{ uri: message.imageUri }} 
                                 style={styles.messageImage}
                                 resizeMode="cover"
                             />
-                        </View>
+                        </TouchableOpacity>
                     ) : (
                         <Text style={[styles.messageText, isCurrentUser ? styles.currentUserMessageText : styles.otherUserMessageText]}>
                             {message.text}
@@ -532,6 +671,16 @@ export default function OwnerChatRoom() {
                         )}
                     </View>
                 </View>
+                
+                {/* Tenant Info Button - Only show if current user is owner and we have tenant ID */}
+                {isCurrentUserOwner && tenantId && (
+                    <TouchableOpacity 
+                        style={styles.infoButton}
+                        onPress={() => setTenantInfoModalVisible(true)}
+                    >
+                        <Ionicons name="information-circle-outline" size={24} color="#3B82F6" />
+                    </TouchableOpacity>
+                )}
             </View>
 
             {/* Messages */}
@@ -612,6 +761,62 @@ export default function OwnerChatRoom() {
                     </View>
                 </View>
             </KeyboardAvoidingView>
+
+            {/* Full-Screen Image Viewer Modal */}
+            <Modal
+                visible={imageViewerVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => {
+                    console.log('🖼️ Modal close requested');
+                    setImageViewerVisible(false);
+                    setViewingImageUri(null);
+                }}
+            >
+                <SafeAreaView style={styles.imageViewerContainer}>
+                    <TouchableOpacity
+                        style={styles.imageViewerCloseButton}
+                        onPress={() => {
+                            console.log('🖼️ Close button pressed');
+                            setImageViewerVisible(false);
+                            setViewingImageUri(null);
+                        }}
+                    >
+                        <Ionicons name="close" size={28} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    {viewingImageUri ? (
+                        <Image
+                            source={{ uri: viewingImageUri }}
+                            style={styles.imageViewerImage}
+                            resizeMode="contain"
+                            onError={(error) => {
+                                console.error('❌ Error loading image in viewer:', error);
+                                showAlert('Error', 'Failed to load image');
+                            }}
+                            onLoad={() => {
+                                console.log('✅ Image loaded in viewer:', viewingImageUri);
+                            }}
+                        />
+                    ) : (
+                        <View style={styles.imageViewerPlaceholder}>
+                            <Text style={styles.imageViewerPlaceholderText}>No image to display</Text>
+                        </View>
+                    )}
+                </SafeAreaView>
+            </Modal>
+
+            {/* Tenant Info Modal */}
+            {isCurrentUserOwner && tenantId && (
+                <TenantInfoModal
+                    visible={tenantInfoModalVisible}
+                    tenantId={tenantId}
+                    tenantName={participantInfo.otherParticipantName}
+                    tenantEmail={tenantEmail}
+                    tenantPhone={tenantPhone}
+                    tenantAvatar={participantInfo.otherParticipantAvatar}
+                    onClose={() => setTenantInfoModalVisible(false)}
+                />
+            )}
         </SafeAreaView>
     );
 }
@@ -687,6 +892,10 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#6B7280',
         marginTop: 2,
+    },
+    infoButton: {
+        padding: 8,
+        marginLeft: 8,
     },
     messagesContainer: {
         flex: 1,
@@ -864,4 +1073,36 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '500',
     },
+    imageViewerContainer: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.95)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerCloseButton: {
+        position: 'absolute',
+        top: 16,
+        right: 16,
+        zIndex: 1000,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerImage: {
+        width: Dimensions.get('window').width,
+        height: Dimensions.get('window').height,
+    },
+    imageViewerPlaceholder: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    imageViewerPlaceholderText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+    },
 });
+

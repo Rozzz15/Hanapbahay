@@ -150,16 +150,36 @@ export default function OwnerMessages() {
                                 // Load profile photo from user_profile_photos table
                                 try {
                                     const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                                    console.log('🔄 Attempting to load profile photo for tenant:', tenantId);
                                     const photoUri = await loadUserProfilePhoto(tenantId);
-                                    if (photoUri && photoUri.trim() !== '') {
-                                        tenantAvatar = photoUri;
+                                    
+                                    if (photoUri && photoUri.trim() !== '' && photoUri.length > 10) {
+                                        tenantAvatar = photoUri.trim();
                                         console.log('✅ Loaded tenant profile photo for:', tenantId, tenantName);
+                                        console.log('📸 Photo URI type:', typeof photoUri);
+                                        console.log('📸 Photo URI length:', photoUri.length);
                                         console.log('📸 Photo URI starts with:', photoUri.substring(0, 50));
+                                        console.log('📸 Photo URI is valid:', isValidImageUri(photoUri));
+                                        
+                                        // Verify the photo can be used
+                                        if (!isValidImageUri(photoUri)) {
+                                            console.warn('⚠️ Loaded photo URI is invalid, will try fallback');
+                                            tenantAvatar = ''; // Clear invalid URI to trigger fallback
+                                        }
                                     } else {
-                                        console.log('⚠️ No profile photo found for tenant:', tenantId, tenantName, '- will show initial letter');
+                                        console.log('⚠️ No valid profile photo returned for tenant:', tenantId, tenantName);
+                                        console.log('📸 Photo URI result:', {
+                                            hasUri: !!photoUri,
+                                            uriLength: photoUri?.length || 0,
+                                            uriPreview: photoUri?.substring(0, 50) || 'none'
+                                        });
                                     }
                                 } catch (photoError) {
                                     console.error('❌ Error loading tenant profile photo:', photoError);
+                                    console.error('❌ Error details:', {
+                                        message: photoError instanceof Error ? photoError.message : 'Unknown error',
+                                        stack: photoError instanceof Error ? photoError.stack : undefined
+                                    });
                                 }
                             } else {
                                 console.warn('⚠️ Tenant record not found for ID:', tenantId);
@@ -167,31 +187,68 @@ export default function OwnerMessages() {
                         }
                         
                         // If still no avatar loaded, try to get from user_profile_photos again with better error handling
-                        if (!tenantAvatar && tenantId) {
+                        if (!tenantAvatar || !isValidImageUri(tenantAvatar)) {
                             try {
                                 // Query database directly to get user profile photos
                                 const allUserPhotos = await db.list('user_profile_photos');
-                                console.log('🔍 All user photos count:', allUserPhotos.length);
+                                console.log('🔍 Fallback: All user photos count:', allUserPhotos.length);
                                 
                                 const tenantPhoto = allUserPhotos.find((photo: any) => {
+                                    if (!photo || typeof photo !== 'object') return false;
                                     const photoUserId = photo.userId || photo.userid || '';
-                                    return photoUserId === tenantId && photo.photoData && photo.photoData.trim() !== '';
+                                    const hasPhotoData = photo.photoData && photo.photoData.trim() !== '';
+                                    const hasPhotoUri = photo.photoUri && photo.photoUri.trim() !== '';
+                                    return photoUserId === tenantId && (hasPhotoData || hasPhotoUri);
                                 });
                                 
                                 if (tenantPhoto) {
-                                    const photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
-                                    if (photoData) {
-                                        // Ensure proper data URI format
-                                        if (photoData.startsWith('data:')) {
-                                            tenantAvatar = photoData;
-                                        } else if (photoData.trim() !== '') {
-                                            tenantAvatar = `data:${tenantPhoto.mimeType || 'image/jpeg'};base64,${photoData}`;
+                                    console.log('✅ Found tenant photo record in database');
+                                    let photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
+                                    
+                                    if (photoData && photoData.trim() !== '') {
+                                        const trimmedData = photoData.trim();
+                                        
+                                        // Check if it's already a valid URI format
+                                        if (trimmedData.startsWith('data:')) {
+                                            // Already a data URI, use it directly
+                                            tenantAvatar = trimmedData;
+                                            console.log('✅ Using existing data URI format');
+                                        } else if (trimmedData.startsWith('file://')) {
+                                            // It's a file URI, use it directly (don't construct data URI)
+                                            tenantAvatar = trimmedData;
+                                            console.log('✅ Using file URI format');
+                                        } else if (trimmedData.startsWith('http://') || trimmedData.startsWith('https://')) {
+                                            // It's an HTTP/HTTPS URI, use it directly
+                                            tenantAvatar = trimmedData;
+                                            console.log('✅ Using HTTP/HTTPS URI format');
+                                        } else {
+                                            // Assume it's base64 data and construct data URI
+                                            // But first check it doesn't contain file:// (malformed)
+                                            if (trimmedData.includes('file://')) {
+                                                console.warn('⚠️ Photo data contains file:// but is not a valid file URI, skipping');
+                                                tenantAvatar = '';
+                                            } else {
+                                                const mimeType = tenantPhoto.mimeType || 'image/jpeg';
+                                                tenantAvatar = `data:${mimeType};base64,${trimmedData}`;
+                                                console.log('✅ Constructed data URI from base64 data');
+                                            }
                                         }
-                                        console.log('✅ Found and formatted tenant photo from database');
+                                        
+                                        // Validate the constructed URI
+                                        if (tenantAvatar && isValidImageUri(tenantAvatar)) {
+                                            console.log('✅ Tenant photo is valid and ready to display');
+                                        } else {
+                                            console.warn('⚠️ Constructed tenant photo URI is invalid:', tenantAvatar ? tenantAvatar.substring(0, 100) : 'empty');
+                                            tenantAvatar = ''; // Clear invalid URI
+                                        }
+                                    } else {
+                                        console.warn('⚠️ Tenant photo record found but no photo data');
                                     }
+                                } else {
+                                    console.log('⚠️ No tenant photo record found in database for:', tenantId);
                                 }
                             } catch (error) {
-                                console.log('⚠️ Could not query photos directly:', error);
+                                console.error('❌ Error in fallback photo query:', error);
                             }
                         }
 
@@ -271,7 +328,9 @@ export default function OwnerMessages() {
                 console.log(`👤 Tenant ${conv.tenantName} avatar:`, {
                     hasAvatar: !!conv.tenantAvatar,
                     avatarLength: conv.tenantAvatar?.length || 0,
-                    avatarPreview: conv.tenantAvatar?.substring(0, 50) || 'none'
+                    avatarPreview: conv.tenantAvatar?.substring(0, 50) || 'none',
+                    isValid: isValidImageUri(conv.tenantAvatar),
+                    tenantId: conv.tenantId
                 });
             });
             
@@ -308,6 +367,7 @@ export default function OwnerMessages() {
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
+        setImageErrors(new Set()); // Clear image errors on refresh
         await loadConversations();
         setRefreshing(false);
     }, [loadConversations]);
@@ -498,12 +558,21 @@ export default function OwnerMessages() {
                                         {/* Avatar */}
                                         <View style={styles.avatarContainer}>
                                             <View style={styles.avatar}>
-                                                {conversation.tenantAvatar && conversation.tenantAvatar.trim() !== '' && isValidImageUri(conversation.tenantAvatar) && !imageErrors.has(conversation.id) ? (
+                                                {conversation.tenantAvatar && 
+                                                 conversation.tenantAvatar.trim() !== '' && 
+                                                 conversation.tenantAvatar.length > 10 &&
+                                                 isValidImageUri(conversation.tenantAvatar) && 
+                                                 !imageErrors.has(conversation.id) ? (
                                                     <Image 
                                                         source={{ uri: conversation.tenantAvatar }} 
                                                         style={styles.avatarImage}
-                                                        onError={() => {
+                                                        resizeMode="cover"
+                                                        onError={(error) => {
+                                                            console.error('❌ Avatar image load error for conversation:', conversation.id, error);
                                                             setImageErrors(prev => new Set(prev).add(conversation.id));
+                                                        }}
+                                                        onLoad={() => {
+                                                            console.log('✅ Avatar image loaded successfully for:', conversation.tenantName);
                                                         }}
                                                     />
                                                 ) : (
@@ -525,28 +594,6 @@ export default function OwnerMessages() {
                                         <View style={styles.messageContent}>
                                             <View style={styles.messageHeader}>
                                                 <View style={styles.tenantNameContainer}>
-                                                    {/* Small Profile Picture */}
-                                                    <View style={styles.smallAvatarContainer}>
-                                                        {conversation.tenantAvatar && 
-                                                         conversation.tenantAvatar.trim() !== '' && 
-                                                         isValidImageUri(conversation.tenantAvatar) &&
-                                                         !imageErrors.has(conversation.id) ? (
-                                                            <Image 
-                                                                source={{ uri: conversation.tenantAvatar }} 
-                                                                style={styles.smallAvatarImage}
-                                                                resizeMode="cover"
-                                                                onError={() => {
-                                                                    setImageErrors(prev => new Set(prev).add(conversation.id));
-                                                                }}
-                                                            />
-                                                        ) : (
-                                                            <View style={styles.smallAvatarFallback}>
-                                                                <Text style={styles.smallAvatarText}>
-                                                                    {conversation.tenantName ? conversation.tenantName.charAt(0).toUpperCase() : '?'}
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                    </View>
                                                     <Text style={styles.tenantName}>{conversation.tenantName}</Text>
                                                     {/* Payment Confirmation Icon */}
                                                     {conversation.bookingStatus === 'approved' && (
@@ -789,32 +836,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 8,
         flex: 1,
-    },
-    smallAvatarContainer: {
-        width: 24,
-        height: 24,
-        marginRight: 0,
-        overflow: 'hidden',
-    },
-    smallAvatarImage: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#F3F4F6',
-    },
-    smallAvatarFallback: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#F3F4F6',
-        justifyContent: 'center',
-        alignItems: 'center',
-        overflow: 'hidden',
-    },
-    smallAvatarText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: '#6B7280',
     },
     paymentStatusContainer: {
         marginLeft: 4,
