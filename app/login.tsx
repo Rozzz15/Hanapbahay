@@ -29,6 +29,11 @@ export default function LoginScreen() {
     const [password, setPassword] = useState('');
     const [errors, setErrors] = useState({ email: '', password: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // Countdown and failed attempts tracking
+    const [failedAttempts, setFailedAttempts] = useState(0);
+    const [countdown, setCountdown] = useState(0);
+    const [isLocked, setIsLocked] = useState(false);
 
     // Load saved email and remember me preference
     useEffect(() => {
@@ -44,6 +49,33 @@ export default function LoginScreen() {
                 
                 if (rememberMePref === 'true') {
                     setRememberMe(true);
+                }
+                
+                // Load failed attempts and countdown
+                const savedFailedAttempts = await AsyncStorage.getItem('login_failed_attempts');
+                const savedCountdownEnd = await AsyncStorage.getItem('login_countdown_end');
+                
+                if (savedFailedAttempts) {
+                    const attempts = parseInt(savedFailedAttempts, 10);
+                    setFailedAttempts(attempts);
+                }
+                
+                if (savedCountdownEnd) {
+                    const countdownEnd = parseInt(savedCountdownEnd, 10);
+                    const now = Date.now();
+                    const remaining = Math.max(0, Math.ceil((countdownEnd - now) / 1000));
+                    
+                    if (remaining > 0) {
+                        setCountdown(remaining);
+                        setIsLocked(true);
+                    } else {
+                        // Countdown expired, clear it
+                        await AsyncStorage.removeItem('login_countdown_end');
+                        await AsyncStorage.removeItem('login_failed_attempts');
+                        setFailedAttempts(0);
+                        setCountdown(0);
+                        setIsLocked(false);
+                    }
                 }
             } catch (error) {
                 console.error('Error loading saved data:', error);
@@ -74,8 +106,46 @@ export default function LoginScreen() {
         checkLogoutRedirect();
     }, [toast]);
 
+    // Countdown timer effect
+    useEffect(() => {
+        if (countdown > 0) {
+            const timer = setInterval(() => {
+                setCountdown((prev) => {
+                    if (prev <= 1) {
+                        setIsLocked(false);
+                        // Clean up storage asynchronously
+                        AsyncStorage.removeItem('login_countdown_end').catch(console.error);
+                        AsyncStorage.removeItem('login_failed_attempts').catch(console.error);
+                        setFailedAttempts(0);
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+
+            return () => clearInterval(timer);
+        }
+    }, [countdown]);
+
     const onSubmit = async () => {
         try {
+            // Check if form is locked due to countdown
+            if (isLocked && countdown > 0) {
+                // If user tries to login during countdown, increase the countdown
+                const additionalTime = 30; // Add 30 seconds
+                const newCountdown = countdown + additionalTime;
+                const countdownEnd = Date.now() + (newCountdown * 1000);
+                
+                setCountdown(newCountdown);
+                await AsyncStorage.setItem('login_countdown_end', countdownEnd.toString());
+                
+                showSimpleAlert(
+                    'Account Temporarily Locked 🔒',
+                    `Too many failed login attempts. Please wait ${newCountdown} seconds before trying again.`
+                );
+                return;
+            }
+            
             // Clear previous errors
             setErrors({ email: '', password: '' });
             
@@ -95,6 +165,13 @@ export default function LoginScreen() {
             
             if (result.success) {
                 console.log('Sign-in successful, refreshing user context...');
+                
+                // Reset failed attempts on successful login
+                setFailedAttempts(0);
+                setIsLocked(false);
+                setCountdown(0);
+                await AsyncStorage.removeItem('login_failed_attempts');
+                await AsyncStorage.removeItem('login_countdown_end');
                 
                 // Handle remember me functionality
                 if (rememberMe) {
@@ -187,11 +264,61 @@ export default function LoginScreen() {
                 }, 100);
             } else {
                 console.log('Sign-in failed:', result.error);
-                showSimpleAlert('Login Failed ❌', 'Invalid email or password. Please check your credentials and try again.');
+                
+                // Increment failed attempts
+                const newFailedAttempts = failedAttempts + 1;
+                setFailedAttempts(newFailedAttempts);
+                await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
+                
+                // If 5 or more failed attempts, start countdown
+                if (newFailedAttempts >= 5) {
+                    const initialCountdown = 60; // Start with 60 seconds
+                    const countdownEnd = Date.now() + (initialCountdown * 1000);
+                    
+                    setCountdown(initialCountdown);
+                    setIsLocked(true);
+                    await AsyncStorage.setItem('login_countdown_end', countdownEnd.toString());
+                    
+                    showSimpleAlert(
+                        'Account Temporarily Locked 🔒',
+                        `Too many failed login attempts. Please wait ${initialCountdown} seconds before trying again.`
+                    );
+                } else {
+                    const remainingAttempts = 5 - newFailedAttempts;
+                    showSimpleAlert(
+                        'Login Failed ❌',
+                        `Invalid email or password. ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
+                    );
+                }
             }
         } catch (error) {
             console.error('Login error:', error);
-            showSimpleAlert('Login Failed ❌', 'Invalid email or password. Please check your credentials and try again.');
+            
+            // Increment failed attempts on error too
+            const newFailedAttempts = failedAttempts + 1;
+            setFailedAttempts(newFailedAttempts);
+            await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
+            
+            // If 5 or more failed attempts, start countdown
+            if (newFailedAttempts >= 5) {
+                const initialCountdown = 60; // Start with 60 seconds
+                const countdownEnd = Date.now() + (initialCountdown * 1000);
+                
+                setCountdown(initialCountdown);
+                setIsLocked(true);
+                await AsyncStorage.setItem('login_countdown_end', countdownEnd.toString());
+                
+                showSimpleAlert(
+                    'Account Temporarily Locked 🔒',
+                    `Too many failed login attempts. Please wait ${initialCountdown} seconds before trying again.`
+                );
+            } else {
+                const remainingAttempts = 5 - newFailedAttempts;
+                showSimpleAlert(
+                    'Login Failed ❌',
+                    `Invalid email or password. ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
+                );
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -256,6 +383,7 @@ export default function LoginScreen() {
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 autoCorrect={false}
+                                editable={!isLocked || countdown === 0}
                             />
                         </View>
                         {errors.email && (
@@ -275,6 +403,7 @@ export default function LoginScreen() {
                                 secureTextEntry={!showPassword}
                                 value={password}
                                 onChangeText={setPassword}
+                                editable={!isLocked || countdown === 0}
                             />
                             <Pressable
                                 style={styles.eyeButton}
@@ -311,12 +440,22 @@ export default function LoginScreen() {
                         </Pressable>
                     </View>
 
+                    {/* Countdown Warning */}
+                    {isLocked && countdown > 0 && (
+                        <View style={styles.countdownContainer}>
+                            <Ionicons name="lock-closed" size={20} color="#EF4444" />
+                            <Text style={styles.countdownText}>
+                                Account locked. Please wait {countdown} second{countdown !== 1 ? 's' : ''} before trying again.
+                            </Text>
+                        </View>
+                    )}
+
                     {/* Sign In Button */}
                     <SignInButton
-                        title="Sign In"
+                        title={isLocked && countdown > 0 ? `Locked (${countdown}s)` : "Sign In"}
                         onPress={onSubmit}
                         isLoading={isSubmitting}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || (isLocked && countdown > 0)}
                     />
 
                     {/* Sign Up Link */}
@@ -497,5 +636,24 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#3B82F6',
         fontWeight: '600',
+    },
+    countdownContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#FEF2F2',
+        borderWidth: 1,
+        borderColor: '#FECACA',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 20,
+        gap: 8,
+    },
+    countdownText: {
+        fontSize: 14,
+        color: '#DC2626',
+        fontWeight: '600',
+        textAlign: 'center',
+        flex: 1,
     },
 });
