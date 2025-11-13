@@ -54,6 +54,7 @@ export default function RootLayout() {
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="(owner)" />
                   <Stack.Screen name="(brgy)" />
+                  <Stack.Screen name="(get-started)" />
                   <Stack.Screen name="+not-found" />
                   <Stack.Screen name="unauthorized" options={{ title: 'Unauthorized' }} />
                   <Stack.Screen name="login" options={{ headerShown: false }} />
@@ -63,6 +64,8 @@ export default function RootLayout() {
                   <Stack.Screen name="book-now" options={{ headerShown: false }} />
                   <Stack.Screen name="filter" options={{ headerShown: false }} />
                   <Stack.Screen name="chat-room" options={{ headerShown: false }} />
+                  <Stack.Screen name="listing-dashboard" options={{ headerShown: false }} />
+                  <Stack.Screen name="listing-property-details" options={{ headerShown: false }} />
                 </Stack>
                 <StatusBar style="dark" />
               </ToastProvider>

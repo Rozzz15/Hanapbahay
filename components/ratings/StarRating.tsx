@@ -69,11 +69,11 @@ export default function StarRating({
       <View style={styles.starsContainer}>
         {stars}
       </View>
-      {showCount && (
+      {showCount ? (
         <Text style={[styles.countText, { fontSize: size * 0.7 }]}>
-          ({reviewCount})
+          ({String(reviewCount || 0)})
         </Text>
-      )}
+      ) : null}
     </View>
   );
 }

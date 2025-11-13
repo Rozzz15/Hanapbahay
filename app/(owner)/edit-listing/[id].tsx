@@ -37,7 +37,7 @@ interface ListingFormData {
   leaseTerm: 'short-term' | 'long-term' | 'negotiable';
   address: string;
   barangay: string; // Barangay where property is located
-  bedrooms: string;
+  rooms: string;
   bathrooms: string;
   description: string;
   amenities: string[];
@@ -49,6 +49,8 @@ interface ListingFormData {
   contactNumber: string;
   email: string;
   emergencyContact: string;
+  capacity: string; // Maximum number of tenants/slots (calculated from room capacities)
+  roomCapacities: string[]; // Capacity per room
   coverPhoto: string | null;
   photos: string[];
   videos: string[];
@@ -75,7 +77,7 @@ export default function EditListing() {
     leaseTerm: 'short-term',
     address: '',
     barangay: '', // Barangay selection
-    bedrooms: '',
+    rooms: '',
     bathrooms: '',
     description: '',
     amenities: [],
@@ -87,6 +89,8 @@ export default function EditListing() {
     contactNumber: '09123456789',
     email: user?.email || '',
     emergencyContact: '',
+    capacity: '1', // Default capacity (calculated from room capacities)
+    roomCapacities: [], // Capacity per room
     coverPhoto: null,
     photos: [],
     videos: []
@@ -96,6 +100,59 @@ export default function EditListing() {
   useEffect(() => {
     loadListingData();
   }, [listingId]);
+
+  // Manage room capacities array based on number of rooms
+  useEffect(() => {
+    if (formData.rooms && formData.rooms.trim() !== '') {
+      const roomsCount = parseInt(formData.rooms);
+      if (!isNaN(roomsCount) && roomsCount > 0) {
+        setFormData(prev => {
+          const currentCapacities = prev.roomCapacities || [];
+          const newCapacities: string[] = [];
+          
+          // Initialize or adjust room capacities array
+          for (let i = 0; i < roomsCount; i++) {
+            // Keep existing capacity if available, otherwise default to '1'
+            newCapacities[i] = currentCapacities[i] || '1';
+          }
+          
+          // Calculate total capacity from room capacities
+          const totalCapacity = newCapacities.reduce((sum, cap) => {
+            const capNum = parseInt(cap) || 0;
+            return sum + capNum;
+          }, 0);
+          
+          return {
+            ...prev,
+            roomCapacities: newCapacities,
+            capacity: totalCapacity > 0 ? totalCapacity.toString() : '1'
+          };
+        });
+      }
+    } else {
+      // Reset if rooms is cleared
+      setFormData(prev => ({
+        ...prev,
+        roomCapacities: [],
+        capacity: '1'
+      }));
+    }
+  }, [formData.rooms]); // Only trigger when rooms changes
+
+  // Recalculate total capacity when individual room capacities change
+  useEffect(() => {
+    if (formData.roomCapacities && formData.roomCapacities.length > 0) {
+      const totalCapacity = formData.roomCapacities.reduce((sum, cap) => {
+        const capNum = parseInt(cap) || 0;
+        return sum + capNum;
+      }, 0);
+      
+      setFormData(prev => ({
+        ...prev,
+        capacity: totalCapacity > 0 ? totalCapacity.toString() : '1'
+      }));
+    }
+  }, [formData.roomCapacities]);
 
   const loadListingData = async () => {
     if (!listingId || !user?.id) {
@@ -136,7 +193,7 @@ export default function EditListing() {
         leaseTerm: listing.leaseTerm || 'short-term',
         address: listing.address || '',
         barangay: (listing as any).barangay || '', // Load barangay
-        bedrooms: listing.bedrooms?.toString() || '',
+        rooms: listing.rooms?.toString() || listing.bedrooms?.toString() || '',
         bathrooms: listing.bathrooms?.toString() || '',
         description: listing.description || '',
         amenities: listing.amenities || [],
@@ -148,6 +205,10 @@ export default function EditListing() {
         contactNumber: listing.contactNumber || '09123456789',
         email: listing.email || user.email || '',
         emergencyContact: listing.emergencyContact || '',
+        capacity: (listing as any).capacity?.toString() || '1',
+        roomCapacities: (listing as any).roomCapacities 
+          ? (listing as any).roomCapacities.map((cap: number) => cap.toString())
+          : [],
         coverPhoto: media.coverPhoto || listing.coverPhoto || null,
         photos: media.photos || listing.photos || [],
         videos: media.videos || listing.videos || []
@@ -198,7 +259,7 @@ export default function EditListing() {
       case 1:
         return !!(formData.propertyType && formData.rentalType && formData.monthlyRent);
       case 2:
-        return !!(formData.address && formData.barangay && formData.description && formData.bedrooms && formData.bathrooms);
+        return !!(formData.address && formData.barangay && formData.description && formData.rooms && formData.bathrooms && formData.capacity && parseInt(formData.capacity) >= 1);
       case 3:
         return !!(formData.ownerName && formData.contactNumber && formData.email);
       case 4:
@@ -320,9 +381,10 @@ export default function EditListing() {
         barangay: formData.barangay.trim().toUpperCase(), // Use selected barangay from dropdown (trim and uppercase to avoid whitespace/case issues)
         title: `${formData.propertyType} in ${formData.address.split(',')[0]}`,
         location: formData.address.split(',')[0] || 'Location not specified',
-        bedrooms: parseInt(formData.bedrooms),
+        rooms: parseInt(formData.rooms),
         bathrooms: parseInt(formData.bathrooms),
-        rooms: parseInt(formData.bedrooms),
+        capacity: parseInt(formData.capacity) || 1,
+        roomCapacities: formData.roomCapacities.map(cap => parseInt(cap) || 1), // Capacity per room
         size: 0,
         rating: 4.5,
         reviews: 0,
@@ -432,19 +494,20 @@ export default function EditListing() {
       
       <View style={professionalStyles.inputGroup}>
         <Text style={professionalStyles.inputLabel}>Property Type *</Text>
-        <View style={professionalStyles.optionsGrid}>
+        <View style={[professionalStyles.optionsGrid, { marginTop: 8, marginBottom: 16, gap: 8 }]}>
           {PROPERTY_TYPES.map((type) => (
             <TouchableOpacity
               key={type}
               style={[
-                professionalStyles.optionCard,
-                formData.propertyType === type && professionalStyles.optionCardActive
+                professionalStyles.propertyOptionCard,
+                isMobile && { minWidth: '47%', maxWidth: '47%' },
+                formData.propertyType === type && professionalStyles.propertyOptionCardActive
               ]}
               onPress={() => updateFormData('propertyType', type)}
             >
               <Text style={[
-                professionalStyles.optionText,
-                formData.propertyType === type && professionalStyles.optionTextActive
+                professionalStyles.propertyOptionText,
+                formData.propertyType === type && professionalStyles.propertyOptionTextActive
               ]}>
                 {type}
               </Text>
@@ -453,21 +516,22 @@ export default function EditListing() {
         </View>
       </View>
 
-      <View style={professionalStyles.inputGroup}>
+      <View style={[professionalStyles.inputGroup, { marginTop: 8 }]}>
         <Text style={professionalStyles.inputLabel}>Rental Type *</Text>
-        <View style={professionalStyles.optionsGrid}>
+        <View style={[professionalStyles.optionsGrid, { marginTop: 8, marginBottom: 16, gap: 8 }]}>
           {RENTAL_TYPES.map((type) => (
             <TouchableOpacity
               key={type}
               style={[
-                professionalStyles.optionCard,
-                formData.rentalType === type && professionalStyles.optionCardActive
+                professionalStyles.propertyOptionCard,
+                isMobile && { minWidth: '47%', maxWidth: '47%' },
+                formData.rentalType === type && professionalStyles.propertyOptionCardActive
               ]}
               onPress={() => updateFormData('rentalType', type)}
             >
               <Text style={[
-                professionalStyles.optionText,
-                formData.rentalType === type && professionalStyles.optionTextActive
+                professionalStyles.propertyOptionText,
+                formData.rentalType === type && professionalStyles.propertyOptionTextActive
               ]}>
                 {type}
               </Text>
@@ -476,7 +540,7 @@ export default function EditListing() {
         </View>
       </View>
 
-      <View style={professionalStyles.inputGroup}>
+      <View style={[professionalStyles.inputGroup, { marginTop: 8 }]}>
         <Text style={professionalStyles.inputLabel}>Monthly Rent (₱) *</Text>
         <View style={professionalStyles.inputContainer}>
           <View style={professionalStyles.inputIcon}>
@@ -492,21 +556,21 @@ export default function EditListing() {
         </View>
       </View>
 
-      <View style={professionalStyles.inputGroup}>
+      <View style={[professionalStyles.inputGroup, { marginTop: 8 }]}>
         <Text style={professionalStyles.inputLabel}>Availability Status</Text>
-        <View style={professionalStyles.optionsGrid}>
+        <View style={[professionalStyles.optionsGrid, { marginTop: 8, marginBottom: 16, gap: 8 }]}>
           {(['available', 'occupied', 'reserved'] as const).map((status) => (
             <TouchableOpacity
               key={status}
               style={[
-                professionalStyles.optionCard,
-                formData.availabilityStatus === status && professionalStyles.optionCardActive
+                professionalStyles.availabilityOptionCard,
+                formData.availabilityStatus === status && professionalStyles.availabilityOptionCardActive
               ]}
               onPress={() => updateFormData('availabilityStatus', status)}
             >
               <Text style={[
-                professionalStyles.optionText,
-                formData.availabilityStatus === status && professionalStyles.optionTextActive
+                professionalStyles.availabilityOptionText,
+                formData.availabilityStatus === status && professionalStyles.availabilityOptionTextActive
               ]}>
                 {status.charAt(0).toUpperCase() + status.slice(1)}
               </Text>
@@ -515,14 +579,15 @@ export default function EditListing() {
         </View>
       </View>
 
-      <View style={professionalStyles.inputGroup}>
+      <View style={[professionalStyles.inputGroup, { marginTop: 8 }]}>
         <Text style={professionalStyles.inputLabel}>Lease Term</Text>
-        <View style={professionalStyles.optionsGrid}>
+        <View style={[professionalStyles.optionsGrid, { marginTop: 8, marginBottom: 16 }]}>
           {LEASE_TERMS.map((term) => (
             <TouchableOpacity
               key={term}
               style={[
                 professionalStyles.optionCard,
+                isMobile && { minWidth: '47%', maxWidth: '47%' },
                 formData.leaseTerm === term.toLowerCase().split(' ')[0] && professionalStyles.optionCardActive
               ]}
               onPress={() => updateFormData('leaseTerm', term.toLowerCase().split(' ')[0] as any)}
@@ -537,6 +602,7 @@ export default function EditListing() {
           ))}
         </View>
       </View>
+
     </View>
   );
 
@@ -698,16 +764,16 @@ export default function EditListing() {
         alignItems: 'flex-start',
       }}>
         <View style={{ flex: isMobile ? 0 : 1, width: isMobile ? '100%' : undefined }}>
-          <Text style={[professionalStyles.inputLabel, { marginBottom: 10 }]}>Bedrooms *</Text>
+          <Text style={[professionalStyles.inputLabel, { marginBottom: 10 }]}>Rooms *</Text>
           <View style={[professionalStyles.inputContainer, { minHeight: 50 }]}>
             <View style={professionalStyles.inputIcon}>
               <Home size={18} color={designTokens.colors.textMuted} />
             </View>
             <TextInput
               style={[professionalStyles.input, professionalStyles.inputWithIcon, { height: 50 }]}
-              placeholder="Number of bedrooms"
-              value={formData.bedrooms}
-              onChangeText={(value) => updateFormData('bedrooms', value)}
+              placeholder="Number of rooms"
+              value={formData.rooms}
+              onChangeText={(value) => updateFormData('rooms', value)}
               keyboardType="numeric"
             />
           </View>
@@ -729,24 +795,141 @@ export default function EditListing() {
         </View>
       </View>
 
+      {/* Room Capacity Inputs - Only show when rooms are entered */}
+      {formData.rooms && parseInt(formData.rooms) > 0 && formData.roomCapacities.length > 0 && (
+        <View style={professionalStyles.inputGroup}>
+          <Text style={[professionalStyles.inputLabel, { marginBottom: 10 }]}>
+            Capacity per Room (Slots) *
+          </Text>
+          <Text style={[professionalStyles.inputHelper, { marginBottom: 16 }]}>
+            Set how many tenants can occupy each room. Total capacity: {formData.capacity} slot(s)
+          </Text>
+          <View style={{ gap: isMobile ? 16 : 12 }}>
+            {formData.roomCapacities.map((capacity, index) => (
+              <View key={index} style={{
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : 'center',
+                gap: isMobile ? 12 : 12,
+                padding: isMobile ? 16 : 12,
+                backgroundColor: designTokens.colors.background,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: designTokens.colors.border,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+                elevation: 1,
+              }}>
+                {/* Room Header - Badge and Label */}
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  marginBottom: isMobile ? 0 : 0,
+                }}>
+                  <View style={{
+                    width: isMobile ? 36 : 32,
+                    height: isMobile ? 36 : 32,
+                    borderRadius: 18,
+                    backgroundColor: designTokens.colors.primaryLight,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <Text style={{
+                      fontSize: isMobile ? 15 : 14,
+                      fontWeight: '600',
+                      color: designTokens.colors.primary,
+                    }}>
+                      {index + 1}
+                    </Text>
+                  </View>
+                  <Text style={{
+                    flex: 1,
+                    fontSize: isMobile ? 16 : 15,
+                    color: designTokens.colors.text,
+                    fontWeight: '600',
+                  }}>
+                    Room {index + 1}
+                  </Text>
+                </View>
+
+                {/* Input Section */}
+                <View style={{
+                  flexDirection: isMobile ? 'column' : 'row',
+                  alignItems: isMobile ? 'stretch' : 'center',
+                  gap: isMobile ? 8 : 8,
+                  flex: 1,
+                }}>
+                  <View style={[professionalStyles.inputContainer, { 
+                    minHeight: isMobile ? 48 : 44,
+                    flex: 1,
+                    maxWidth: isMobile ? '100%' : 140,
+                    width: isMobile ? '100%' : undefined,
+                  }]}>
+                    <View style={professionalStyles.inputIcon}>
+                      <Users size={isMobile ? 18 : 16} color={designTokens.colors.textMuted} />
+                    </View>
+                    <TextInput
+                      style={[
+                        professionalStyles.input, 
+                        professionalStyles.inputWithIcon, 
+                        { 
+                          height: isMobile ? 48 : 44, 
+                          fontSize: isMobile ? 16 : 15,
+                          color: '#111827'
+                        }
+                      ]}
+                      placeholder="1"
+                      placeholderTextColor="#9CA3AF"
+                      value={capacity}
+                      onChangeText={(value) => {
+                        const newCapacities = [...formData.roomCapacities];
+                        newCapacities[index] = value;
+                        setFormData(prev => ({
+                          ...prev,
+                          roomCapacities: newCapacities
+                        }));
+                      }}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                  <Text style={{
+                    fontSize: isMobile ? 15 : 14,
+                    color: designTokens.colors.textMuted,
+                    alignSelf: isMobile ? 'flex-start' : 'center',
+                    marginTop: isMobile ? 4 : 0,
+                    paddingLeft: isMobile ? 4 : 0,
+                  }}>
+                    slot{parseInt(capacity) !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
       <View style={professionalStyles.inputGroup}>
         <Text style={professionalStyles.inputLabel}>Amenities</Text>
-        <Text style={professionalStyles.inputHelper}>
+        <Text style={[professionalStyles.inputHelper, { marginBottom: 12 }]}>
           Select all amenities available in your property
         </Text>
-        <View style={professionalStyles.optionsGrid}>
+        <View style={[professionalStyles.optionsGrid, { marginTop: 0, marginBottom: 0, gap: 8 }]}>
           {AMENITIES.map((amenity) => (
             <TouchableOpacity
               key={amenity}
               style={[
-                professionalStyles.optionCard,
-                formData.amenities.includes(amenity) && professionalStyles.optionCardActive
+                professionalStyles.amenityOptionCard,
+                isMobile && { minWidth: '47%', maxWidth: '47%' },
+                formData.amenities.includes(amenity) && professionalStyles.amenityOptionCardActive
               ]}
               onPress={() => toggleArrayItem('amenities', amenity)}
             >
               <Text style={[
-                professionalStyles.optionText,
-                formData.amenities.includes(amenity) && professionalStyles.optionTextActive
+                professionalStyles.amenityOptionText,
+                formData.amenities.includes(amenity) && professionalStyles.amenityOptionTextActive
               ]}>
                 {amenity}
               </Text>
@@ -914,15 +1097,16 @@ export default function EditListing() {
 
       <View style={professionalStyles.inputGroup}>
         <Text style={professionalStyles.inputLabel}>Accepted Payment Methods *</Text>
-        <Text style={professionalStyles.inputHelper}>
+        <Text style={[professionalStyles.inputHelper, { marginBottom: 12 }]}>
           Select all payment methods you accept
         </Text>
-        <View style={professionalStyles.optionsGrid}>
+        <View style={[professionalStyles.optionsGrid, { marginTop: 0, marginBottom: 0 }]}>
           {PAYMENT_METHODS.map((method) => (
             <TouchableOpacity
               key={method}
               style={[
                 professionalStyles.optionCard,
+                isMobile && { minWidth: '47%', maxWidth: '47%' },
                 formData.paymentMethods.includes(method) && professionalStyles.optionCardActive
               ]}
               onPress={() => toggleArrayItem('paymentMethods', method)}

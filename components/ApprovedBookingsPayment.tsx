@@ -95,6 +95,14 @@ export default function ApprovedBookingsPayment({ ownerId }: ApprovedBookingsPay
       await db.upsert('bookings', booking.id, updatedBooking);
       
       console.log(`✅ Updated payment status to: ${newStatus}`);
+      
+      // If payment status is updated to 'paid', check if listing has reached capacity
+      // and auto-reject pending bookings
+      if (newStatus === 'paid') {
+        const { checkAndRejectPendingBookings } = await import('../utils/listing-capacity');
+        await checkAndRejectPendingBookings(booking.propertyId);
+      }
+      
       showAlert('Success', `Payment status updated to ${newStatus}`);
       
       // Reload bookings

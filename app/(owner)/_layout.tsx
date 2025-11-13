@@ -125,6 +125,7 @@ export default function OwnerLayout() {
             <Stack.Screen name="dashboard" />
             <Stack.Screen name="listings" />
             <Stack.Screen name="bookings" />
+            <Stack.Screen name="tenants" />
             <Stack.Screen name="messages" />
             <Stack.Screen name="payment-settings" />
             <Stack.Screen name="create-listing" />

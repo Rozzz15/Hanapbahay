@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -23,7 +23,13 @@ import {
   Eye,
   User,
   TrendingUp,
-  Percent
+  Percent,
+  BarChart3,
+  DollarSign,
+  Bell,
+  Settings,
+  ChevronRight,
+  Users
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -36,14 +42,13 @@ import {
   type OwnerFinancialAnalytics,
   type TimePeriod 
 } from '../../utils/owner-analytics';
+import { addCustomEventListener } from '../../utils/custom-events';
 
 // Types are now imported from owner-dashboard.ts
 
 export default function OwnerDashboard() {
   const { user, signOut } = useAuth();
   const router = useRouter();
-  const [activeSection, setActiveSection] = useState('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [stats, setStats] = useState<OwnerDashboardStats>({
     totalListings: 0,
     totalViews: 0,
@@ -65,6 +70,7 @@ export default function OwnerDashboard() {
   const [financialAnalytics, setFinancialAnalytics] = useState<OwnerFinancialAnalytics | null>(null);
   const [analyticsPeriod, setAnalyticsPeriod] = useState<TimePeriod>('monthly');
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Check authentication and approval status
   useEffect(() => {
@@ -145,25 +151,21 @@ export default function OwnerDashboard() {
       loadDashboardData();
     };
 
-    const handleBookingCreated = (event: CustomEvent) => {
-      console.log('🔄 New booking created, refreshing dashboard...', event.detail);
+    const handleBookingCreated = (event: Event | any) => {
+      console.log('🔄 New booking created, refreshing dashboard...', event?.detail);
       // Refresh dashboard and bookings to update notification count
       loadDashboardData();
       loadBookings();
     };
 
-    if (typeof window !== 'undefined') {
-      if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('listingChanged', handleListingChange);
-        window.addEventListener('bookingCreated', handleBookingCreated);
-      }
-      return () => {
-        if (typeof window !== 'undefined' && window.removeEventListener) {
-          window.removeEventListener('listingChanged', handleListingChange);
-          window.removeEventListener('bookingCreated', handleBookingCreated);
-        }
-      };
-    }
+    // Use cross-platform event listener utility
+    const removeListingChanged = addCustomEventListener('listingChanged', handleListingChange);
+    const removeBookingCreated = addCustomEventListener('bookingCreated', handleBookingCreated);
+    
+    return () => {
+      removeListingChanged();
+      removeBookingCreated();
+    };
   }, [user?.id]); // Only depend on user.id to prevent infinite loops
 
   // Reload analytics when period changes
@@ -188,8 +190,14 @@ export default function OwnerDashboard() {
       showAlert('Error', 'Failed to load dashboard data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [user?.id]); // Only depend on user.id to prevent infinite loops
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   const loadStats = useCallback(async () => {
     if (!user?.id) return;
@@ -402,99 +410,91 @@ export default function OwnerDashboard() {
 
   const renderOverview = () => (
     <View style={sharedStyles.pageContainer}>
-      {/* Header */}
-      <View style={sharedStyles.pageHeader}>
-        <View style={sharedStyles.headerLeft}>
-          <Text style={sharedStyles.pageTitle}>Property Dashboard</Text>
-          <Text style={sharedStyles.pageSubtitle}>Welcome back!</Text>
-        </View>
-        <View style={sharedStyles.headerRight}>
+      {/* Simple Header */}
+      <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{
+              fontSize: designTokens.typography['3xl'],
+              fontWeight: designTokens.typography.bold,
+              color: designTokens.colors.textPrimary,
+            }}>
+              Dashboard
+            </Text>
+            <Text style={{
+              fontSize: designTokens.typography.base,
+              color: designTokens.colors.textSecondary,
+              marginTop: designTokens.spacing.xs,
+            }}>
+              {user?.name || 'Property Owner'}
+            </Text>
+          </View>
           <TouchableOpacity 
-            style={sharedStyles.primaryButton}
-            onPress={() => router.push('/(owner)/create-listing')}
-          >
-            <Plus size={16} color="white" />
-            <Text style={sharedStyles.primaryButtonText}>New</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={sharedStyles.primaryButton}
-            onPress={() => {
-              console.log('👆 Dashboard logout button press detected');
-              handleLogout();
+            style={{
+              padding: designTokens.spacing.sm,
             }}
-            activeOpacity={0.7}
+            onPress={handleLogout}
           >
-            <LogOut size={16} color="white" />
-            <Text style={sharedStyles.primaryButtonText}>Logout</Text>
+            <LogOut size={22} color={designTokens.colors.textSecondary} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Overview Section */}
-      <View style={sharedStyles.section}>
-        <Text style={sharedStyles.sectionTitle}>Overview</Text>
+      {/* Simple Stats Grid */}
+      <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
         <View style={sharedStyles.grid}>
           <View style={sharedStyles.gridItem}>
             <View style={sharedStyles.statCard}>
-              <View style={sharedStyles.statIconContainer}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-                  <List size={20} color="#3B82F6" />
-                </View>
-              </View>
-              <Text style={sharedStyles.statLabel}>Total Listings</Text>
-              <Text style={sharedStyles.statValue}>{stats.totalListings}</Text>
-              <Text style={sharedStyles.statSubtitle}>{stats.totalListings} published</Text>
-            </View>
-          </View>
-
-          <View style={sharedStyles.gridItem}>
-            <View style={sharedStyles.statCard}>
-              <View style={sharedStyles.statIconContainer}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-                  <Eye size={20} color="#10B981" />
-                </View>
-              </View>
-              <Text style={sharedStyles.statLabel}>Total Views</Text>
-              <Text style={sharedStyles.statValue}>{stats.totalViews}</Text>
-              <Text style={sharedStyles.statSubtitle}>This month</Text>
-            </View>
-          </View>
-
-          <View style={sharedStyles.gridItem}>
-            <View style={sharedStyles.statCard}>
-              <View style={sharedStyles.statIconContainer}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
-                  <Text style={{ fontSize: 20, color: "#F59E0B" }}>₱</Text>
-                </View>
-              </View>
-              <Text style={sharedStyles.statLabel}>Monthly Revenue</Text>
-              <Text style={[sharedStyles.statValue, { color: designTokens.colors.success }]}>
-                {`₱${stats.monthlyRevenue.toLocaleString()}`}
+              <Text style={sharedStyles.statLabel}>Listings</Text>
+              <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'] }]}>
+                {stats.totalListings}
               </Text>
-              <Text style={sharedStyles.statSubtitle}>Confirmed paid</Text>
             </View>
           </View>
-
           <View style={sharedStyles.gridItem}>
             <View style={sharedStyles.statCard}>
-              <View style={sharedStyles.statIconContainer}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.red]}>
-                  <Calendar size={20} color="#EF4444" />
-                </View>
+              <Text style={sharedStyles.statLabel}>Views</Text>
+              <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'] }]}>
+                {stats.totalViews}
+              </Text>
+            </View>
+          </View>
+          <View style={sharedStyles.gridItem}>
+            <View style={sharedStyles.statCard}>
+              <Text style={sharedStyles.statLabel}>Revenue</Text>
+              <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.xl, color: designTokens.colors.success }]}>
+                ₱{stats.monthlyRevenue.toLocaleString()}
+              </Text>
+            </View>
+          </View>
+          <View style={sharedStyles.gridItem}>
+            <View style={sharedStyles.statCard}>
+              <Text style={sharedStyles.statLabel}>Bookings</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'] }]}>
+                  {stats.totalBookings}
+                </Text>
+                {pendingBookingsCount > 0 && (
+                  <View style={{
+                    backgroundColor: designTokens.colors.error,
+                    borderRadius: 8,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                  }}>
+                    <Text style={{ color: designTokens.colors.white, fontSize: 10, fontWeight: '600' }}>
+                      {pendingBookingsCount}
+                    </Text>
+                  </View>
+                )}
               </View>
-              <Text style={sharedStyles.statLabel}>Total Bookings</Text>
-              <Text style={sharedStyles.statValue}>{stats.totalBookings}</Text>
-              <Text style={sharedStyles.statSubtitle}>All bookings</Text>
             </View>
           </View>
         </View>
       </View>
 
-      {/* Financial Analytics / Revenue & Pricing Analytics Section */}
-      <View style={sharedStyles.section}>
-        <View style={sharedStyles.pageHeader}>
-          <Text style={sharedStyles.sectionTitle}>Revenue & Pricing Analytics</Text>
-        </View>
+      {/* Financial Analytics */}
+      <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+        <Text style={sharedStyles.sectionTitle}>Analytics</Text>
 
         {/* Time Period Selector */}
         <View style={{
@@ -661,81 +661,77 @@ export default function OwnerDashboard() {
         )}
       </View>
 
-      {/* Quick Actions Section */}
-      <View style={sharedStyles.section}>
+      {/* Quick Actions */}
+      <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
         <Text style={sharedStyles.sectionTitle}>Quick Actions</Text>
         <View style={sharedStyles.list}>
           <TouchableOpacity 
             style={sharedStyles.listItem}
             onPress={() => router.push('/(owner)/create-listing')}
           >
-            <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-              <Plus size={20} color="#3B82F6" />
+            <Plus size={20} color={designTokens.colors.primary} />
+            <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+              <Text style={sharedStyles.statLabel}>Create New Listing</Text>
             </View>
-            <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-              <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>Create New Listing</Text>
-              <Text style={sharedStyles.statSubtitle}>Add a new property for rent</Text>
-            </View>
-            <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+            <ChevronRight size={18} color={designTokens.colors.textMuted} />
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={sharedStyles.listItem}
             onPress={() => router.push('/(owner)/listings')}
           >
-            <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-              <List size={20} color="#10B981" />
+            <List size={20} color={designTokens.colors.primary} />
+            <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+              <Text style={sharedStyles.statLabel}>Manage Listings</Text>
             </View>
-            <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-              <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>Manage Listings</Text>
-              <Text style={sharedStyles.statSubtitle}>View and edit your properties</Text>
-            </View>
-            <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+            <ChevronRight size={18} color={designTokens.colors.textMuted} />
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={sharedStyles.listItem}
             onPress={() => router.push('/(owner)/bookings')}
           >
-            <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
-              <Calendar size={20} color="#F59E0B" />
+            <Calendar size={20} color={designTokens.colors.primary} />
+            <View style={{ flex: 1, marginLeft: designTokens.spacing.md, flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={sharedStyles.statLabel}>Bookings</Text>
+              {pendingBookingsCount > 0 && (
+                <View style={{
+                  marginLeft: designTokens.spacing.sm,
+                  backgroundColor: designTokens.colors.error,
+                  borderRadius: 8,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                }}>
+                  <Text style={{ color: designTokens.colors.white, fontSize: 10, fontWeight: '600' }}>
+                    {pendingBookingsCount}
+                  </Text>
+                </View>
+              )}
             </View>
-            <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-              <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>Bookings</Text>
-              <Text style={sharedStyles.statSubtitle}>Manage tenant bookings</Text>
+            <ChevronRight size={18} color={designTokens.colors.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={sharedStyles.listItem}
+            onPress={() => router.push('/(owner)/tenants')}
+          >
+            <Users size={20} color={designTokens.colors.primary} />
+            <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+              <Text style={sharedStyles.statLabel}>My Tenants</Text>
             </View>
-            {pendingBookingsCount > 0 && (
-              <View style={{
-                backgroundColor: '#EF4444',
-                borderRadius: 10,
-                paddingHorizontal: 8,
-                paddingVertical: 3,
-                minWidth: 20,
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
-                  {pendingBookingsCount > 9 ? '9+' : pendingBookingsCount}
-                </Text>
-              </View>
-            )}
-            <Text style={{ fontSize: 20, color: designTokens.colors.textMuted, marginLeft: designTokens.spacing.sm }}>›</Text>
+            <ChevronRight size={18} color={designTokens.colors.textMuted} />
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={sharedStyles.listItem}
             onPress={() => router.push('/(owner)/messages')}
           >
-            <View style={[sharedStyles.statIcon, iconBackgrounds.teal]}>
-              <MessageSquare size={20} color="#10B981" />
+            <MessageSquare size={20} color={designTokens.colors.primary} />
+            <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+              <Text style={sharedStyles.statLabel}>Messages</Text>
             </View>
-            <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-              <Text style={[sharedStyles.statLabel, { marginBottom: 2 }]}>Messages</Text>
-              <Text style={sharedStyles.statSubtitle}>Respond to tenant inquiries</Text>
-            </View>
-            <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+            <ChevronRight size={18} color={designTokens.colors.textMuted} />
           </TouchableOpacity>
-
         </View>
       </View>
 
@@ -746,13 +742,13 @@ export default function OwnerDashboard() {
         </View>
       )}
 
-      {/* Recent Listings Section */}
-      <View style={sharedStyles.section}>
-        <View style={sharedStyles.pageHeader}>
+      {/* Recent Listings */}
+      <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
           <Text style={sharedStyles.sectionTitle}>Recent Listings</Text>
           <TouchableOpacity onPress={() => router.push('/(owner)/listings')}>
-            <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.info, fontWeight: '500' }}>
-              View All ›
+            <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.primary, fontWeight: designTokens.typography.medium }}>
+              View All
             </Text>
           </TouchableOpacity>
         </View>
@@ -761,35 +757,40 @@ export default function OwnerDashboard() {
           <View style={sharedStyles.emptyState}>
             <Text style={sharedStyles.emptyStateTitle}>No listings yet</Text>
             <Text style={sharedStyles.emptyStateText}>Create your first property listing to get started</Text>
+            <TouchableOpacity 
+              style={[sharedStyles.primaryButton, { marginTop: designTokens.spacing.lg }]}
+              onPress={() => router.push('/(owner)/create-listing')}
+            >
+              <Plus size={16} color="white" />
+              <Text style={sharedStyles.primaryButtonText}>Create Listing</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <View style={sharedStyles.card}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.md }}>
-              <View style={{ flex: 1 }}>
-                <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
-                  {listings[0]?.propertyType || 'Property Listing'}
-                </Text>
-                <Text style={sharedStyles.statSubtitle}>
-                  {listings[0]?.address || 'Location'}
-                </Text>
-                <View style={{ flexDirection: 'row', gap: designTokens.spacing.md, marginTop: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>{`■ ${listings[0]?.views || 0} views`}</Text>
-                  <Text style={sharedStyles.statSubtitle}>{`■ ${listings[0]?.inquiries || 0} inquiries`}</Text>
-                  <Text style={sharedStyles.statSubtitle}>{`■ Published ${new Date(listings[0]?.createdAt || Date.now()).toLocaleDateString()}`}</Text>
-                </View>
+            {listings[0]?.coverPhoto && (
+              <View style={{ width: '100%', height: 160, borderRadius: designTokens.borderRadius.md, overflow: 'hidden', marginBottom: designTokens.spacing.md }}>
+                <Image 
+                  source={{ uri: listings[0].coverPhoto }} 
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="cover"
+                  showSkeleton={true}
+                  fallbackIcon="home"
+                />
               </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <View style={[sharedStyles.statusBadge, { backgroundColor: designTokens.colors.infoLight }]}>
-                  <Text style={[sharedStyles.statusText, { color: designTokens.colors.info }]}>Just Published!</Text>
-                </View>
-                <View style={{ marginTop: designTokens.spacing.sm }}>
-                  <Text style={sharedStyles.statSubtitle}>★ Active</Text>
-                </View>
-              </View>
+            )}
+            <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
+              {listings[0]?.propertyType || 'Property Listing'}
+            </Text>
+            <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm }]}>
+              {listings[0]?.address || 'Location'}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: designTokens.spacing.md, marginBottom: designTokens.spacing.md }}>
+              <Text style={sharedStyles.statSubtitle}>{listings[0]?.views || 0} views</Text>
+              <Text style={sharedStyles.statSubtitle}>{listings[0]?.inquiries || 0} inquiries</Text>
             </View>
             <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: designTokens.spacing.md }}>
-              <Text style={[sharedStyles.statValue, { color: designTokens.colors.success, fontSize: designTokens.typography.lg }]}>
-                {`₱${listings[0]?.monthlyRent?.toLocaleString() || '0'}/month`}
+              <Text style={[sharedStyles.statValue, { color: designTokens.colors.success }]}>
+                ₱{listings[0]?.monthlyRent?.toLocaleString() || '0'}/month
               </Text>
             </View>
           </View>
@@ -1117,22 +1118,6 @@ export default function OwnerDashboard() {
     </View>
   );
 
-  const renderContent = () => {
-    switch (activeSection) {
-      case 'overview':
-        return renderOverview();
-      case 'listings':
-        return renderListings();
-      case 'bookings':
-        return renderBookings();
-      case 'messages':
-        return renderMessages();
-      case 'payment-settings':
-        return renderPaymentSettings();
-      default:
-        return renderOverview();
-    }
-  };
 
   if (loading) {
     return (
@@ -1144,8 +1129,13 @@ export default function OwnerDashboard() {
 
   return (
     <View style={sharedStyles.container}>
-      <ScrollView style={sharedStyles.scrollView}>
-        {renderContent()}
+      <ScrollView 
+        style={sharedStyles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {renderOverview()}
       </ScrollView>
 
       {/* Tenant Info Modal */}

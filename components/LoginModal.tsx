@@ -1,23 +1,26 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, Pressable, View, Text, StyleSheet, Dimensions, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import { ScrollView, Pressable, View, Text, StyleSheet, KeyboardAvoidingView, Platform, Modal, TextInput, Image } from 'react-native';
 import React, { useState, useEffect } from 'react';
-import { loginUser, loginSchema } from '@/api/auth/login';
-// Removed react-hook-form - using React state instead
+import { loginUser } from '@/api/auth/login';
 import { useAuth } from '@/context/AuthContext';
 import { SignInButton } from '@/components/buttons';
-import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from "@/components/ui/toast";
 import { notifications } from "@/utils";
 import { showSimpleAlert } from "@/utils/alert";
 import { Ionicons } from '@expo/vector-icons';
-import { TextInput } from 'react-native';
 import { isOwnerApproved, hasPendingOwnerApplication } from '@/utils/owner-approval';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const { width, height } = Dimensions.get('window');
+interface LoginModalProps {
+    visible: boolean;
+    onClose: () => void;
+    onLoginSuccess?: () => void;
+    onSwitchToSignUp?: () => void;
+}
 
-export default function LoginScreen() {
+export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchToSignUp }: LoginModalProps) {
     const router = useRouter();
     const { refreshUser, redirectOwnerBasedOnListings, redirectTenantToTabs, redirectBrgyOfficial } = useAuth();
     const toast = useToast();
@@ -38,6 +41,8 @@ export default function LoginScreen() {
 
     // Load saved email and remember me preference
     useEffect(() => {
+        if (!visible) return;
+        
         const loadSavedData = async () => {
             try {
                 const savedEmail = await AsyncStorage.getItem('remembered_email');
@@ -70,7 +75,6 @@ export default function LoginScreen() {
                         setCountdown(remaining);
                         setIsLocked(true);
                     } else {
-                        // Countdown expired, clear it
                         await AsyncStorage.removeItem('login_countdown_end');
                         await AsyncStorage.removeItem('login_failed_attempts');
                         setFailedAttempts(0);
@@ -84,28 +88,7 @@ export default function LoginScreen() {
         };
         
         loadSavedData();
-    }, []);
-
-    // Check if user was redirected here due to logout
-    useEffect(() => {
-        const checkLogoutRedirect = async () => {
-            try {
-                // Check if there's a logout flag in storage
-                const logoutFlag = await AsyncStorage.getItem('user_logged_out');
-                if (logoutFlag === 'true') {
-                    // Show logout notification
-                    toast.show(notifications.logoutSuccess());
-                    
-                    // Clear the logout flag
-                    await AsyncStorage.removeItem('user_logged_out');
-                }
-            } catch (error) {
-                console.error('Error checking logout redirect:', error);
-            }
-        };
-        
-        checkLogoutRedirect();
-    }, [toast]);
+    }, [visible]);
 
     // Countdown timer effect
     useEffect(() => {
@@ -114,7 +97,6 @@ export default function LoginScreen() {
                 setCountdown((prev) => {
                     if (prev <= 1) {
                         setIsLocked(false);
-                        // Clean up storage asynchronously
                         AsyncStorage.removeItem('login_countdown_end').catch(console.error);
                         AsyncStorage.removeItem('login_failed_attempts').catch(console.error);
                         setFailedAttempts(0);
@@ -130,10 +112,8 @@ export default function LoginScreen() {
 
     const onSubmit = async () => {
         try {
-            // Check if form is locked due to countdown
             if (isLocked && countdown > 0) {
-                // If user tries to login during countdown, increase the countdown
-                const additionalTime = 30; // Add 30 seconds
+                const additionalTime = 30;
                 const newCountdown = countdown + additionalTime;
                 const countdownEnd = Date.now() + (newCountdown * 1000);
                 
@@ -147,10 +127,8 @@ export default function LoginScreen() {
                 return;
             }
             
-            // Clear previous errors
             setErrors({ email: '', password: '' });
             
-            // Basic validation
             if (!email.trim()) {
                 setErrors(prev => ({ ...prev, email: 'Email is required' }));
                 return;
@@ -161,20 +139,15 @@ export default function LoginScreen() {
             }
             
             setIsSubmitting(true);
-            console.log('Starting sign-in process...');
             const result = await loginUser({ email, password });
             
             if (result.success) {
-                console.log('Sign-in successful, refreshing user context...');
-                
-                // Reset failed attempts on successful login
                 setFailedAttempts(0);
                 setIsLocked(false);
                 setCountdown(0);
                 await AsyncStorage.removeItem('login_failed_attempts');
                 await AsyncStorage.removeItem('login_countdown_end');
                 
-                // Handle remember me functionality
                 if (rememberMe) {
                     await AsyncStorage.setItem('remembered_email', email);
                     await AsyncStorage.setItem('remember_me', 'true');
@@ -183,49 +156,31 @@ export default function LoginScreen() {
                     await AsyncStorage.removeItem('remember_me');
                 }
                 
-                // Refresh user context - this is critical
                 await refreshUser();
-                
-                // Give auth state a moment to settle
                 await new Promise(resolve => setTimeout(resolve, 200));
                 
-                console.log('User context refreshed, showing welcome message...');
-                // Show welcome back toast
                 toast.show(notifications.loginSuccess());
 
-                console.log('Redirecting based on role...');
                 const roles = (result as any).roles || (result as any).user?.roles || [];
                 
-                // Small delay before redirect to ensure state is settled
                 setTimeout(async () => {
                     if (Array.isArray(roles) && roles.includes('owner')) {
-                        // Get userId from multiple sources to be safe
-                        // First try from auth context (most reliable)
                         let ownerId = (result as any).user?.id || (result as any).id;
                         
-                        // Also try to get it from the auth context after refresh
                         try {
                             const { getAuthUser } = await import('@/utils/auth-user');
                             const authUser = await getAuthUser();
                             if (authUser?.id) {
                                 ownerId = authUser.id;
-                                console.log('✅ Got userId from auth context:', ownerId);
                             }
                         } catch (authError) {
                             console.warn('⚠️ Could not get userId from auth context:', authError);
                         }
                         
                         if (!ownerId) {
-                            console.error('❌ No userId found for owner login check');
-                            showSimpleAlert(
-                                'Error',
-                                'Unable to verify your owner status. Please try again.'
-                            );
+                            showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
                             return;
                         }
-                        
-                        console.log('🔍 Checking owner approval for userId:', ownerId);
-                        console.log('📝 UserId type:', typeof ownerId, 'Value:', JSON.stringify(ownerId));
                         
                         try {
                             const isApproved = await isOwnerApproved(ownerId);
@@ -233,47 +188,37 @@ export default function LoginScreen() {
                             
                             if (!isApproved) {
                                 if (hasPending) {
-                                    showSimpleAlert(
-                                        'Application Pending',
-                                        'Your owner application is still under review by your Barangay official. You will be notified once it is approved.'
-                                    );
+                                    showSimpleAlert('Application Pending', 'Your owner application is still under review.');
                                 } else {
-                                    showSimpleAlert(
-                                        'Access Denied',
-                                        'Your owner application has not been approved yet. Please contact your Barangay official for assistance.'
-                                    );
+                                    showSimpleAlert('Access Denied', 'Your owner application has not been approved yet.');
                                 }
                                 return;
                             }
                             
-                            // If approved, redirect to owner dashboard
                             redirectOwnerBasedOnListings(ownerId);
                         } catch (error) {
-                            console.error('❌ Error checking owner approval during login:', error);
-                            showSimpleAlert(
-                                'Error',
-                                'Unable to verify your owner status. Please try again.'
-                            );
+                            console.error('❌ Error checking owner approval:', error);
+                            showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
                         }
                     } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
-                        // Redirect barangay official to barangay dashboard
                         redirectBrgyOfficial();
                     } else {
-                        // Redirect tenant to tenant dashboard
                         redirectTenantToTabs();
+                    }
+                    
+                    // Close modal and call success callback
+                    onClose();
+                    if (onLoginSuccess) {
+                        onLoginSuccess();
                     }
                 }, 100);
             } else {
-                console.log('Sign-in failed:', result.error);
-                
-                // Increment failed attempts
                 const newFailedAttempts = failedAttempts + 1;
                 setFailedAttempts(newFailedAttempts);
                 await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
                 
-                // If 5 or more failed attempts, start countdown
                 if (newFailedAttempts >= 5) {
-                    const initialCountdown = 60; // Start with 60 seconds
+                    const initialCountdown = 60;
                     const countdownEnd = Date.now() + (initialCountdown * 1000);
                     
                     setCountdown(initialCountdown);
@@ -295,14 +240,12 @@ export default function LoginScreen() {
         } catch (error) {
             console.error('Login error:', error);
             
-            // Increment failed attempts on error too
             const newFailedAttempts = failedAttempts + 1;
             setFailedAttempts(newFailedAttempts);
             await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
             
-            // If 5 or more failed attempts, start countdown
             if (newFailedAttempts >= 5) {
-                const initialCountdown = 60; // Start with 60 seconds
+                const initialCountdown = 60;
                 const countdownEnd = Date.now() + (initialCountdown * 1000);
                 
                 setCountdown(initialCountdown);
@@ -325,84 +268,70 @@ export default function LoginScreen() {
         }
     };
 
-
     const handleForgotPassword = () => {
+        onClose();
         router.push('/forgot-password');
-    };
-
-    const handleClose = () => {
-        if (router.canGoBack()) {
-            router.back();
-        } else {
-            router.replace('/');
-        }
     };
 
     return (
         <Modal
-            visible={true}
+            visible={visible}
             transparent={true}
             animationType="fade"
-            onRequestClose={handleClose}
+            onRequestClose={onClose}
         >
-            <BlurView intensity={80} tint="dark" style={styles.blurContainer}>
+            <BlurView intensity={100} tint="dark" style={styles.blurContainer}>
                 <Pressable 
                     style={StyleSheet.absoluteFill}
-                    onPress={handleClose}
+                    onPress={onClose}
                 />
                 <KeyboardAvoidingView 
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     style={styles.keyboardView}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? -100 : -50}
                     pointerEvents="box-none"
                 >
-                    <View 
-                        style={styles.modalContent}
-                    >
-                        <ScrollView 
-                            showsVerticalScrollIndicator={false}
-                            contentContainerStyle={styles.scrollContent}
-                            keyboardShouldPersistTaps="handled"
+                    <View style={styles.modalContent}>
+                        {/* Close Button */}
+                        <Pressable 
+                            style={styles.closeButton}
+                            onPress={onClose}
                         >
-                            {/* Close Button */}
-                            <Pressable 
-                                style={styles.closeButton}
-                                onPress={handleClose}
-                            >
-                                <Ionicons name="close" size={24} color="#6B7280" />
-                            </Pressable>
+                            <Ionicons name="close" size={20} color="#64748B" />
+                        </Pressable>
 
-                            {/* Logo and Welcome */}
+                        <View style={styles.contentContainer}>
+                            {/* Header */}
                             <View style={styles.header}>
                                 <View style={styles.logoContainer}>
-                                    <View style={styles.logoIconContainer}>
-                                        <Ionicons name="home" size={32} color="#10B981" />
-                                    </View>
-                                    <Text style={styles.logoText}>HanapBahay</Text>
+                                    <Image 
+                                        source={require('../assets/images/LOPEZ.jpg')}
+                                        style={styles.logoImage}
+                                        resizeMode="contain"
+                                    />
                                 </View>
-                                
-                                <Text style={styles.welcomeText}>Welcome Back!</Text>
-                                <Text style={styles.subtitleText}>
-                                    Sign in to continue your journey
+                                <Text style={styles.welcomeText} numberOfLines={1}>Welcome Back!</Text>
+                                <Text style={styles.subtitleText} numberOfLines={1}>
+                                    Find your next home in Lopez, Quezon
+                                </Text>
+                                <Text style={styles.subtitleText2}>
+                                    mabilis, abot-kaya, at legit!
+                                </Text>
+                                <Text style={styles.taglineText}>
+                                    Hanapbahay — hanap mo, nandito na!
                                 </Text>
                             </View>
 
-                            {/* Form Card */}
-                            <View style={styles.formCard}>
-                                <Text style={styles.formTitle}>Sign In</Text>
-                                <Text style={styles.formSubtitle}>
-                                    Tenants and Property Owners can sign in here
-                                </Text>
-
+                            {/* Form Fields */}
+                            <View style={styles.formSection}>
                                 {/* Email Field */}
                                 <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Email Address</Text>
                                     <View style={[styles.inputWrapper, errors.email && styles.inputError]}>
-                                        <Ionicons name="mail" size={20} color="#10B981" style={styles.inputIcon} />
+                                        <Ionicons name="mail-outline" size={20} color={errors.email ? "#EF4444" : "#64748B"} style={styles.inputIcon} />
                                         <TextInput
                                             style={styles.textInput}
-                                            placeholder="Enter your email address"
-                                            placeholderTextColor="#9CA3AF"
+                                            placeholder="Email address"
+                                            placeholderTextColor="#94A3B8"
                                             value={email}
                                             onChangeText={setEmail}
                                             keyboardType="email-address"
@@ -418,13 +347,12 @@ export default function LoginScreen() {
 
                                 {/* Password Field */}
                                 <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Password</Text>
                                     <View style={[styles.inputWrapper, errors.password && styles.inputError]}>
-                                        <Ionicons name="lock-closed" size={20} color="#10B981" style={styles.inputIcon} />
+                                        <Ionicons name="lock-closed-outline" size={20} color={errors.password ? "#EF4444" : "#64748B"} style={styles.inputIcon} />
                                         <TextInput
                                             style={styles.textInput}
-                                            placeholder="Enter your password"
-                                            placeholderTextColor="#9CA3AF"
+                                            placeholder="Password"
+                                            placeholderTextColor="#94A3B8"
                                             secureTextEntry={!showPassword}
                                             value={password}
                                             onChangeText={setPassword}
@@ -435,9 +363,9 @@ export default function LoginScreen() {
                                             onPress={() => setShowPassword(!showPassword)}
                                         >
                                             <Ionicons 
-                                                name={showPassword ? "eye-off" : "eye"} 
+                                                name={showPassword ? "eye-off-outline" : "eye-outline"} 
                                                 size={20} 
-                                                color="#9CA3AF" 
+                                                color="#64748B" 
                                             />
                                         </Pressable>
                                     </View>
@@ -454,21 +382,21 @@ export default function LoginScreen() {
                                     >
                                         <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
                                             {rememberMe && (
-                                                <Ionicons name="checkmark" size={16} color="#fff" />
+                                                <Ionicons name="checkmark" size={14} color="#fff" />
                                             )}
                                         </View>
                                         <Text style={styles.rememberMeText}>Remember me</Text>
                                     </Pressable>
                                     
                                     <Pressable onPress={handleForgotPassword}>
-                                        <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                                        <Text style={styles.forgotPasswordText}>Forgot password?</Text>
                                     </Pressable>
                                 </View>
 
                                 {/* Countdown Warning */}
                                 {isLocked && countdown > 0 && (
                                     <View style={styles.countdownContainer}>
-                                        <Ionicons name="lock-closed" size={20} color="#EF4444" />
+                                        <Ionicons name="lock-closed" size={18} color="#EF4444" />
                                         <Text style={styles.countdownText}>
                                             Account locked. Please wait {countdown} second{countdown !== 1 ? 's' : ''} before trying again.
                                         </Text>
@@ -486,12 +414,19 @@ export default function LoginScreen() {
                                 {/* Sign Up Link */}
                                 <View style={styles.signUpContainer}>
                                     <Text style={styles.signUpText}>Don't have an account? </Text>
-                                    <Pressable onPress={() => router.push('/sign-up')}>
-                                        <Text style={styles.signUpLink}>Create Account</Text>
+                                    <Pressable onPress={() => {
+                                        onClose();
+                                        if (onSwitchToSignUp) {
+                                            onSwitchToSignUp();
+                                        } else {
+                                            router.push('/sign-up');
+                                        }
+                                    }}>
+                                        <Text style={styles.signUpLink}>Sign up</Text>
                                     </Pressable>
                                 </View>
                             </View>
-                        </ScrollView>
+                        </View>
                     </View>
                 </KeyboardAvoidingView>
             </BlurView>
@@ -513,115 +448,120 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         width: '90%',
-        maxWidth: 480,
-        maxHeight: '90%',
+        maxWidth: 420,
         backgroundColor: '#FFFFFF',
-        borderRadius: 24,
+        borderRadius: 32,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 20 },
-        shadowOpacity: 0.3,
-        shadowRadius: 30,
-        elevation: 20,
+        shadowOffset: { width: 0, height: 32 },
+        shadowOpacity: 0.15,
+        shadowRadius: 48,
+        elevation: 30,
         overflow: 'hidden',
+        position: 'relative',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.8)',
     },
     closeButton: {
         position: 'absolute',
-        top: 16,
-        right: 16,
+        top: 20,
+        right: 20,
         width: 36,
         height: 36,
         borderRadius: 18,
-        backgroundColor: '#F3F4F6',
+        backgroundColor: '#F8F9FA',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        borderWidth: 1,
+        borderColor: '#E9ECEF',
     },
     header: {
-        paddingTop: 32,
+        paddingTop: 24,
         paddingHorizontal: 24,
-        paddingBottom: 20,
+        paddingBottom: 16,
         alignItems: 'center',
+        width: '100%',
     },
     logoContainer: {
-        flexDirection: 'row',
+        marginBottom: 12,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 12,
-        marginBottom: 20,
+        padding: 4,
     },
-    logoIconContainer: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: '#ECFDF5',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    logoText: {
-        fontSize: 26,
-        fontWeight: 'bold',
-        color: '#111827',
-        letterSpacing: 1,
+    logoImage: {
+        width: 70,
+        height: 70,
+        borderRadius: 35,
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#10B981',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.25,
+        shadowRadius: 16,
+        elevation: 12,
+        borderWidth: 2,
+        borderColor: '#ECFDF5',
     },
     welcomeText: {
         fontSize: 28,
-        fontWeight: 'bold',
-        color: '#111827',
+        fontWeight: '800',
+        color: '#0F172A',
         textAlign: 'center',
-        marginBottom: 8,
+        marginBottom: 6,
+        letterSpacing: -0.5,
+        flexShrink: 0,
+        width: '100%',
     },
     subtitleText: {
-        fontSize: 15,
-        color: '#6B7280',
+        fontSize: 12,
+        color: '#64748B',
         textAlign: 'center',
-        lineHeight: 22,
+        lineHeight: 16,
+        fontWeight: '400',
+        paddingHorizontal: 4,
+        marginBottom: 2,
+        width: '100%',
     },
-    scrollContent: {
-        paddingHorizontal: 24,
-        paddingBottom: 32,
-    },
-    formCard: {
-        paddingTop: 8,
-    },
-    formTitle: {
-        fontSize: 26,
-        fontWeight: 'bold',
-        color: '#1F2937',
+    subtitleText2: {
+        fontSize: 13,
+        color: '#64748B',
         textAlign: 'center',
-        marginBottom: 8,
+        lineHeight: 16,
+        fontWeight: '400',
+        paddingHorizontal: 8,
+        marginBottom: 4,
     },
-    formSubtitle: {
+    taglineText: {
         fontSize: 14,
-        color: '#6B7280',
+        color: '#10B981',
         textAlign: 'center',
-        marginBottom: 28,
+        fontWeight: '600',
+        marginBottom: 0,
+        letterSpacing: 0.2,
+    },
+    contentContainer: {
+        paddingHorizontal: 28,
+        paddingBottom: 24,
+    },
+    formSection: {
+        width: '100%',
     },
     inputContainer: {
-        marginBottom: 20,
-    },
-    inputLabel: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#374151',
-        marginBottom: 8,
+        marginBottom: 14,
     },
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F9FAFB',
+        backgroundColor: '#FAFBFC',
         borderRadius: 12,
-        borderWidth: 2,
-        borderColor: '#E5E7EB',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
+        borderWidth: 1,
+        borderColor: '#E4E7EB',
+        paddingHorizontal: 14,
+        paddingVertical: 12,
     },
     inputError: {
-        borderColor: '#EF4444',
+        borderColor: '#F87171',
+        backgroundColor: '#FEF2F2',
+        borderWidth: 1.5,
     },
     inputIcon: {
         marginRight: 12,
@@ -629,35 +569,42 @@ const styles = StyleSheet.create({
     textInput: {
         flex: 1,
         fontSize: 16,
-        color: '#1F2937',
+        color: '#0F172A',
+        fontWeight: '400',
+        padding: 0,
     },
     eyeButton: {
         padding: 4,
+        marginLeft: 8,
     },
     errorText: {
-        fontSize: 14,
+        fontSize: 13,
         color: '#EF4444',
-        marginTop: 4,
+        marginTop: 6,
+        marginLeft: 4,
+        fontWeight: '500',
     },
     optionsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 32,
+        marginBottom: 18,
+        marginTop: 2,
     },
     rememberMeContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 10,
     },
     checkbox: {
         width: 20,
         height: 20,
-        borderRadius: 4,
+        borderRadius: 6,
         borderWidth: 2,
         borderColor: '#D1D5DB',
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: '#FFFFFF',
     },
     checkboxChecked: {
         backgroundColor: '#10B981',
@@ -665,7 +612,8 @@ const styles = StyleSheet.create({
     },
     rememberMeText: {
         fontSize: 14,
-        color: '#6B7280',
+        color: '#475569',
+        fontWeight: '500',
     },
     forgotPasswordText: {
         fontSize: 14,
@@ -676,16 +624,21 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 24,
+        marginTop: 18,
+        paddingTop: 18,
+        borderTopWidth: 1,
+        borderTopColor: '#F1F3F5',
     },
     signUpText: {
         fontSize: 14,
-        color: '#6B7280',
+        color: '#64748B',
+        fontWeight: '400',
     },
     signUpLink: {
         fontSize: 14,
         color: '#3B82F6',
         fontWeight: '600',
+        marginLeft: 4,
     },
     countdownContainer: {
         flexDirection: 'row',
@@ -695,15 +648,17 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#FECACA',
         borderRadius: 12,
-        padding: 16,
-        marginBottom: 20,
+        padding: 12,
+        marginBottom: 16,
         gap: 8,
     },
     countdownText: {
-        fontSize: 14,
+        fontSize: 13,
         color: '#DC2626',
         fontWeight: '600',
         textAlign: 'center',
         flex: 1,
     },
 });
+
+

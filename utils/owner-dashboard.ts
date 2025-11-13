@@ -44,7 +44,7 @@ export interface OwnerListing {
   videos?: string[];
   // Additional fields for enhanced display
   businessName?: string;
-  bedrooms?: number;
+  rooms?: number;
   bathrooms?: number;
   size?: number;
   rentalType?: string;
@@ -58,6 +58,9 @@ export interface OwnerListing {
   emergencyContact?: string;
   amenities?: string[];
   description?: string;
+  capacity?: number; // Maximum number of tenants/slots
+  occupiedSlots?: number; // Current number of occupied slots
+  roomCapacities?: number[]; // Capacity per room
 }
 
 export interface OwnerBooking {
@@ -217,6 +220,15 @@ export async function getOwnerListings(ownerId: string): Promise<OwnerListing[]>
         // Keep existing listing data as fallback
       }
 
+      // Get capacity information
+      let occupiedSlots = 0;
+      try {
+        const { getOccupiedSlots } = await import('./listing-capacity');
+        occupiedSlots = await getOccupiedSlots(listing.id);
+      } catch (capacityError) {
+        console.log(`⚠️ Could not load capacity for listing ${listing.id}:`, capacityError);
+      }
+
       return {
         id: listing.id,
         userId: listing.userId,
@@ -233,7 +245,7 @@ export async function getOwnerListings(ownerId: string): Promise<OwnerListing[]>
         videos,
         // Additional fields for enhanced display
         businessName: listing.businessName,
-        bedrooms: listing.bedrooms,
+        rooms: listing.rooms || listing.bedrooms,
         bathrooms: listing.bathrooms,
         size: listing.size,
         rentalType: listing.rentalType,
@@ -246,7 +258,10 @@ export async function getOwnerListings(ownerId: string): Promise<OwnerListing[]>
         email: listing.email,
         emergencyContact: listing.emergencyContact,
         amenities: listing.amenities,
-        description: listing.description
+        description: listing.description,
+        capacity: listing.capacity,
+        occupiedSlots: occupiedSlots,
+        roomCapacities: listing.roomCapacities
       };
     }));
 

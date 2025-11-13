@@ -15,7 +15,7 @@ export default function TenantSmartSearch({ value, onChange }: Props) {
   const [locationText, setLocationText] = useState<string>(value.location || '');
   const [minPrice, setMinPrice] = useState<string>(value.minPrice ? String(value.minPrice) : '');
   const [maxPrice, setMaxPrice] = useState<string>(value.maxPrice ? String(value.maxPrice) : '');
-  const [bedrooms, setBedrooms] = useState<number>(value.bedrooms || 0);
+  const [rooms, setRooms] = useState<number>(value.rooms || value.bedrooms || 0);
   const [amenities, setAmenities] = useState<string[]>(value.amenities || []);
   const [propertyType, setPropertyType] = useState<string>(value.propertyType || '');
   const [occupantType, setOccupantType] = useState<'Family' | 'Individual' | ''>((value as any).occupantType || '');
@@ -34,13 +34,13 @@ export default function TenantSmartSearch({ value, onChange }: Props) {
       location: locationText,
       minPrice: minPrice ? Number(minPrice) : undefined,
       maxPrice: maxPrice ? Number(maxPrice) : undefined,
-      bedrooms: bedrooms || 0,
+      rooms: rooms || 0,
       amenities: amenities.length ? amenities : undefined,
       propertyType: propertyType || undefined,
       occupantType: occupantType || undefined,
     };
     debouncedEmit(next);
-  }, [query, locationText, minPrice, maxPrice, bedrooms, amenities, propertyType, occupantType]);
+  }, [query, locationText, minPrice, maxPrice, rooms, amenities, propertyType, occupantType]);
 
   // Auto-suggestions removed per request
 
@@ -52,7 +52,7 @@ export default function TenantSmartSearch({ value, onChange }: Props) {
     setLocationText('');
     setMinPrice('');
     setMaxPrice('');
-    setBedrooms(0);
+    setRooms(0);
     setAmenities([]);
     onChange({});
   };

@@ -25,9 +25,9 @@ export default function DashboardScreen() {
   const { isAuthenticated, user } = useAuth();
   const scrollIndicatorOpacity = useRef(new Animated.Value(1)).current;
   const carouselRef = useRef<{ scrollToNext: () => void } | null>(null);
-  const [filteredListings, setFilteredListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string }[]>([]);
+  const [filteredListings, setFilteredListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string; capacity?: number; occupiedSlots?: number; roomCapacities?: number[] }[]>([]);
   const [owners, setOwners] = useState<(OwnerProfileRecord & { user?: DbUserRecord })[]>([]);
-  const [ownerListings, setOwnerListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string }[]>([]);
+  const [ownerListings, setOwnerListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string; capacity?: number; occupiedSlots?: number; roomCapacities?: number[] }[]>([]);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [isScrolling, setIsScrolling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -704,7 +704,7 @@ export default function DashboardScreen() {
       const ratingsMap = await getPropertyRatingsMap(listingIds);
       console.log(`⭐ Loaded ratings for ${ratingsMap.size} listings`);
       
-      // Process listings with media loading
+      // Process listings with media loading and capacity check
       const mapped = await Promise.all(listingsToProcess.map(async (p: PublishedListingRecord) => {
         console.log(`🔍 Processing listing ${p.id}:`, {
           title: p.title,
@@ -715,8 +715,18 @@ export default function DashboardScreen() {
           publishedAt: p.publishedAt,
           propertyType: p.propertyType,
           hasPhotos: p.photos?.length || 0,
-          hasVideos: p.videos?.length || 0
+          hasVideos: p.videos?.length || 0,
+          capacity: p.capacity
         });
+        
+        // Check if listing has reached capacity
+        const { isListingAtCapacity } = await import('../../utils/listing-capacity');
+        const atCapacity = await isListingAtCapacity(p);
+        
+        if (atCapacity) {
+          console.log(`🚫 Listing ${p.id} is at capacity, will be filtered out`);
+          return null; // Return null to filter out
+        }
 
         // CRITICAL: Load media from database FIRST (like owner listings and tenant profile pictures)
         let coverPhotoUri = '';
@@ -859,6 +869,11 @@ export default function DashboardScreen() {
         // Get rating data for this listing
         const ratingData = ratingsMap.get(p.id) || { averageRating: 0, totalReviews: 0 };
         
+        // Get capacity information
+        const { getOccupiedSlots } = await import('../../utils/listing-capacity');
+        const occupiedSlots = await getOccupiedSlots(p.id);
+        const capacity = p.capacity || 1;
+        
         return {
           id: p.id,
           image: finalImage,
@@ -869,7 +884,7 @@ export default function DashboardScreen() {
           description: p.description || 'No description available',
           rating: ratingData.averageRating,
           reviews: ratingData.totalReviews,
-          rooms: p.rooms || p.bedrooms || 1,
+          rooms: p.rooms || 1,
           bathrooms: p.bathrooms || 0,
           size: p.size || 0,
           price: p.price || p.monthlyRent || 0,
@@ -877,14 +892,20 @@ export default function DashboardScreen() {
           ownerName: p.ownerName || 'Owner',
           propertyType: p.propertyType || 'Property',
           ownerUserId: ownerUserId,
-          barangay: listingBarangay || ''
+          barangay: listingBarangay || '',
+          capacity: capacity,
+          occupiedSlots: occupiedSlots,
+          roomCapacities: p.roomCapacities || undefined
         };
       }));
 
-      console.log('✅ Mapped listings:', mapped.length);
+      // Filter out null values (listings at capacity)
+      const validMappedListings = mapped.filter((listing): listing is NonNullable<typeof listing> => listing !== null);
+      
+      console.log('✅ Mapped listings:', validMappedListings.length, '(filtered out', mapped.length - validMappedListings.length, 'at capacity)');
       
       // Sort listings by rating (highest first), then by reviews count
-      const sortedListings = mapped.sort((a, b) => {
+      const sortedListings = validMappedListings.sort((a, b) => {
         // First, sort by rating (descending)
         if (b.rating !== a.rating) {
           return b.rating - a.rating;
@@ -1163,39 +1184,53 @@ export default function DashboardScreen() {
     }, refreshDelay);
   }, []); // Remove function dependencies
 
-  
+  // Handle booking changes that affect capacity (tenant removed)
+  const handleBookingCapacityChange = useCallback(async (event?: any) => {
+    const eventDetail = event?.detail || {};
+    console.log('🔄 Booking capacity changed (tenant removed), refreshing listings...', eventDetail);
+    
+    // Refresh listings to show newly available slots
+    try {
+      await clearCache();
+      await loadPublishedListings();
+      console.log('✅ Listings refreshed after booking capacity change');
+    } catch (error) {
+      console.error('❌ Error refreshing listings after booking change:', error);
+    }
+  }, [loadPublishedListings]);
 
   // Listen for listing changes to auto-refresh tenant dashboard
   useEffect(() => {
-    const handlePropertyMediaRefreshed = (event: Event) => {
-      console.log('🔄 Property media refreshed, reloading listings...', (event as any).detail);
+    const handlePropertyMediaRefreshed = (event: Event | any) => {
+      console.log('🔄 Property media refreshed, reloading listings...', event?.detail);
       loadPublishedListings();
     };
 
-    const handleUserLoggedIn = (event: Event) => {
-      console.log('🔄 User logged in, reloading listings...', (event as any).detail);
+    const handleUserLoggedIn = (event: Event | any) => {
+      console.log('🔄 User logged in, reloading listings...', event?.detail);
       // Add a small delay to ensure all cache clearing is complete
       setTimeout(() => {
         loadPublishedListings();
       }, 500);
     };
 
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('listingChanged', handleListingChanged);
-      window.addEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
-      window.addEventListener('userLoggedIn', handleUserLoggedIn);
-      console.log('👂 Tenant dashboard: Added listing change, media refresh, and user login listeners');
-      
-      return () => {
-        if (typeof window !== 'undefined' && window.removeEventListener) {
-          window.removeEventListener('listingChanged', handleListingChanged);
-          window.removeEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
-          window.removeEventListener('userLoggedIn', handleUserLoggedIn);
-          console.log('🔇 Tenant dashboard: Removed listing change, media refresh, and user login listeners');
-        }
-      };
-    }
-  }, [isAuthenticated, user?.id, loadPublishedListings, handleListingChanged]);
+    // Use cross-platform event listener utility
+    const removeListingChanged = addCustomEventListener('listingChanged', handleListingChanged);
+    const removeMediaRefreshed = addCustomEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
+    const removeUserLoggedIn = addCustomEventListener('userLoggedIn', handleUserLoggedIn);
+    const removeBookingCancelled = addCustomEventListener('bookingCancelled', handleBookingCapacityChange);
+    const removeBookingDeleted = addCustomEventListener('bookingDeleted', handleBookingCapacityChange);
+    console.log('👂 Tenant dashboard: Added listing change, media refresh, user login, and booking change listeners');
+    
+    return () => {
+      removeListingChanged();
+      removeMediaRefreshed();
+      removeUserLoggedIn();
+      removeBookingCancelled();
+      removeBookingDeleted();
+      console.log('🔇 Tenant dashboard: Removed all event listeners');
+    };
+  }, [isAuthenticated, user?.id, loadPublishedListings, handleListingChanged, handleBookingCapacityChange]);
 
   // Keep filtered listings in sync with owner listings and search params
   useEffect(() => {
@@ -1567,24 +1602,118 @@ export default function DashboardScreen() {
                   <View style={styles.titleContainer}>
                     <Text style={styles.propertyTitle} numberOfLines={2}>{listing.title}</Text>
                   </View>
-                  <Text style={styles.propertyPrice}>₱{listing.price.toLocaleString()}</Text>
+                  <Text style={styles.propertyPrice}>{'₱' + listing.price.toLocaleString()}</Text>
                 </View>
                 
                 {/* Location */}
-                {(listing.location || listing.address) && (
+                {((listing.location && typeof listing.location === 'string') || (listing.address && typeof listing.address === 'string')) ? (
                   <View style={styles.locationRow}>
                     <Ionicons name="location" size={14} color="#64748B" />
                     <Text style={styles.locationText} numberOfLines={1}>
-                      {listing.location || listing.address?.split(',')[0] || 'Location not specified'}
+                      {String(listing.location || (listing.address?.split(',')[0] || 'Location not specified'))}
                     </Text>
                   </View>
-                )}
+                ) : null}
                 
                 {/* Description */}
-                {listing.description && (
+                {listing.description && typeof listing.description === 'string' && listing.description.trim() !== '' ? (
                   <Text style={styles.propertyDescription} numberOfLines={2}>
-                    {listing.description}
+                    {String(listing.description)}
                   </Text>
+                ) : null}
+                
+                {/* Capacity/Slots Information */}
+                {(listing.capacity !== undefined || listing.occupiedSlots !== undefined) && (
+                  <View style={styles.capacityContainer}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: listing.roomCapacities && listing.roomCapacities.length > 0 ? 8 : 0 }}>
+                      <Ionicons name="people" size={18} color="#10B981" style={{ marginTop: 2, marginRight: 8 }} />
+                      <View style={{ flex: 1 }}>
+                        {listing.occupiedSlots !== undefined && listing.capacity !== undefined
+                          ? (() => {
+                              const available = listing.capacity - listing.occupiedSlots;
+                              const percentage = Math.round((available / listing.capacity) * 100);
+                              
+                              if (available === listing.capacity) {
+                                // All slots available
+                                return (
+                                  <>
+                                    <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', marginBottom: 2 }]}>
+                                      {available} {available === 1 ? 'Space' : 'Spaces'} Available
+                                    </Text>
+                                    <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', opacity: 0.8 }]}>
+                                      All {listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'} are open
+                                    </Text>
+                                  </>
+                                );
+                              } else if (available === 0) {
+                                // No slots available
+                                return (
+                                  <>
+                                    <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', color: '#DC2626', marginBottom: 2 }]}>
+                                      Fully Occupied
+                                    </Text>
+                                    <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', color: '#DC2626', opacity: 0.8 }]}>
+                                      All {listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'} are taken
+                                    </Text>
+                                  </>
+                                );
+                              } else {
+                                // Some slots available
+                                return (
+                                  <>
+                                    <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', marginBottom: 2 }]}>
+                                      {available} {available === 1 ? 'Space' : 'Spaces'} Available
+                                    </Text>
+                                    <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', opacity: 0.8 }]}>
+                                      {percentage}% available • {listing.occupiedSlots} {listing.occupiedSlots === 1 ? 'person' : 'people'} already living here
+                                    </Text>
+                                  </>
+                                );
+                              }
+                            })()
+                          : listing.capacity !== undefined
+                          ? (
+                            <>
+                              <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', marginBottom: 2 }]}>
+                                {listing.capacity} {listing.capacity === 1 ? 'Space' : 'Spaces'} Available
+                              </Text>
+                              <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', opacity: 0.8 }]}>
+                                Ready for occupancy
+                              </Text>
+                            </>
+                          )
+                          : null
+                        }
+                      </View>
+                    </View>
+                    {/* Room Capacity Breakdown */}
+                    {listing.roomCapacities && listing.roomCapacities.length > 0 && (
+                      <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#D1FAE5' }}>
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#059669', marginBottom: 6 }}>
+                          Room Capacity:
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                          {listing.roomCapacities.map((roomCap: number, index: number) => (
+                            <View 
+                              key={index}
+                              style={{
+                                backgroundColor: '#FFFFFF',
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 6,
+                                borderWidth: 1,
+                                borderColor: '#A7F3D0'
+                              }}
+                            >
+                              <Text style={{ fontSize: 11, color: '#059669' }}>
+                                Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </View>
                 )}
                 
                 {/* Property Details */}
@@ -1593,7 +1722,7 @@ export default function DashboardScreen() {
                     <Ionicons name="bed-outline" size={18} color="#3B82F6" />
                     <View style={styles.detailItemContent}>
                       <Text style={styles.detailText}>{listing.rooms || 0}</Text>
-                      <Text style={styles.detailLabel}>Bed</Text>
+                      <Text style={styles.detailLabel}>{(listing.rooms || 0) === 1 ? 'Room' : 'Rooms'}</Text>
                     </View>
                   </View>
                   <View style={styles.detailDivider} />
@@ -1993,6 +2122,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontWeight: '400',
     lineHeight: 20,
+  },
+  capacityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  capacityText: {
+    fontSize: 14,
+    color: '#10B981',
+    fontWeight: '600',
+    flex: 1,
   },
   propertyDetails: {
     flexDirection: 'row',

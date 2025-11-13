@@ -31,7 +31,7 @@ const FAQModal: React.FC<FAQModalProps> = ({ visible, onClose }) => {
         },
         {
             question: "What types of properties are available?",
-            answer: "HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of bedrooms, size, amenities, and location information."
+            answer: "HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information."
         },
         {
             question: "How do I set my price range?",

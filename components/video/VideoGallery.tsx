@@ -22,7 +22,7 @@ export default function VideoGallery({ videos, onVideoPress }: VideoGalleryProps
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>
-        🎥 Property Videos ({videos.length})
+        {'🎥 Property Videos (' + String(videos.length) + ')'}
       </Text>
       <ScrollView 
         horizontal 
@@ -59,7 +59,7 @@ export default function VideoGallery({ videos, onVideoPress }: VideoGalleryProps
             </View>
             <View style={styles.videoIndicator}>
               <Text style={styles.videoIndicatorText}>
-                {index + 1}/{videos.length}
+                {String(index + 1) + '/' + String(videos.length)}
               </Text>
             </View>
           </TouchableOpacity>

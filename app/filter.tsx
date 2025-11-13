@@ -14,10 +14,10 @@ const { height } = Dimensions.get('window');
 
 const propertyTypes: ButtonOption[] = [
   { id: 'any', label: 'Any Type' },
-  { id: 'House', label: 'House' },
-  { id: 'Apartment', label: 'Apartment' },
   { id: 'Condo', label: 'Condo' },
-  { id: 'Bedspace', label: 'Bedspace' }
+  { id: 'Apartment', label: 'Apartment' },
+  { id: 'House', label: 'House' },
+  { id: 'BedSpace', label: 'BedSpace' }
 ];
 
 export default function FilterScreen() {

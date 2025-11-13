@@ -5,9 +5,9 @@ import { useAuth } from '../../context/AuthContext';
 import { db, clearCache } from '../../utils/db';
 import { OwnerApplicationRecord, BrgyNotificationRecord, OwnerApplicationDocument } from '../../types';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, cancelAnimation, runOnJS } from 'react-native-reanimated';
 import { 
   CheckCircle, 
   XCircle, 
@@ -248,70 +248,181 @@ export default function OwnerApplications() {
   };
 
   const downloadDocument = async (document: OwnerApplicationDocument | { uri: string; name: string }) => {
+    if (!document || !document.uri) {
+      Alert.alert('Error', 'Document URI is missing');
+      return;
+    }
+
     try {
       setIsDownloading(true);
-      const fileName = `${document.name.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`;
+      console.log('📥 Starting download for:', document.name, document.uri);
+      
+      // Determine file extension from URI or default to jpg
+      const uriLower = document.uri.toLowerCase();
+      let extension = 'jpg';
+      if (uriLower.includes('.png')) extension = 'png';
+      else if (uriLower.includes('.pdf')) extension = 'pdf';
+      else if (uriLower.includes('.jpeg')) extension = 'jpeg';
+      
+      const fileName = `${document.name.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.${extension}`;
       
       if (Platform.OS === 'web') {
         // For web, create a download link
         try {
-          if (typeof window !== 'undefined' && window.URL && typeof document !== 'undefined') {
+          if (typeof window !== 'undefined' && window.URL) {
+            console.log('🌐 Web download: Fetching document...');
             const response = await fetch(document.uri);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const link = window.document.createElement('a');
             link.href = url;
             link.download = fileName;
+            link.style.display = 'none';
             window.document.body.appendChild(link);
             link.click();
             window.document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-            if (Platform.OS === 'web') {
-              // No alert needed for web download
-            } else {
-              Alert.alert('Success', 'Document download started');
-            }
+            console.log('✅ Web download completed');
           } else {
             throw new Error('Web APIs not available');
           }
         } catch (error) {
-          console.error('Web download error:', error);
-          if (Platform.OS === 'web') {
-            window.alert('Error\n\nFailed to download document. Please try again.');
-          } else {
-            Alert.alert('Error', 'Failed to download document. Please try again.');
-          }
+          console.error('❌ Web download error:', error);
+          Alert.alert('Error', `Failed to download document: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       } else {
         // For mobile platforms
-        const fileUri = FileSystem.documentDirectory + fileName;
-        const result = await FileSystem.downloadAsync(document.uri, fileUri);
-        
-        if (result.status === 200) {
-          // Try to use expo-sharing if available
-          try {
-            const Sharing = await import('expo-sharing');
-            if (await Sharing.isAvailableAsync()) {
-              await Sharing.shareAsync(result.uri);
-              Alert.alert('Success', 'Document downloaded successfully!');
+        try {
+          console.log('📱 Mobile download: Starting...');
+          
+          // Use cache directory for temporary storage before saving to device
+          const tempFileUri = FileSystem.cacheDirectory + fileName;
+          console.log('📁 Temporary location:', tempFileUri);
+          
+          let resultUri = tempFileUri;
+          
+          // Check if the source URI is a local file or remote URL
+          const isLocalFile = document.uri.startsWith('file://') || document.uri.startsWith('/');
+          
+          if (isLocalFile) {
+            // For local files, read and write to copy
+            console.log('📋 Copying local file...');
+            const sourceUri = document.uri.startsWith('file://') ? document.uri : `file://${document.uri}`;
+            
+            // Read the file as base64
+            const base64 = await FileSystem.readAsStringAsync(sourceUri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            
+            // Write to temporary location
+            await FileSystem.writeAsStringAsync(tempFileUri, base64, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            
+            console.log('✅ File copied successfully');
+            resultUri = tempFileUri;
+          } else {
+            // For remote URLs (http/https), use downloadAsync
+            console.log('🌐 Downloading remote file...');
+            const result = await FileSystem.downloadAsync(document.uri, tempFileUri);
+            console.log('📥 Download result:', result);
+            
+            if (result.status === 200) {
+              resultUri = result.uri;
             } else {
-              Alert.alert('Success', `Document saved to: ${result.uri}`);
+              throw new Error(`Download failed with status: ${result.status}`);
             }
-          } catch (sharingError) {
-            // Sharing not available, just show success
-            Alert.alert('Success', `Document saved to: ${result.uri}`);
           }
-        } else {
-          throw new Error('Download failed');
+          
+          // Save file directly to device storage
+          try {
+            const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(extension.toLowerCase());
+            
+            if (isImage) {
+              // For images, try to save to Photos library using expo-media-library
+              try {
+                const MediaLibrary = await import('expo-media-library');
+                
+                // Request permissions
+                const { status } = await MediaLibrary.requestPermissionsAsync();
+                
+                if (status === 'granted') {
+                  // Save image to Photos library
+                  const asset = await MediaLibrary.createAssetAsync(resultUri);
+                  
+                  // Try to add to a "Downloads" or "HanapBahay" album, or just save to default
+                  try {
+                    await MediaLibrary.createAlbumAsync('HanapBahay', asset, false);
+                    console.log('✅ Image saved to Photos library in HanapBahay album');
+                  } catch (albumError) {
+                    // If album creation fails, the image is still saved to Photos
+                    console.log('✅ Image saved to Photos library');
+                  }
+                  
+                  Alert.alert('Success', 'Image saved to your Photos library!');
+                } else {
+                  // Permission denied, fall back to document directory
+                  throw new Error('Media library permission denied');
+                }
+              } catch (mediaLibraryError) {
+                console.log('⚠️ Media library not available or permission denied, using fallback');
+                // Fallback: Save to document directory and use sharing
+                await saveToDocumentDirectory(resultUri, fileName, extension);
+              }
+            } else {
+              // For PDFs and other files, save to document directory and use sharing
+              await saveToDocumentDirectory(resultUri, fileName, extension);
+            }
+          } catch (error) {
+            console.error('⚠️ Error saving file:', error);
+            // Final fallback: Save to document directory
+            await saveToDocumentDirectory(resultUri, fileName, extension);
+          }
+          
+          // Helper function to save to document directory and optionally share
+          async function saveToDocumentDirectory(sourceUri: string, fileName: string, fileExtension: string) {
+            const docFileUri = FileSystem.documentDirectory + fileName;
+            
+            // Copy file to document directory
+            if (sourceUri !== docFileUri) {
+              const base64 = await FileSystem.readAsStringAsync(sourceUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              await FileSystem.writeAsStringAsync(docFileUri, base64, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            }
+            
+            // Try to use sharing to make it accessible
+            try {
+              const Sharing = await import('expo-sharing');
+              if (await Sharing.isAvailableAsync()) {
+                // Open share sheet so user can save to Downloads/Files
+                await Sharing.shareAsync(docFileUri, {
+                  mimeType: fileExtension === 'pdf' ? 'application/pdf' : `image/${fileExtension}`,
+                  dialogTitle: 'Save Document',
+                });
+                Alert.alert('Success', 'File ready to save! Use the share menu to save to Downloads or Files.');
+              } else {
+                Alert.alert('Success', `File saved to app storage: ${docFileUri}`);
+              }
+            } catch (sharingError) {
+              Alert.alert('Success', `File saved to app storage: ${docFileUri}`);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Mobile download error:', error);
+          Alert.alert('Error', `Failed to download document: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
     } catch (error) {
-      console.error('Error downloading document:', error);
-      if (Platform.OS === 'web') {
-        window.alert('Error\n\nFailed to download document. Please try again.');
-      } else {
-        Alert.alert('Error', 'Failed to download document. Please try again.');
-      }
+      console.error('❌ Error downloading document:', error);
+      Alert.alert('Error', `Failed to download document: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsDownloading(false);
     }
@@ -590,23 +701,6 @@ export default function OwnerApplications() {
                             }}>
                               {doc.name}
                             </Text>
-                            <View style={{ flexDirection: 'row', gap: 8 }}>
-                              <TouchableOpacity
-                                style={styles.documentActionButton}
-                                onPress={() => openDocumentViewer(doc)}
-                              >
-                                <ZoomIn size={16} color="#3B82F6" />
-                                <Text style={styles.documentActionText}>View</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.documentActionButton, isDownloading && { opacity: 0.5 }]}
-                                onPress={() => downloadDocument(doc)}
-                                disabled={isDownloading}
-                              >
-                                <Download size={16} color="#10B981" />
-                                <Text style={styles.documentActionText}>Download</Text>
-                              </TouchableOpacity>
-                            </View>
                           </View>
                           <TouchableOpacity onPress={() => openDocumentViewer(doc)}>
                             <Image
@@ -651,23 +745,6 @@ export default function OwnerApplications() {
                           }}>
                             Government ID
                           </Text>
-                          <View style={{ flexDirection: 'row', gap: 8 }}>
-                            <TouchableOpacity
-                              style={styles.documentActionButton}
-                              onPress={() => openDocumentViewer({ uri: selectedApplication.govIdUri!, name: 'Government ID' })}
-                            >
-                              <ZoomIn size={16} color="#3B82F6" />
-                              <Text style={styles.documentActionText}>View</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[styles.documentActionButton, isDownloading && { opacity: 0.5 }]}
-                              onPress={() => downloadDocument({ uri: selectedApplication.govIdUri!, name: 'Government ID' })}
-                              disabled={isDownloading}
-                            >
-                              <Download size={16} color="#10B981" />
-                              <Text style={styles.documentActionText}>Download</Text>
-                            </TouchableOpacity>
-                          </View>
                         </View>
                         <TouchableOpacity onPress={() => openDocumentViewer({ uri: selectedApplication.govIdUri!, name: 'Government ID' })}>
                           <Image
@@ -716,15 +793,20 @@ export default function OwnerApplications() {
         visible={showDocumentViewer}
         animationType="fade"
         transparent={true}
-        onRequestClose={() => setShowDocumentViewer(false)}
+        onRequestClose={() => {
+          setShowDocumentViewer(false);
+          setTimeout(() => {
+            setSelectedDocument(null);
+          }, 200);
+        }}
       >
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={styles.documentViewerContainer}>
             <View style={styles.documentViewerHeader}>
-              <Text style={styles.documentViewerTitle} numberOfLines={1}>
+              <Text style={styles.documentViewerTitle} numberOfLines={1} ellipsizeMode="tail">
                 {selectedDocument?.name || 'Document'}
               </Text>
-              <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
                 <TouchableOpacity
                   style={[styles.documentViewerButton, isDownloading && { opacity: 0.5 }]}
                   onPress={() => {
@@ -733,14 +815,18 @@ export default function OwnerApplications() {
                     }
                   }}
                   disabled={isDownloading}
+                  activeOpacity={0.7}
                 >
                   <Download size={20} color="#FFFFFF" />
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.documentViewerButton}
                   onPress={() => {
+                    // Close modal safely
                     setShowDocumentViewer(false);
-                    setSelectedDocument(null);
+                    setTimeout(() => {
+                      setSelectedDocument(null);
+                    }, 200);
                   }}
                   activeOpacity={0.7}
                 >
@@ -749,12 +835,15 @@ export default function OwnerApplications() {
               </View>
             </View>
             
-            {selectedDocument && (
+            {selectedDocument && selectedDocument.uri && (
               <ZoomableImage
                 uri={selectedDocument.uri}
                 onClose={() => {
-                  setShowDocumentViewer(false);
-                  setSelectedDocument(null);
+                  // Reset state in a safe way
+                  setTimeout(() => {
+                    setShowDocumentViewer(false);
+                    setSelectedDocument(null);
+                  }, 100);
                 }}
               />
             )}
@@ -773,57 +862,145 @@ const ZoomableImage = ({ uri, onClose }: { uri: string; onClose: () => void }) =
   const savedScale = useSharedValue(1);
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
+  const [isClosing, setIsClosing] = useState(false);
+  // Use shared value for mounted state (worklet-safe)
+  const isMounted = useSharedValue(true);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    isMounted.value = true;
+    return () => {
+      isMounted.value = false;
+      // Cancel any running animations
+      try {
+        cancelAnimation(scale);
+        cancelAnimation(translateX);
+        cancelAnimation(translateY);
+      } catch (error) {
+        console.log('Animation cleanup error (safe to ignore):', error);
+      }
+      // Reset all animations when component unmounts
+      scale.value = 1;
+      translateX.value = 0;
+      translateY.value = 0;
+      savedScale.value = 1;
+      savedTranslateX.value = 0;
+      savedTranslateY.value = 0;
+    };
+  }, []);
 
   const resetZoom = () => {
-    scale.value = withTiming(1);
-    translateX.value = withTiming(0);
-    translateY.value = withTiming(0);
+    if (isClosing || !isMounted.value) return; // Don't animate if closing or unmounted
+    
+    try {
+      // Cancel any running animations first
+      cancelAnimation(scale);
+      cancelAnimation(translateX);
+      cancelAnimation(translateY);
+      
+      // Reset saved values immediately
+      savedScale.value = 1;
+      savedTranslateX.value = 0;
+      savedTranslateY.value = 0;
+      
+      // Animate to reset position
+      scale.value = withTiming(1, { duration: 200 });
+      translateX.value = withTiming(0, { duration: 200 });
+      translateY.value = withTiming(0, { duration: 200 });
+    } catch (error) {
+      console.error('Error resetting zoom:', error);
+      // Fallback: set values directly without animation
+      scale.value = 1;
+      translateX.value = 0;
+      translateY.value = 0;
+      savedScale.value = 1;
+      savedTranslateX.value = 0;
+      savedTranslateY.value = 0;
+    }
+  };
+
+  const handleClose = () => {
+    if (isClosing) return; // Prevent multiple close calls
+    setIsClosing(true);
+    
+    // Reset animations before closing
+    scale.value = 1;
+    translateX.value = 0;
+    translateY.value = 0;
     savedScale.value = 1;
     savedTranslateX.value = 0;
     savedTranslateY.value = 0;
+    
+    // Small delay to ensure animations are reset
+    setTimeout(() => {
+      onClose();
+    }, 50);
   };
 
   const pinchGesture = Gesture.Pinch()
+    .enabled(!isClosing)
     .onUpdate((event) => {
-      const newScale = Math.max(1, Math.min(savedScale.value * event.scale, 5));
-      scale.value = newScale;
+      if (isClosing || !isMounted.value) return;
+      try {
+        const newScale = Math.max(1, Math.min(savedScale.value * event.scale, 5));
+        scale.value = newScale;
+      } catch (error) {
+        console.error('Pinch gesture error:', error);
+      }
     })
     .onEnd(() => {
-      savedScale.value = scale.value;
-      // Reset if scale is too small
-      if (scale.value < 1) {
-        scale.value = withTiming(1);
-        savedScale.value = 1;
+      if (isClosing || !isMounted.value) return;
+      try {
+        savedScale.value = scale.value;
+        // Reset if scale is too small
+        if (scale.value < 1) {
+          scale.value = withTiming(1, { duration: 200 });
+          savedScale.value = 1;
+        }
+      } catch (error) {
+        console.error('Pinch gesture end error:', error);
       }
     });
 
   const panGesture = Gesture.Pan()
+    .enabled(!isClosing)
     .onUpdate((event) => {
-      if (scale.value > 1) {
-        translateX.value = savedTranslateX.value + event.translationX;
-        translateY.value = savedTranslateY.value + event.translationY;
+      if (isClosing || !isMounted.value) return;
+      try {
+        if (scale.value > 1) {
+          translateX.value = savedTranslateX.value + event.translationX;
+          translateY.value = savedTranslateY.value + event.translationY;
+        }
+      } catch (error) {
+        console.error('Pan gesture error:', error);
       }
     })
     .onEnd(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
+      if (isClosing || !isMounted.value) return;
+      try {
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
+      } catch (error) {
+        console.error('Pan gesture end error:', error);
+      }
     });
 
   const tapGesture = Gesture.Tap()
+    .enabled(!isClosing)
     .numberOfTaps(2)
     .onEnd(() => {
-      // Double tap to reset zoom
-      resetZoom();
+      // Double tap to close
+      if (!isClosing && isMounted.value) {
+        runOnJS(handleClose)();
+      }
     });
 
   const singleTapGesture = Gesture.Tap()
     .numberOfTaps(1)
     .maxDuration(250)
     .onEnd(() => {
-      // Only close if not zoomed (check saved scale to avoid race conditions)
-      if (savedScale.value <= 1.1) {
-        onClose();
-      }
+      // Single tap does nothing (only double tap closes)
+      // This prevents accidental closes
     });
 
   const composedGesture = Gesture.Simultaneous(
@@ -841,6 +1018,11 @@ const ZoomableImage = ({ uri, onClose }: { uri: string; onClose: () => void }) =
     };
   });
 
+  // Don't render if closing or URI is invalid
+  if (isClosing || !uri) {
+    return null;
+  }
+
   return (
     <View style={styles.zoomableContainer}>
       <GestureDetector gesture={composedGesture}>
@@ -849,19 +1031,14 @@ const ZoomableImage = ({ uri, onClose }: { uri: string; onClose: () => void }) =
             source={{ uri }}
             style={styles.zoomableImage}
             resizeMode="contain"
+            onError={(error) => {
+              console.error('Image load error:', error);
+              // Close viewer if image fails to load
+              handleClose();
+            }}
           />
         </Animated.View>
       </GestureDetector>
-      
-      <View style={styles.zoomControls}>
-        <TouchableOpacity
-          style={styles.zoomHint}
-          onPress={resetZoom}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.zoomHintText}>Double tap to reset zoom</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
@@ -891,13 +1068,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'transparent',
+    zIndex: 10,
+    position: 'relative',
   },
   documentViewerTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#FFFFFF',
     flex: 1,
+    marginRight: 12,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   documentViewerButton: {
     width: 40,
@@ -923,24 +1106,6 @@ const styles = StyleSheet.create({
   zoomableImage: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-  },
-  zoomControls: {
-    position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
-    alignItems: 'center',
-    zIndex: 2,
-  },
-  zoomHint: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 20,
-  },
-  zoomHintText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '500',
   },
   confirmationOverlay: {
     flex: 1,

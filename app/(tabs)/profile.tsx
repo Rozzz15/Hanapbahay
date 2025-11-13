@@ -1002,7 +1002,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                             </View>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>What types of properties are available?</Text>
-                                <Text style={styles.faqAnswer}>HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of bedrooms, size, amenities, and location information.</Text>
+                                <Text style={styles.faqAnswer}>HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information.</Text>
                             </View>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>How do I set my price range?</Text>

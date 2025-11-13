@@ -404,9 +404,9 @@ export default function ApprovedOwners() {
                           <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
                             ₱{listing.monthlyRent?.toLocaleString() || '0'}/month
                           </Text>
-                          {listing.bedrooms && (
+                          {listing.rooms && (
                             <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
-                              {listing.bedrooms} bed{listing.bedrooms > 1 ? 's' : ''}
+                              {listing.rooms} room{(listing.rooms || listing.bedrooms || 0) > 1 ? 's' : ''}
                             </Text>
                           )}
                           {listing.bathrooms && (

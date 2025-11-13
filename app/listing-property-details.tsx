@@ -12,13 +12,16 @@ import { trackListingView } from '@/utils/view-tracking';
 import { trackListingInquiry } from '@/utils/inquiry-tracking';
 import { loadPropertyMedia } from '@/utils/media-storage';
 import StarRating from '@/components/ratings/StarRating';
-import { rateProperty, getUserRatingForProperty, calculatePropertyRating } from '@/utils/property-ratings';
+import { rateProperty, getUserRatingForProperty, calculatePropertyRating, getPropertyRatings } from '@/utils/property-ratings';
+import { PropertyRatingRecord } from '@/types';
 import { addCustomEventListener } from '@/utils/custom-events';
+import logger from '@/utils/logger';
+import LoginModal from '@/components/LoginModal';
 
-export default function PropertyPreviewScreen() {
+export default function ListingPropertyDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, refreshUser } = useAuth();
   const [dimensions, setDimensions] = useState(Dimensions.get('window'));
   const { width: screenWidth, height: screenHeight } = dimensions;
   const isMobile = Platform.OS !== 'web' || screenWidth < 768;
@@ -60,11 +63,80 @@ export default function PropertyPreviewScreen() {
   const [userReview, setUserReview] = useState('');
   const [calculatedRating, setCalculatedRating] = useState(0);
   const [totalReviews, setTotalReviews] = useState(0);
+  const [allReviews, setAllReviews] = useState<PropertyRatingRecord[]>([]);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [tempRating, setTempRating] = useState(0);
   const [tempReview, setTempReview] = useState('');
   const [tempIsAnonymous, setTempIsAnonymous] = useState(false);
+  
+  // Login modal state
+  const [loginModalVisible, setLoginModalVisible] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'message' | 'book' | null>(null);
+  const [shouldExecuteAction, setShouldExecuteAction] = useState(false);
+  
+  // Execute pending action after successful login
+  useEffect(() => {
+    if (shouldExecuteAction && isAuthenticated && user?.id && pendingAction) {
+      const executeAction = async () => {
+        if (pendingAction === 'message') {
+          try {
+            logger.debug('💬 Starting conversation with owner after login:', propertyData.ownerUserId);
+            
+            if (!propertyData.ownerUserId) {
+              console.error('❌ No ownerUserId found in property data');
+              Alert.alert('Error', 'Unable to identify property owner. Please try again.');
+              setShouldExecuteAction(false);
+              setPendingAction(null);
+              return;
+            }
+            
+            await trackListingInquiry(propertyData.id, user.id, 'message');
+            
+            const ownerDisplayName = propertyData.businessName || propertyData.ownerName || 'Property Owner';
+            const { createOrFindConversation } = await import('@/utils/conversation-utils');
+            
+            const conversationId = await createOrFindConversation({
+              ownerId: propertyData.ownerUserId,
+              tenantId: user.id,
+              ownerName: ownerDisplayName,
+              tenantName: user.name || 'Tenant',
+              propertyId: propertyData.id,
+              propertyTitle: propertyData.title
+            });
+            
+            logger.debug('✅ Created/found conversation:', conversationId);
+            
+            router.push({
+              pathname: '/chat-room',
+              params: {
+                conversationId: conversationId,
+                ownerName: ownerDisplayName,
+                ownerAvatar: '',
+                propertyTitle: propertyData.title
+              }
+            });
+          } catch (error) {
+            console.error('❌ Error starting conversation:', error);
+            Alert.alert('Error', 'Failed to start conversation. Please try again.');
+          }
+        } else if (pendingAction === 'book') {
+          try {
+            await trackListingInquiry(propertyData.id, user.id, 'booking_request');
+            router.push(`/book-now?id=${propertyData.id}`);
+          } catch (error) {
+            console.error('Error tracking inquiry:', error);
+            router.push(`/book-now?id=${propertyData.id}`);
+          }
+        }
+        
+        setShouldExecuteAction(false);
+        setPendingAction(null);
+      };
+      
+      executeAction();
+    }
+  }, [shouldExecuteAction, isAuthenticated, user?.id, pendingAction, propertyData, router]);
   
 
 
@@ -114,15 +186,15 @@ export default function PropertyPreviewScreen() {
     if (!params.id || params.id === 'unknown') return;
     
     try {
-      console.log('🔄 Refreshing property media for listing:', params.id);
+      logger.debug('🔄 Refreshing property media for listing:', params.id);
       
       // Clear expired cache first
       try {
         const { clearExpiredCachedPropertyMedia } = await import('@/utils/property-media-cache');
         await clearExpiredCachedPropertyMedia();
-        console.log('✅ Cleared expired property media cache');
+        logger.debug('✅ Cleared expired property media cache');
       } catch (cacheError) {
-        console.log('⚠️ Could not clear expired cache:', cacheError);
+        logger.warn('⚠️ Could not clear expired cache:', cacheError);
       }
       
       // Reload property data with fresh media
@@ -138,9 +210,9 @@ export default function PropertyPreviewScreen() {
       try {
         const { refreshAllPropertyMedia } = await import('@/utils/media-storage');
         await refreshAllPropertyMedia();
-        console.log('✅ All property media refreshed for persistence in preview');
+        logger.debug('✅ All property media refreshed for persistence in preview');
       } catch (error) {
-        console.log('⚠️ Could not refresh property media in preview:', error);
+        logger.warn('⚠️ Could not refresh property media in preview:', error);
       }
     };
     
@@ -152,25 +224,25 @@ export default function PropertyPreviewScreen() {
     const propertyId = params.id as string;
     
     if (!propertyId || propertyId === 'unknown') {
-      console.log('⚠️ No valid property ID, using fallback data');
+      logger.warn('⚠️ No valid property ID, using fallback data');
       setIsLoadingProperty(false);
       return;
     }
     
     try {
       setIsLoadingProperty(true);
-      console.log('🔍 Loading property data for ID:', propertyId);
+      logger.debug('🔍 Loading property data for ID:', propertyId);
       
       // Load the listing from published_listings table
       const listing = await db.get('published_listings', propertyId) as any;
       
       if (!listing) {
-        console.log('❌ No listing found for ID:', propertyId);
+        logger.error('❌ No listing found for ID:', propertyId);
         setIsLoadingProperty(false);
         return;
       }
       
-      console.log('✅ Found listing:', {
+      logger.debug('✅ Found listing:', {
         id: listing.id,
         title: listing.title,
         businessName: listing.businessName,
@@ -180,7 +252,7 @@ export default function PropertyPreviewScreen() {
       
       // Load media data with caching
       const media = await loadPropertyMedia(propertyId, user?.id);
-      console.log('📸 Loaded media:', {
+      logger.debug('📸 Loaded media:', {
         coverPhoto: !!media.coverPhoto,
         photosCount: media.photos.length,
         videosCount: media.videos.length,
@@ -197,7 +269,7 @@ export default function PropertyPreviewScreen() {
       const fallbackVideos = Array.isArray(listing.videos) ? listing.videos : [];
       const fallbackCoverPhoto = listing.coverPhoto || (fallbackPhotos.length > 0 ? fallbackPhotos[0] : null);
       
-      console.log('📸 Fallback media from listing:', {
+      logger.debug('📸 Fallback media from listing:', {
         coverPhoto: !!fallbackCoverPhoto,
         photosCount: fallbackPhotos.length
       });
@@ -237,7 +309,7 @@ export default function PropertyPreviewScreen() {
         occupiedSlots: occupiedSlots
       });
       
-      console.log('✅ Property data loaded successfully');
+      logger.debug('✅ Property data loaded successfully');
       
     } catch (error) {
       console.error('❌ Error loading property data:', error);
@@ -260,6 +332,14 @@ export default function PropertyPreviewScreen() {
       setCalculatedRating(ratingData.averageRating);
       setTotalReviews(ratingData.totalReviews);
       
+      // Load all reviews for the property (for display to all users)
+      const reviews = await getPropertyRatings(propertyId);
+      // Sort by creation date (newest first)
+      const sortedReviews = reviews.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setAllReviews(sortedReviews);
+      
       // Get user's rating if authenticated
       if (isAuthenticated && user?.id) {
         const userRatingData = await getUserRatingForProperty(propertyId, user.id);
@@ -269,9 +349,10 @@ export default function PropertyPreviewScreen() {
         }
       }
       
-      console.log('✅ Rating data loaded:', {
+      logger.debug('✅ Rating data loaded:', {
         averageRating: ratingData.averageRating,
         totalReviews: ratingData.totalReviews,
+        allReviewsCount: sortedReviews.length,
         userRating: userRating
       });
     } catch (error) {
@@ -355,7 +436,7 @@ export default function PropertyPreviewScreen() {
 
   // Load property data when component mounts
   useEffect(() => {
-    console.log('🔄 Property preview mounted - loading property data...');
+    logger.debug('🔄 Property preview mounted - loading property data...');
     loadPropertyData();
     loadRatingData();
   }, [params.id]);
@@ -363,7 +444,7 @@ export default function PropertyPreviewScreen() {
   // Force reload media when user logs in
   useEffect(() => {
     if (isAuthenticated && user?.id && params.id) {
-      console.log('🔄 User logged in - force reloading property media...');
+      logger.debug('🔄 User logged in - force reloading property media...');
       // Clear cache and reload media
       clearCache().then(() => {
         loadPropertyData();
@@ -374,12 +455,12 @@ export default function PropertyPreviewScreen() {
   // Listen for property media refresh events
   useEffect(() => {
     const handlePropertyMediaRefreshed = (event: Event | any) => {
-      console.log('🔄 Property media refreshed, reloading property details...', event?.detail);
+      logger.debug('🔄 Property media refreshed, reloading property details...', event?.detail);
       refreshPropertyMedia();
     };
 
     const handleUserLoggedIn = (event: Event | any) => {
-      console.log('🔄 User logged in event, refreshing property media...', event?.detail);
+      logger.debug('🔄 User logged in event, refreshing property media...', event?.detail);
       // Add a small delay to ensure all cache clearing is complete
       setTimeout(() => {
         refreshPropertyMedia();
@@ -389,12 +470,12 @@ export default function PropertyPreviewScreen() {
     // Use cross-platform event listener utility
     const removeMediaRefreshed = addCustomEventListener('propertyMediaRefreshed', handlePropertyMediaRefreshed);
     const removeUserLoggedIn = addCustomEventListener('userLoggedIn', handleUserLoggedIn);
-    console.log('👂 Property preview: Added media refresh and user login listeners');
+    logger.debug('👂 Property preview: Added media refresh and user login listeners');
     
     return () => {
       removeMediaRefreshed();
       removeUserLoggedIn();
-      console.log('👂 Property preview: Removed media refresh and user login listeners');
+      logger.debug('👂 Property preview: Removed media refresh and user login listeners');
     };
   }, [refreshPropertyMedia]);
 
@@ -403,13 +484,13 @@ export default function PropertyPreviewScreen() {
     const trackView = async () => {
       // Don't track views when owner is viewing their own listing
       if (isOwnerView) {
-        console.log('👁️ Skipping view tracking - owner viewing own listing');
+        logger.debug('👁️ Skipping view tracking - owner viewing own listing');
         return;
       }
       
       if (propertyData.id && propertyData.id !== 'unknown') {
         try {
-          console.log('👁️ Tracking view for property:', propertyData.id);
+          logger.debug('👁️ Tracking view for property:', propertyData.id);
           const result = await trackListingView(propertyData.id, user?.id, {
             source: 'property_preview',
             timestamp: new Date().toISOString(),
@@ -417,9 +498,9 @@ export default function PropertyPreviewScreen() {
           });
           
           if (result.success) {
-            console.log('✅ View tracked successfully:', result.message);
+            logger.debug('✅ View tracked successfully:', result.message);
           } else {
-            console.log('⚠️ View tracking failed:', result.message);
+            logger.warn('⚠️ View tracking failed:', result.message);
           }
         } catch (error) {
           console.error('❌ Error tracking view:', error);
@@ -437,7 +518,7 @@ export default function PropertyPreviewScreen() {
 useFocusEffect(
   useCallback(() => {
     if (params.id && params.id !== 'unknown') {
-      console.log('🔄 Property preview focused - refreshing media data...');
+      logger.debug('🔄 Property preview focused - refreshing media data...');
       refreshPropertyMedia();
     }
   }, [params.id, refreshPropertyMedia])
@@ -445,28 +526,37 @@ useFocusEffect(
 
 // Listen for media refresh events
 
-const ownerViewTitle = isOwnerView ? 'Your Property Preview' : 'Property Details';
+  const ownerViewTitle = 'Property Details';
 
-// Debug: Log property data to see what's being passed
-console.log('🔍 Property Preview Data:', {
-  id: propertyData.id,
-  coverPhoto: propertyData.coverPhoto,
-  photos: propertyData.photos,
-  title: propertyData.title,
-  businessName: propertyData.businessName,
-  propertyType: propertyData.propertyType,
-  isOwnerView: isOwnerView
-});
+  // Generate dynamic title showing business name or just property type and address
+  const displayTitle = React.useMemo(() => {
+    const businessName = propertyData.businessName || '';
+    const propertyType = propertyData.propertyType || 'Property';
+    const addressPart = (propertyData.address || '').split(',')[0] || 'Property';
+    
+    if (businessName && businessName.trim() !== '') {
+      return `${businessName}'s ${propertyType} in ${addressPart}`;
+    }
+    return `${propertyType} in ${addressPart}`;
+  }, [propertyData.businessName, propertyData.propertyType, propertyData.address]);
 
-// Generate dynamic title showing business name or just property type and address
-const displayTitle = propertyData.businessName 
-  ? `${propertyData.businessName}'s ${propertyData.propertyType} in ${(propertyData.address || '').split(',')[0] || 'Property'}`
-  : `${propertyData.propertyType} in ${(propertyData.address || '').split(',')[0] || 'Property'}`;
+  // Debug: Log property data to see what's being passed (moved to useEffect to avoid render issues)
+  useEffect(() => {
+  logger.debug('🔍 Property Preview Data:', {
+    id: propertyData.id,
+    coverPhoto: propertyData.coverPhoto,
+    photos: propertyData.photos,
+    title: propertyData.title,
+    businessName: propertyData.businessName,
+    propertyType: propertyData.propertyType,
+    isOwnerView: isOwnerView
+  });
+}, [propertyData.id, propertyData.coverPhoto, propertyData.photos, propertyData.title, propertyData.businessName, propertyData.propertyType, isOwnerView]);
 
 // Removed favorite toggle handler
 
 const handleBooking = useCallback(async () => {
-  console.log('🔴 Book Now button clicked!');
+  logger.debug('🔴 Book Now button clicked!');
   
   if (!isAuthenticated || !user) {
     Alert.alert(
@@ -605,6 +695,30 @@ const goToNextPhoto = () => {
     };
   }, [photoViewerVisible]);
 
+  // Calculate hero image URI
+  const heroImageUri = (() => {
+    let imageUri = propertyData.coverPhoto;
+    if (!imageUri && propertyData.photos && propertyData.photos.length > 0) {
+      imageUri = propertyData.photos[0];
+    }
+    // Ensure we return a string, not an array
+    return Array.isArray(imageUri) ? imageUri[0] : imageUri || '';
+  })();
+
+  // Calculate photo gallery visibility condition
+  const hasPhotos = propertyData.photos && propertyData.photos.length > 0;
+  
+  // Debug log for photo gallery condition (moved to useEffect to avoid render issues)
+  useEffect(() => {
+    logger.debug('🔍 Photo gallery condition check:', {
+      isLoadingMedia,
+      photosCount: propertyData.photos?.length || 0,
+      photos: propertyData.photos,
+      coverPhoto: propertyData.coverPhoto,
+      hasPhotos
+    });
+  }, [isLoadingMedia, propertyData.photos, propertyData.coverPhoto, hasPhotos]);
+
   return (
     <>
       <SafeAreaView style={styles.container}>
@@ -642,16 +756,7 @@ const goToNextPhoto = () => {
               {/* Hero Image Section */}
               <View style={styles.heroSection}>
             <Image
-              source={{ 
-                uri: (() => {
-                  let imageUri = propertyData.coverPhoto;
-                  if (!imageUri && propertyData.photos && propertyData.photos.length > 0) {
-                    imageUri = propertyData.photos[0];
-                  }
-                  // Ensure we return a string, not an array
-                  return Array.isArray(imageUri) ? imageUri[0] : imageUri || '';
-                })()
-              }}
+              source={{ uri: heroImageUri }}
               style={styles.heroImage}
               resizeMode="cover"
             />
@@ -662,18 +767,6 @@ const goToNextPhoto = () => {
               <View style={styles.statusBadge}>
                 <Text style={styles.statusText}>Available</Text>
               </View>
-              
-              {/* Rating Badge - Only show if there are ratings */}
-              {calculatedRating > 0 && (
-                <View style={styles.ratingBadge}>
-                  <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                  <Text style={styles.ratingText}>
-                    {calculatedRating.toFixed(1)} ({totalReviews})
-                  </Text>
-                </View>
-              )}
-              
-              {/* Removed favorite button */}
             </View>
           </View>
 
@@ -683,20 +776,17 @@ const goToNextPhoto = () => {
               <Text style={[styles.propertyTitle, isMobile && styles.propertyTitleMobile]}>{displayTitle}</Text>
               {(() => {
                 const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
-                return monthlyRent && monthlyRent > 0;
-              })() && (
-                <Text style={[styles.propertyPrice, isMobile && styles.propertyPriceMobile]}>
-                  ₱{(() => {
-                    const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
-                    return monthlyRent.toLocaleString();
-                  })()}
-                </Text>
-              )}
+                return monthlyRent > 0 ? (
+                  <Text style={[styles.propertyPrice, isMobile && styles.propertyPriceMobile]}>
+                    {'₱' + monthlyRent.toLocaleString()}
+                  </Text>
+                ) : null;
+              })()}
             </View>
             
             <View style={styles.locationRow}>
               <MapPin size={16} color="#6B7280" />
-              <Text style={[styles.locationText, isMobile && styles.locationTextMobile]}>{propertyData.address}</Text>
+              <Text style={[styles.locationText, isMobile && styles.locationTextMobile]}>{String(propertyData.address || 'Address not provided')}</Text>
             </View>
 
             {/* Property Specifications */}
@@ -726,89 +816,27 @@ const goToNextPhoto = () => {
           {/* Description Section */}
           <View style={[styles.section, isMobile && styles.sectionMobile]}>
             <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Description</Text>
-            <Text style={[styles.descriptionText, isMobile && styles.descriptionTextMobile]}>{propertyData.description}</Text>
+            <Text style={[styles.descriptionText, isMobile && styles.descriptionTextMobile]}>{String(propertyData.description || 'Property details not provided.')}</Text>
           </View>
 
           {/* Amenities Section */}
-          <View style={[styles.section, isMobile && styles.sectionMobile]}>
-            <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Amenities</Text>
-            <View style={styles.amenitiesGrid}>
-              {propertyData.amenities.map((amenity: string, index: number) => (
-                <View key={index} style={styles.amenityTag}>
-                  <Text style={styles.amenityText}>{amenity}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Rating Section - Only show for tenants, not owners viewing their own listing */}
-          {!isOwnerView && isAuthenticated && (
+          {propertyData.amenities && Array.isArray(propertyData.amenities) && propertyData.amenities.length > 0 && (
             <View style={[styles.section, isMobile && styles.sectionMobile]}>
-              <View style={styles.ratingSection}>
-                <View style={styles.ratingHeader}>
-                  <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rating & Reviews</Text>
-                  {calculatedRating > 0 && (
-                    <View style={styles.averageRatingBadge}>
-                      <Star size={18} color="#F59E0B" fill="#F59E0B" />
-                      <Text style={styles.averageRatingText}>{calculatedRating.toFixed(1)}</Text>
-                      <Text style={styles.totalReviewsText}>({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})</Text>
+              <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Amenities</Text>
+              <View style={styles.amenitiesGrid}>
+                {Array.isArray(propertyData.amenities) && propertyData.amenities
+                  .filter((amenity: any) => amenity && typeof amenity === 'string' && amenity.trim() !== '')
+                  .map((amenity: string, index: number) => (
+                    <View key={index} style={styles.amenityTag}>
+                      <Text style={styles.amenityText}>{String(amenity)}</Text>
                     </View>
-                  )}
-                </View>
-                
-                <View style={styles.ratingContent}>
-                  <Text style={styles.ratingLabel}>
-                    {userRating > 0 ? 'Your Rating:' : 'Rate this property:'}
-                  </Text>
-                  <StarRating
-                    rating={userRating}
-                    size={32}
-                    interactive={true}
-                    onRatingChange={handleStarClick}
-                    color="#F59E0B"
-                    inactiveColor="#D1D5DB"
-                    style={styles.starRatingContainer}
-                  />
-                  {userRating === 0 && calculatedRating === 0 && (
-                    <Text style={styles.noRatingText}>(No Rating)</Text>
-                  )}
-                  {userRating > 0 && (
-                    <View style={styles.userRatingInfo}>
-                      <Text style={styles.ratingFeedback}>
-                        You rated this property {userRating} star{userRating !== 1 ? 's' : ''}
-                      </Text>
-                      {userReview && (
-                        <View style={styles.userReviewContainer}>
-                          <Text style={styles.userReviewLabel}>Your comment:</Text>
-                          <Text style={styles.userReviewText}>{userReview}</Text>
-                        </View>
-                      )}
-                      <TouchableOpacity 
-                        onPress={async () => {
-                          setTempRating(userRating);
-                          setTempReview(userReview);
-                          // Load existing anonymous preference
-                          const userRatingData = await getUserRatingForProperty(params.id as string, user?.id || '');
-                          setTempIsAnonymous(userRatingData?.isAnonymous || false);
-                          setRatingModalVisible(true);
-                        }}
-                        style={styles.editRatingButton}
-                      >
-                        <Text style={styles.editRatingText}>Edit Rating</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                  {isSubmittingRating && (
-                    <Text style={styles.submittingText}>Submitting your rating...</Text>
-                  )}
-                </View>
+                  ))}
               </View>
             </View>
           )}
 
-          {/* Display overall rating for owner view or non-authenticated users */}
-          {(isOwnerView || !isAuthenticated) && (
-            <View style={[styles.section, isMobile && styles.sectionMobile]}>
+          {/* Rating & Reviews Section - Read-only for all users in listing dashboard */}
+          <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <View style={styles.ratingSection}>
                 <View style={styles.ratingHeader}>
                   <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rating & Reviews</Text>
@@ -816,92 +844,78 @@ const goToNextPhoto = () => {
                     <View style={styles.averageRatingBadge}>
                       <Star size={18} color="#F59E0B" fill="#F59E0B" />
                       <Text style={styles.averageRatingText}>{calculatedRating.toFixed(1)}</Text>
-                      <Text style={styles.totalReviewsText}>({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})</Text>
+                      <Text style={styles.totalReviewsText}>{'(' + String(totalReviews) + ' ' + (totalReviews === 1 ? 'review' : 'reviews') + ')'}</Text>
                     </View>
                   )}
                 </View>
                 {totalReviews > 0 ? (
-                  <StarRating
-                    rating={calculatedRating}
-                    size={28}
-                    interactive={false}
-                    showCount={false}
-                    color="#F59E0B"
-                    inactiveColor="#D1D5DB"
-                    style={styles.starRatingContainer}
-                  />
+                  <>
+                    <StarRating
+                      rating={calculatedRating}
+                      size={28}
+                      interactive={false}
+                      showCount={false}
+                      color="#F59E0B"
+                      inactiveColor="#D1D5DB"
+                      style={styles.starRatingContainer}
+                    />
+                    
+                    {/* All Reviews List */}
+                    <View style={styles.reviewsListContainer}>
+                      {Array.isArray(allReviews) && allReviews.length > 0 && allReviews.map((review) => (
+                        <View key={review.id} style={styles.reviewItem}>
+                          <View style={styles.reviewHeader}>
+                            <View style={styles.reviewRatingContainer}>
+                              <StarRating
+                                rating={review.rating}
+                                size={16}
+                                interactive={false}
+                                showCount={false}
+                                color="#F59E0B"
+                                inactiveColor="#D1D5DB"
+                              />
+                              <Text style={styles.reviewRatingText}>{String(review.rating)}.0</Text>
+                            </View>
+                            <Text style={styles.reviewDate}>
+                              {new Date(review.createdAt).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })}
+                            </Text>
+                          </View>
+                          {review.review && typeof review.review === 'string' && review.review.trim() !== '' ? (
+                            <Text style={styles.reviewComment}>{review.review}</Text>
+                          ) : null}
+                          {review.isAnonymous === true && (
+                            <Text style={styles.anonymousLabel}>Anonymous Review</Text>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  </>
                 ) : (
                   <Text style={styles.noRatingText}>(No Rating)</Text>
                 )}
               </View>
             </View>
-          )}
 
           {/* House Rules Section - Only show if rules exist */}
-          {propertyData.rules && Array.isArray(propertyData.rules) && propertyData.rules.length > 0 && propertyData.rules.some((rule: string) => rule && rule.trim() !== '') && (
+          {propertyData.rules && Array.isArray(propertyData.rules) && propertyData.rules.length > 0 && propertyData.rules.some((rule: string) => rule && rule.trim() !== '') ? (
             <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>House Rules</Text>
               <View style={styles.rulesList}>
-                {propertyData.rules
-                  .filter((rule: string) => rule && rule.trim() !== '')
+                {Array.isArray(propertyData.rules) && propertyData.rules
+                  .filter((rule: any) => rule && typeof rule === 'string' && rule.trim() !== '')
                   .map((rule: string, index: number) => (
                     <View key={index} style={styles.ruleItem}>
                       <Text style={styles.ruleBullet}>•</Text>
-                      <Text style={styles.ruleText}>{rule}</Text>
+                      <Text style={styles.ruleText}>{String(rule)}</Text>
                     </View>
                   ))}
               </View>
             </View>
-          )}
-
-          {/* Rental Details Section */}
-          {(() => {
-            const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
-            return (monthlyRent && monthlyRent > 0) ||
-              (propertyData.securityDeposit && propertyData.securityDeposit > 0) ||
-              (propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '') ||
-              (propertyData.paymentMethods && propertyData.paymentMethods.length > 0);
-          })() && (
-            <View style={[styles.rentalDetailsCard, isMobile && styles.rentalDetailsCardMobile]}>
-              <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rental Details</Text>
-              <View style={styles.rentalDetailsList}>
-                {(() => {
-                  const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
-                  return monthlyRent && monthlyRent > 0;
-                })() && (
-                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
-                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Monthly Rent:</Text>
-                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
-                      ₱{(() => {
-                        const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
-                        return monthlyRent.toLocaleString();
-                      })()}
-                    </Text>
-                  </View>
-                )}
-                {propertyData.securityDeposit && propertyData.securityDeposit > 0 && (
-                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
-                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Security Deposit:</Text>
-                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>₱{propertyData.securityDeposit!.toLocaleString()}</Text>
-                  </View>
-                )}
-                {propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '' && (
-                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
-                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Availability:</Text>
-                    <Text style={[styles.availabilityStatus, isMobile && styles.rentalDetailValueMobile]}>{propertyData.availabilityStatus}</Text>
-                  </View>
-                )}
-                {propertyData.paymentMethods && propertyData.paymentMethods.length > 0 && (
-                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
-                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Payment Methods:</Text>
-                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
-                      {propertyData.paymentMethods.join(', ')}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
+          ) : null}
 
           {/* Enhanced Photo Gallery */}
           {isLoadingMedia ? (
@@ -913,18 +927,10 @@ const goToNextPhoto = () => {
                 </Text>
               </View>
             </View>
-          ) : (() => {
-            console.log('🔍 Photo gallery condition check:', {
-              isLoadingMedia,
-              photosCount: propertyData.photos?.length || 0,
-              photos: propertyData.photos,
-              coverPhoto: propertyData.coverPhoto
-            });
-            return propertyData.photos && propertyData.photos.length > 0;
-          })() ? (
+          ) : hasPhotos ? (
             <View style={[styles.section, isMobile && styles.sectionMobile]}>
               <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>
-                📸 Property Photos ({propertyData.photos.length})
+                {'📸 Property Photos (' + String(propertyData.photos?.length || 0) + ')'}
               </Text>
               <View style={styles.photoGalleryContainer}>
                 <ScrollView 
@@ -948,7 +954,7 @@ const goToNextPhoto = () => {
                     const scrollX = event.nativeEvent.contentOffset.x;
                     const photoWidth = isMobile ? screenWidth * 0.75 + 16 : screenWidth * 0.6 + 16;
                     const currentIndex = Math.round(scrollX / photoWidth);
-                    setCurrentPhotoScrollIndex(Math.min(currentIndex, propertyData.photos.length - 1));
+                    setCurrentPhotoScrollIndex(Math.min(currentIndex, (propertyData.photos?.length || 1) - 1));
                   }}
                   onScrollEndDrag={(event) => {
                     const scrollX = event.nativeEvent.contentOffset.x;
@@ -958,7 +964,7 @@ const goToNextPhoto = () => {
                     photoScrollRef.current?.scrollTo({ x: targetX, animated: true });
                   }}
                 >
-                  {propertyData.photos.map((photo: string, index: number) => (
+                  {propertyData.photos && Array.isArray(propertyData.photos) && propertyData.photos.map((photo: string, index: number) => (
                     <TouchableOpacity 
                       key={index} 
                       style={[styles.photoItem, isMobile && styles.photoItemMobile]}
@@ -972,7 +978,7 @@ const goToNextPhoto = () => {
                         resizeMode="cover"
                       />
                       <View style={styles.photoIndicator}>
-                        <Text style={styles.photoIndicatorText}>{index + 1}/{propertyData.photos.length}</Text>
+                        <Text style={styles.photoIndicatorText}>{String(index + 1) + '/' + String(propertyData.photos?.length || 0)}</Text>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -981,42 +987,24 @@ const goToNextPhoto = () => {
             </View>
           ) : (
             <View style={[styles.section, isMobile && styles.sectionMobile]}>
-              <View style={styles.noPhotosCard}>
-                <Text style={styles.noPhotosTitle}>📸 No Photos Available</Text>
-                <Text style={styles.noPhotosText}>
-                  Photos for this property are currently being processed or may not have been uploaded yet.
-                </Text>
-              </View>
+              <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>
+                📸 Property Photos
+              </Text>
+              <Text style={styles.noPhotosText}>No Photos Available for this Property</Text>
             </View>
           )}
 
           {/* Video Gallery */}
           <VideoGallery 
-            videos={propertyData.videos}
+            videos={Array.isArray(propertyData.videos) ? propertyData.videos : []}
             onVideoPress={(index) => {
-              console.log('Opening video at index:', index, 'Video URL:', propertyData.videos[index]);
-              setCurrentVideoIndex(index);
-              setVideoPlayerVisible(true);
+              if (propertyData.videos && Array.isArray(propertyData.videos)) {
+                logger.debug('Opening video at index:', index, 'Video URL:', propertyData.videos[index]);
+                setCurrentVideoIndex(index);
+                setVideoPlayerVisible(true);
+              }
             }}
           />
-
-          {/* Contact Info */}
-          <View style={[styles.contactCard, isMobile && styles.contactCardMobile]}>
-            <Text style={styles.contactTitle}>Contact Information</Text>
-            <View style={styles.contactInfo}>
-              <View style={[styles.contactInfoCard, isMobile && styles.contactInfoCardMobile]}>
-                <Text style={styles.contactTextBold}>Owner: {propertyData.ownerName}</Text>
-                {propertyData.businessName && (
-                  <Text style={styles.contactText}>Business: {propertyData.businessName}</Text>
-                )}
-                <Text style={styles.contactText}>Phone: {propertyData.contactNumber}</Text>
-                <Text style={styles.contactText}>Email: {propertyData.email}</Text>
-                {propertyData.emergencyContact && (
-                  <Text style={styles.contactText}>Emergency Contact: {propertyData.emergencyContact}</Text>
-                )}
-              </View>
-            </View>
-          </View>
 
           {/* Action Buttons */}
           {!isOwnerView && (
@@ -1024,13 +1012,15 @@ const goToNextPhoto = () => {
               <TouchableOpacity 
                 style={[styles.messageButton, isMobile && styles.messageButtonMobile]}
                 onPress={async () => {
-                  if (!user?.id) {
-                    Alert.alert('Please log in', 'You need to be logged in to message the owner.');
+                  if (!isAuthenticated || !user?.id) {
+                    console.log('🔐 User not authenticated, showing login modal for message');
+                    setPendingAction('message');
+                    setLoginModalVisible(true);
                     return;
                   }
                   
                   try {
-                    console.log('💬 Starting conversation with owner from property preview:', propertyData.ownerUserId);
+                    logger.debug('💬 Starting conversation with owner from property preview:', propertyData.ownerUserId);
                     
                     // Check if ownerUserId is valid
                     if (!propertyData.ownerUserId) {
@@ -1058,7 +1048,7 @@ const goToNextPhoto = () => {
                       propertyTitle: propertyData.title
                     });
                     
-                    console.log('✅ Created/found conversation:', conversationId);
+                    logger.debug('✅ Created/found conversation:', conversationId);
                     
                     // Navigate to conversation with correct parameters
                     router.push({
@@ -1083,8 +1073,10 @@ const goToNextPhoto = () => {
               <TouchableOpacity 
                 style={[styles.bookButton, isMobile && styles.bookButtonMobile]}
                 onPress={async () => {
-                  if (!user?.id) {
-                    Alert.alert('Please log in', 'You need to be logged in to book this property.');
+                  if (!isAuthenticated || !user?.id) {
+                    console.log('🔐 User not authenticated, showing login modal for booking');
+                    setPendingAction('book');
+                    setLoginModalVisible(true);
                     return;
                   }
                   
@@ -1105,6 +1097,21 @@ const goToNextPhoto = () => {
             </>
           )}
         </ScrollView>
+      </SafeAreaView>
+
+      {/* Login Modal - Outside SafeAreaView to ensure it renders on top */}
+      <LoginModal
+        visible={loginModalVisible}
+        onClose={() => {
+          setLoginModalVisible(false);
+          setPendingAction(null);
+          setShouldExecuteAction(false);
+        }}
+        onLoginSuccess={async () => {
+          // Trigger the useEffect to execute the pending action
+          setShouldExecuteAction(true);
+        }}
+      />
 
       {/* Professional Photo Viewer Modal */}
       <Modal
@@ -1126,7 +1133,7 @@ const goToNextPhoto = () => {
             
             <View style={styles.modalCounter}>
               <Text style={styles.modalCounterText}>
-                {currentPhotoIndex + 1} / {propertyData.photos?.length || 0}
+                {String(currentPhotoIndex + 1) + ' / ' + String(propertyData.photos?.length || 0)}
               </Text>
             </View>
             
@@ -1162,7 +1169,7 @@ const goToNextPhoto = () => {
           {propertyData.photos && propertyData.photos.length > 1 && (
             <View style={styles.modalControls}>
               <View style={styles.modalDotsContainer}>
-                {propertyData.photos.map((_: string, index: number) => (
+                {propertyData.photos && Array.isArray(propertyData.photos) && propertyData.photos.map((_: string, index: number) => (
                   <TouchableOpacity
                     key={index}
                     onPress={() => {
@@ -1242,7 +1249,7 @@ const goToNextPhoto = () => {
                 textAlignVertical="top"
               />
               <Text style={styles.ratingModalCharCount}>
-                {tempReview.length} / 500 characters
+                {String(tempReview.length) + ' / 500 characters'}
               </Text>
 
               {/* Anonymous Option */}
@@ -1291,8 +1298,6 @@ const goToNextPhoto = () => {
           </View>
         </View>
       </Modal>
-
-        </SafeAreaView>
       </>
     );
 }
@@ -1378,22 +1383,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
-  },
-  ratingBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 8,
-  },
-  ratingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginLeft: 4,
   },
   ratingCount: {
     color: '#6B7280',
@@ -1749,7 +1738,9 @@ const styles = StyleSheet.create({
   },
   noPhotosText: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingVertical: 20,
   },
   contactCard: {
     backgroundColor: '#F9FAFB',
@@ -2171,6 +2162,76 @@ const styles = StyleSheet.create({
   },
   ratingModalSubmitText: {
     fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Reviews List Styles
+  reviewsListContainer: {
+    marginTop: 20,
+    gap: 16,
+  },
+  reviewItem: {
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  reviewRatingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reviewRatingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  reviewDate: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  reviewComment: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  anonymousLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  loginPromptContainer: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    alignItems: 'center',
+  },
+  loginPromptText: {
+    fontSize: 14,
+    color: '#1E40AF',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  loginPromptButton: {
+    backgroundColor: '#3B82F6',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  loginPromptButtonText: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
   },

@@ -6,7 +6,7 @@ export type SmartSearchParams = {
   location?: string; // barangay
   minPrice?: number;
   maxPrice?: number;
-  bedrooms?: number; // 0 = any
+  rooms?: number; // 0 = any
   amenities?: string[];
   propertyType?: string;
   occupantType?: 'Family' | 'Individual';
@@ -39,9 +39,9 @@ export function parseIntent(input: string): Partial<SmartSearchParams> {
   const text = input.toLowerCase();
   const out: Partial<SmartSearchParams> = { query: input };
 
-  // bedrooms: "2br", "2 bed", "2 bedrooms"
-  const brMatch = text.match(/(\d+)\s*(br|bed|bedroom|bedrooms)/);
-  if (brMatch) out.bedrooms = parseInt(brMatch[1], 10);
+  // rooms: "2br", "2 bed", "2 bedrooms", "2 rooms"
+  const brMatch = text.match(/(\d+)\s*(br|bed|bedroom|bedrooms|room|rooms)/);
+  if (brMatch) out.rooms = parseInt(brMatch[1], 10);
 
   // price: numbers with k or plain numbers; assume PHP monthly
   // e.g., "under 10k", "<= 15000", "max 8k"
@@ -97,8 +97,8 @@ export function scoreListing(listing: ListingLike, params: SmartSearchParams): n
     else if ((listing.address || '').toLowerCase().includes(loc)) score += 1;
   }
 
-  if (typeof params.bedrooms === 'number' && params.bedrooms > 0) {
-    if ((listing.rooms || 0) >= params.bedrooms) score += 2;
+  if (typeof params.rooms === 'number' && params.rooms > 0) {
+    if ((listing.rooms || 0) >= params.rooms) score += 2;
   }
 
   if (typeof params.minPrice === 'number' && typeof listing.price === 'number') {
@@ -125,7 +125,7 @@ export function filterListings<T extends ListingLike>(
   listings: T[],
   params: SmartSearchParams
 ): T[] {
-  const { location, minPrice, maxPrice, bedrooms, amenities, query } = params;
+  const { location, minPrice, maxPrice, rooms, amenities, query } = params;
   const { propertyType, occupantType } = params;
   const q = (query || '').toLowerCase().trim();
 
@@ -142,8 +142,8 @@ export function filterListings<T extends ListingLike>(
     if (typeof minPrice === 'number' && typeof l.price === 'number' && l.price < minPrice) return false;
     if (typeof maxPrice === 'number' && typeof l.price === 'number' && l.price > maxPrice) return false;
 
-    if (typeof bedrooms === 'number' && bedrooms > 0) {
-      if ((l.rooms || 0) < bedrooms) return false;
+    if (typeof rooms === 'number' && rooms > 0) {
+      if ((l.rooms || 0) < rooms) return false;
     }
 
     if (amenities && amenities.length > 0) {

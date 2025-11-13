@@ -7,7 +7,8 @@ import {
   List, 
   Calendar, 
   MessageSquare, 
-  CreditCard
+  CreditCard,
+  Users
 } from 'lucide-react-native';
 import { designTokens } from '../styles/owner-dashboard-styles';
 import { useNotifications } from '../context/NotificationContext';
@@ -35,18 +36,18 @@ const navigationItems = [
     color: '#F59E0B'
   },
   {
+    id: 'tenants',
+    label: 'Tenants',
+    icon: Users,
+    path: '/(owner)/tenants',
+    color: '#8B5CF6'
+  },
+  {
     id: 'messages',
     label: 'Messages',
     icon: MessageSquare,
     path: '/(owner)/messages',
     color: '#14B8A6'
-  },
-  {
-    id: 'payment-settings',
-    label: 'Payment',
-    icon: CreditCard,
-    path: '/(owner)/payment-settings',
-    color: '#8B5CF6'
   }
 ];
 

@@ -13,7 +13,8 @@ import {
   Eye,
   MapPin,
   MessageSquare,
-  Home
+  Home,
+  Users
 } from 'lucide-react-native';
 import { Image } from '../../components/ui/image';
 
@@ -70,7 +71,7 @@ export default function ListingsPage() {
         email: listing.email ? String(listing.email) : '',
         amenities: Array.isArray(listing.amenities) ? listing.amenities.map((a: any) => String(a || '')) : [],
         monthlyRent: Number(listing.monthlyRent) || 0,
-        bedrooms: Number(listing.bedrooms) || 0,
+        rooms: Number(listing.rooms || listing.bedrooms) || 0,
         bathrooms: Number(listing.bathrooms) || 0,
         size: Number(listing.size) || 0,
         baseRent: Number(listing.baseRent) || 0,
@@ -81,7 +82,10 @@ export default function ListingsPage() {
         updatedAt: String(listing.updatedAt || new Date().toISOString()),
         photos: Array.isArray(listing.photos) ? listing.photos : [],
         videos: Array.isArray(listing.videos) ? listing.videos : [],
-        coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : ''
+        coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : '',
+        capacity: listing.capacity !== undefined ? Number(listing.capacity) : undefined,
+        occupiedSlots: listing.occupiedSlots !== undefined ? Number(listing.occupiedSlots) : undefined,
+        roomCapacities: Array.isArray(listing.roomCapacities) ? listing.roomCapacities.map((rc: any) => Number(rc)) : undefined
       }));
       
       setListings(sanitizedListings);
@@ -271,8 +275,8 @@ export default function ListingsPage() {
                       <View style={styles.detailsSection}>
                         <View style={styles.detailRow}>
                           <View style={styles.detailItem}>
-                            <Text style={styles.detailLabel}>Bedrooms</Text>
-                            <Text style={styles.detailValue}>{String(listing.bedrooms || 0)}</Text>
+                            <Text style={styles.detailLabel}>Rooms</Text>
+                            <Text style={styles.detailValue}>{String(listing.rooms || listing.bedrooms || 0)}</Text>
                           </View>
                           <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>Bathrooms</Text>
@@ -297,6 +301,70 @@ export default function ListingsPage() {
                           </View>
                         </View>
                       </View>
+
+                      {/* Capacity/Slots Information */}
+                      {listing.capacity !== undefined && (
+                        <View style={styles.capacitySection}>
+                          <View style={styles.capacityHeader}>
+                            <Users size={16} color="#10B981" />
+                            <Text style={styles.capacitySectionTitle}>Capacity</Text>
+                          </View>
+                          {listing.occupiedSlots !== undefined 
+                            ? (() => {
+                                const available = listing.capacity - listing.occupiedSlots;
+                                const percentage = Math.round((available / listing.capacity) * 100);
+                                
+                                return (
+                                  <View style={styles.capacityInfo}>
+                                    <View style={styles.capacityRow}>
+                                      <Text style={styles.capacityLabel}>Total Capacity:</Text>
+                                      <Text style={styles.capacityValue}>{listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'}</Text>
+                                    </View>
+                                    <View style={styles.capacityRow}>
+                                      <Text style={styles.capacityLabel}>Occupied:</Text>
+                                      <Text style={[styles.capacityValue, { color: '#EF4444' }]}>
+                                        {listing.occupiedSlots} {listing.occupiedSlots === 1 ? 'slot' : 'slots'}
+                                      </Text>
+                                    </View>
+                                    <View style={styles.capacityRow}>
+                                      <Text style={styles.capacityLabel}>Available:</Text>
+                                      <Text style={[
+                                        styles.capacityValue, 
+                                        available === 0 ? { color: '#EF4444' } : { color: '#10B981' }
+                                      ]}>
+                                        {available} {available === 1 ? 'slot' : 'slots'} ({percentage}%)
+                                      </Text>
+                                    </View>
+                                  </View>
+                                );
+                              })()
+                            : (
+                              <View style={styles.capacityInfo}>
+                                <View style={styles.capacityRow}>
+                                  <Text style={styles.capacityLabel}>Total Capacity:</Text>
+                                  <Text style={styles.capacityValue}>{listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'}</Text>
+                                </View>
+                                <Text style={styles.capacityNote}>Ready for occupancy</Text>
+                              </View>
+                            )
+                          }
+                          {/* Room Capacity Breakdown */}
+                          {listing.roomCapacities && listing.roomCapacities.length > 0 && (
+                            <View style={styles.roomCapacityBreakdown}>
+                              <Text style={styles.roomCapacityTitle}>Room Capacity:</Text>
+                              <View style={styles.roomCapacityList}>
+                                {listing.roomCapacities.map((roomCap, index) => (
+                                  <View key={index} style={styles.roomCapacityItem}>
+                                    <Text style={styles.roomCapacityText}>
+                                      Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      )}
 
                       {/* Price & Financial Info */}
                       <View style={styles.priceSection}>
@@ -617,6 +685,80 @@ const styles = StyleSheet.create({
   unavailableStatus: {
     color: '#EF4444',
     backgroundColor: '#FEF2F2',
+  },
+  capacitySection: {
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  capacityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  capacitySectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  capacityInfo: {
+    gap: 6,
+  },
+  capacityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  capacityLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  capacityValue: {
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '700',
+  },
+  capacityNote: {
+    fontSize: 11,
+    color: '#10B981',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  roomCapacityBreakdown: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#D1FAE5',
+  },
+  roomCapacityTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10B981',
+    marginBottom: 6,
+  },
+  roomCapacityList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  roomCapacityItem: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  roomCapacityText: {
+    fontSize: 10,
+    color: '#10B981',
+    fontWeight: '500',
   },
   priceSection: {
     flexDirection: 'row',

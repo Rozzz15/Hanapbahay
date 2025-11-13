@@ -236,7 +236,7 @@ export default function PropertiesPage() {
                     }}>
                       <Bed size={16} color="#6B7280" />
                       <Text style={{ marginLeft: 6, fontSize: 14, color: '#6B7280' }}>
-                        {listing.bedrooms || 0} Bed
+                        {listing.rooms || listing.bedrooms || 0} Room{(listing.rooms || listing.bedrooms || 0) !== 1 ? 's' : ''}
                       </Text>
                     </View>
                     <View style={{

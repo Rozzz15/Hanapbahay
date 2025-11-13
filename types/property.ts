@@ -12,7 +12,7 @@ export interface PropertyListing {
   
   // Property Details
   address: string;
-  bedrooms: number;
+  rooms: number;
   bathrooms: number;
   amenities: string[];
   rules: string[];
@@ -42,6 +42,7 @@ export interface PropertyListing {
   inquiries?: number;
   createdAt?: string;
   updatedAt?: string;
+  capacity?: number; // Maximum number of tenants/slots
 }
 
 export interface PropertyInfoData {
@@ -54,7 +55,7 @@ export interface PropertyInfoData {
 
 export interface PropertyDetailsData {
   address: string;
-  bedrooms: number;
+  rooms: number;
   bathrooms: number;
   amenities: string[];
   rules: string[];

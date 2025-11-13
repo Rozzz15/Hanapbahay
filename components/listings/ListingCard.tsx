@@ -6,7 +6,7 @@ import { VStack } from "@/components/ui/vstack";
 import { HStack } from "@/components/ui/hstack";
 import { Icon } from "@/components/ui/icon";
 import { Image } from "@/components/ui/image";
-import { Star, Home, MapPin } from "lucide-react-native";
+import { Star, Home, MapPin, Users } from "lucide-react-native";
 import { useAuth } from "@/context/AuthContext";
 import { trackListingView } from "@/utils/view-tracking";
 import { createOrFindConversation } from "@/utils/conversation-utils";
@@ -21,7 +21,6 @@ export type ListingType = {
     rating: number; 
     reviews: number;
     rooms: number;
-    bedrooms: number;
     bathrooms: number;
     size: number;
     price: number;
@@ -44,6 +43,9 @@ export type ListingType = {
     rules?: string[];
     videos?: string[];
     publishedAt?: string;
+    capacity?: number; // Maximum number of tenants/slots
+    occupiedSlots?: number; // Current number of occupied slots
+    roomCapacities?: number[]; // Capacity per room
 };
 
 const ListingCard: React.FC<ListingType> = ({ 
@@ -54,7 +56,6 @@ const ListingCard: React.FC<ListingType> = ({
     rating, 
     reviews, 
     rooms, 
-    bedrooms,
     bathrooms,
     size, 
     price, 
@@ -77,7 +78,10 @@ const ListingCard: React.FC<ListingType> = ({
     rules,
     videos,
     coverPhoto,
-    publishedAt
+    publishedAt,
+    capacity,
+    occupiedSlots,
+    roomCapacities
 }) => {
     console.log('🖼️ ListingCard received props:', {
         id,
@@ -111,7 +115,6 @@ const ListingCard: React.FC<ListingType> = ({
                 location,
                 price: price.toString(),
                 rooms: rooms.toString(),
-                bedrooms: bedrooms.toString(),
                 bathrooms: bathrooms.toString(),
                 size: size.toString(),
                 rating: rating.toString(),
@@ -183,10 +186,10 @@ const ListingCard: React.FC<ListingType> = ({
                     
                     
                     {/* Rating Badge */}
-                    <View className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-full px-3 py-1">
-                        <HStack className="items-center space-x-1">
-                            <Icon as={Star} size="xs" color={rating > 0 ? "#F59E0B" : "#D1D5DB"} />
-                            <Text className="text-xs font-semibold text-gray-800">
+                    <View style={{ position: 'absolute', top: 12, left: 12, backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: 9999, paddingHorizontal: 12, paddingVertical: 4 }}>
+                        <HStack style={{ alignItems: 'center', gap: 4 }}>
+                            <Star size={14} color={rating > 0 ? "#F59E0B" : "#D1D5DB"} />
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: '#1F2937' }}>
                                 {rating > 0 ? rating.toFixed(1) : 'No ratings'}{rating > 0 && ` (${reviews})`}
                             </Text>
                         </HStack>
@@ -195,7 +198,7 @@ const ListingCard: React.FC<ListingType> = ({
                 </View>
 
                 {/* Content Section */}
-                <VStack className="p-5 space-y-3">
+                <VStack style={{ padding: 20, gap: 12 }}>
                     {/* Title */}
                     <Text 
                         className="text-xl font-bold text-gray-900" 
@@ -206,32 +209,117 @@ const ListingCard: React.FC<ListingType> = ({
                     </Text>
 
                     {/* Location */}
-                    <HStack className="items-center space-x-2">
-                        <Icon as={MapPin} size="sm" color="#6B7280" />
-                        <Text className="text-sm text-gray-600 flex-1" numberOfLines={1}>
+                    <HStack style={{ alignItems: 'center', gap: 8 }}>
+                        <MapPin size={16} color="#6B7280" />
+                        <Text style={{ fontSize: 14, color: '#4B5563', flex: 1 }} numberOfLines={1}>
                             {location}
                         </Text>
                     </HStack>
 
                     {/* Owner/Business Name */}
                     {(businessName || ownerName) && (
-                        <HStack className="items-center space-x-2 bg-blue-50 px-3 py-2 rounded-lg">
-                            <Icon as={Home} size="sm" color="#3B82F6" />
-                            <Text className="text-sm font-medium text-blue-700 flex-1" numberOfLines={1}>
+                        <HStack style={{ alignItems: 'center', gap: 8, backgroundColor: '#EFF6FF', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
+                            <Home size={16} color="#3B82F6" />
+                            <Text style={{ fontSize: 14, fontWeight: '500', color: '#1D4ED8', flex: 1 }} numberOfLines={1}>
                                 {businessName || ownerName}
                             </Text>
                         </HStack>
                     )}
 
+                    {/* Capacity/Slots Information */}
+                    {capacity !== undefined && (
+                        <View style={{ backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
+                            <HStack style={{ alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                <Users size={16} color="#10B981" />
+                                <VStack style={{ flex: 1 }}>
+                                    {occupiedSlots !== undefined 
+                                        ? (() => {
+                                            const available = capacity - occupiedSlots;
+                                            const percentage = Math.round((available / capacity) * 100);
+                                            
+                                            if (available === capacity) {
+                                                // All slots available
+                                                return (
+                                                    <>
+                                                        <Text className="text-base font-bold text-green-700">
+                                                            {available} {available === 1 ? 'Space' : 'Spaces'} Available
+                                                        </Text>
+                                                        <Text className="text-xs text-green-600 mt-0.5">
+                                                            All {capacity} {capacity === 1 ? 'slot' : 'slots'} are open
+                                                        </Text>
+                                                    </>
+                                                );
+                                            } else if (available === 0) {
+                                                // No slots available
+                                                return (
+                                                    <>
+                                                        <Text className="text-base font-bold text-red-600">
+                                                            Fully Occupied
+                                                        </Text>
+                                                        <Text className="text-xs text-red-500 mt-0.5">
+                                                            All {capacity} {capacity === 1 ? 'slot' : 'slots'} are taken
+                                                        </Text>
+                                                    </>
+                                                );
+                                            } else {
+                                                // Some slots available
+                                                return (
+                                                    <>
+                                                        <Text className="text-base font-bold text-green-700">
+                                                            {available} {available === 1 ? 'Space' : 'Spaces'} Available
+                                                        </Text>
+                                                        <Text className="text-xs text-green-600 mt-0.5">
+                                                            {percentage}% available • {occupiedSlots} {occupiedSlots === 1 ? 'person' : 'people'} already living here
+                                                        </Text>
+                                                    </>
+                                                );
+                                            }
+                                        })()
+                                        : (
+                                            <>
+                                                <Text className="text-base font-bold text-green-700">
+                                                    {capacity} {capacity === 1 ? 'Space' : 'Spaces'} Available
+                                                </Text>
+                                                <Text className="text-xs text-green-600 mt-0.5">
+                                                    Ready for occupancy
+                                                </Text>
+                                            </>
+                                        )
+                                    }
+                                </VStack>
+                            </HStack>
+                            {/* Room Capacity Breakdown */}
+                            {roomCapacities && roomCapacities.length > 0 && (
+                                <View className="mt-2 pt-2 border-t border-green-200">
+                                    <Text className="text-xs font-medium text-green-600 mb-1">
+                                        Room Capacity:
+                                    </Text>
+                                    <View className="flex-row flex-wrap" style={{ gap: 6 }}>
+                                        {roomCapacities.map((roomCap, index) => (
+                                            <View 
+                                                key={index}
+                                                className="bg-white px-2 py-1 rounded-md border border-green-200"
+                                            >
+                                                <Text className="text-xs text-green-700">
+                                                    Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                </View>
+                            )}
+                        </View>
+                    )}
+
                     {/* Price Section */}
-                    <HStack className="justify-between items-center pt-2 border-t border-gray-100">
+                    <HStack style={{ justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6' }}>
                         <VStack>
-                            <Text className="text-2xl font-bold text-gray-900">
+                            <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
                                 ₱{price.toLocaleString()}
                             </Text>
-                            <Text className="text-sm text-gray-500">per month</Text>
+                            <Text style={{ fontSize: 14, color: '#6B7280' }}>per month</Text>
                         </VStack>
-                        <HStack className="items-center space-x-2">
+                        <HStack style={{ alignItems: 'center', gap: 8 }}>
                             {(() => {
                                 // Get ownerUserId - check if it exists and is not empty
                                 const validOwnerUserId = (ownerUserId && ownerUserId.trim() !== '') ? ownerUserId : null;

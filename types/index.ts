@@ -25,7 +25,6 @@ export interface ListingType {
   rating: number;
   reviews: number;
   rooms: number;
-  bedrooms: number;
   bathrooms: number;
   size: number;
   price: number;
@@ -239,7 +238,7 @@ export interface PublishedListingRecord {
   rentalType: string;
   address: string;
   barangay?: string; // Barangay where the property is located
-  bedrooms: number;
+  rooms: number;
   bathrooms: number;
   monthlyRent: number;
   amenities: string[];
@@ -266,6 +265,8 @@ export interface PublishedListingRecord {
   size?: number;
   price?: number;
   ownerUserId?: string;
+  capacity?: number; // Maximum number of tenants/slots
+  roomCapacities?: number[]; // Capacity per room
 }
 
 export interface PropertyPhotoRecord {
