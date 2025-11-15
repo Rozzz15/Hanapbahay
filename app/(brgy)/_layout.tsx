@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { View } from 'react-native';
+import { View, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import BrgyBottomNav from '../../components/BrgyBottomNav';
 
@@ -15,15 +15,26 @@ export default function BrgyLayout() {
       if (!user) {
         console.log('🚫 Brgy layout: No user found, redirecting to login');
         router.replace('/login');
-      } else if (!user.roles?.includes('brgy_official')) {
+        return;
+      }
+      
+      if (!user.roles?.includes('brgy_official')) {
         console.log('🚫 Brgy layout: User does not have brgy_official role, redirecting to tenant tabs');
         router.replace('/(tabs)');
+        return;
       }
     }
   }, [user, isLoading, router]);
 
   if (isLoading) {
-    return null;
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={{ marginTop: 16, fontSize: 16, color: '#6B7280' }}>
+          Loading...
+        </Text>
+      </View>
+    );
   }
   
   // Don't render if user check is still pending

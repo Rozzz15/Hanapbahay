@@ -1,5 +1,6 @@
 import { db, generateId } from './db';
-import { PropertyRatingRecord } from '../types';
+import { PropertyRatingRecord, PublishedListingRecord, MessageRecord, ConversationRecord } from '../types';
+import { createOrFindConversation } from './conversation-utils';
 
 /**
  * Get all ratings for a specific property
@@ -110,6 +111,14 @@ export async function rateProperty(
       
       await db.upsert('property_ratings', ratingId, newRating);
       console.log('✅ Created new rating for property:', propertyId);
+      
+      // Send notification to owner about new rating
+      try {
+        await sendNewRatingNotification(newRating, propertyId);
+      } catch (notifError) {
+        console.error('⚠️ Failed to send rating notification, but rating was saved:', notifError);
+      }
+      
       return { success: true, message: 'Rating submitted successfully!' };
     }
   } catch (error) {
@@ -164,5 +173,126 @@ export async function canUserRateProperty(
   // For now, allow all authenticated users to rate
   // In the future, we can check if they've viewed or booked the property
   return !!userId;
+}
+
+/**
+ * Send notification to owner when a new rating is created
+ */
+async function sendNewRatingNotification(
+  rating: PropertyRatingRecord,
+  propertyId: string
+): Promise<void> {
+  try {
+    const listing = await db.get<PublishedListingRecord>('published_listings', propertyId);
+    if (!listing) {
+      console.warn('⚠️ Listing not found for rating notification');
+      return;
+    }
+
+    // Get tenant name
+    let tenantName = 'A tenant';
+    try {
+      const users = await db.list('users');
+      const tenant = users.find((u: any) => u.id === rating.userId);
+      tenantName = rating.isAnonymous ? 'An anonymous tenant' : (tenant?.name || tenant?.email || 'A tenant');
+    } catch (error) {
+      console.error('Error getting tenant name:', error);
+    }
+
+    const stars = '⭐'.repeat(rating.rating);
+    const messageText = `⭐ New Rating Received!\n\n` +
+      `Property: ${listing.propertyType} - ${listing.address.substring(0, 50)}${listing.address.length > 50 ? '...' : ''}\n` +
+      `Rating: ${rating.rating} ${stars}\n` +
+      `From: ${tenantName}\n` +
+      (rating.review ? `Review: "${rating.review.substring(0, 100)}${rating.review.length > 100 ? '...' : ''}"\n\n` : '\n') +
+      `You can reply to this rating from your dashboard.`;
+
+    // Find an active booking to get conversation
+    const bookings = await db.list('bookings');
+    const activeBooking = bookings.find((b: any) => 
+      b.propertyId === propertyId && 
+      b.tenantId === rating.userId && 
+      (b.status === 'approved' || b.status === 'pending')
+    );
+
+    if (activeBooking) {
+      const conversationId = await createOrFindConversation({
+        ownerId: listing.userId,
+        tenantId: rating.userId,
+      });
+
+      const messageId = generateId('msg');
+      const now = new Date().toISOString();
+
+      const messageRecord: MessageRecord = {
+        id: messageId,
+        conversationId,
+        senderId: rating.userId,
+        text: messageText,
+        createdAt: now,
+        readBy: [rating.userId],
+        type: 'message',
+      };
+
+      await db.upsert('messages', messageId, messageRecord);
+
+      // Update conversation
+      const conversation = await db.get<ConversationRecord>('conversations', conversationId);
+      if (conversation) {
+        await db.upsert('conversations', conversationId, {
+          ...conversation,
+          lastMessageText: messageText.substring(0, 100),
+          lastMessageAt: now,
+          unreadByOwner: (conversation.unreadByOwner || 0) + 1,
+          updatedAt: now,
+        });
+      }
+
+      console.log('✅ New rating notification sent to owner');
+    } else {
+      // If no active booking, we can still create a notification via messages
+      // Find any booking with this tenant and owner
+      const anyBooking = bookings.find((b: any) => 
+        b.ownerId === listing.userId && b.tenantId === rating.userId
+      );
+
+      if (anyBooking) {
+        const conversationId = await createOrFindConversation({
+          ownerId: listing.userId,
+          tenantId: rating.userId,
+        });
+
+        const messageId = generateId('msg');
+        const now = new Date().toISOString();
+
+        const messageRecord: MessageRecord = {
+          id: messageId,
+          conversationId,
+          senderId: rating.userId,
+          text: messageText,
+          createdAt: now,
+          readBy: [rating.userId],
+          type: 'message',
+        };
+
+        await db.upsert('messages', messageId, messageRecord);
+
+        const conversation = await db.get<ConversationRecord>('conversations', conversationId);
+        if (conversation) {
+          await db.upsert('conversations', conversationId, {
+            ...conversation,
+            lastMessageText: messageText.substring(0, 100),
+            lastMessageAt: now,
+            unreadByOwner: (conversation.unreadByOwner || 0) + 1,
+            updatedAt: now,
+          });
+        }
+
+        console.log('✅ New rating notification sent to owner');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error sending new rating notification:', error);
+  }
 }
 

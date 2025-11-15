@@ -46,6 +46,7 @@ export type ListingType = {
     capacity?: number; // Maximum number of tenants/slots
     occupiedSlots?: number; // Current number of occupied slots
     roomCapacities?: number[]; // Capacity per room
+    roomAvailability?: number[]; // Available slots per room
 };
 
 const ListingCard: React.FC<ListingType> = ({ 
@@ -81,7 +82,8 @@ const ListingCard: React.FC<ListingType> = ({
     publishedAt,
     capacity,
     occupiedSlots,
-    roomCapacities
+    roomCapacities,
+    roomAvailability
 }) => {
     console.log('🖼️ ListingCard received props:', {
         id,
@@ -228,83 +230,117 @@ const ListingCard: React.FC<ListingType> = ({
 
                     {/* Capacity/Slots Information */}
                     {capacity !== undefined && (
-                        <View style={{ backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
-                            <HStack style={{ alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <View style={{ backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#D1FAE5' }}>
+                            <HStack style={{ alignItems: 'center', gap: 8, marginBottom: 10 }}>
                                 <Users size={16} color="#10B981" />
-                                <VStack style={{ flex: 1 }}>
-                                    {occupiedSlots !== undefined 
-                                        ? (() => {
-                                            const available = capacity - occupiedSlots;
-                                            const percentage = Math.round((available / capacity) * 100);
-                                            
-                                            if (available === capacity) {
-                                                // All slots available
-                                                return (
-                                                    <>
-                                                        <Text className="text-base font-bold text-green-700">
-                                                            {available} {available === 1 ? 'Space' : 'Spaces'} Available
-                                                        </Text>
-                                                        <Text className="text-xs text-green-600 mt-0.5">
-                                                            All {capacity} {capacity === 1 ? 'slot' : 'slots'} are open
-                                                        </Text>
-                                                    </>
-                                                );
-                                            } else if (available === 0) {
-                                                // No slots available
-                                                return (
-                                                    <>
-                                                        <Text className="text-base font-bold text-red-600">
-                                                            Fully Occupied
-                                                        </Text>
-                                                        <Text className="text-xs text-red-500 mt-0.5">
-                                                            All {capacity} {capacity === 1 ? 'slot' : 'slots'} are taken
-                                                        </Text>
-                                                    </>
-                                                );
-                                            } else {
-                                                // Some slots available
-                                                return (
-                                                    <>
-                                                        <Text className="text-base font-bold text-green-700">
-                                                            {available} {available === 1 ? 'Space' : 'Spaces'} Available
-                                                        </Text>
-                                                        <Text className="text-xs text-green-600 mt-0.5">
-                                                            {percentage}% available • {occupiedSlots} {occupiedSlots === 1 ? 'person' : 'people'} already living here
-                                                        </Text>
-                                                    </>
-                                                );
-                                            }
-                                        })()
-                                        : (
-                                            <>
-                                                <Text className="text-base font-bold text-green-700">
-                                                    {capacity} {capacity === 1 ? 'Space' : 'Spaces'} Available
-                                                </Text>
-                                                <Text className="text-xs text-green-600 mt-0.5">
-                                                    Ready for occupancy
-                                                </Text>
-                                            </>
-                                        )
-                                    }
-                                </VStack>
+                                <Text style={{ fontSize: 14, fontWeight: '700', color: '#10B981' }}>Capacity</Text>
                             </HStack>
+                            {occupiedSlots !== undefined 
+                                ? (() => {
+                                    const available = capacity - occupiedSlots;
+                                    const percentage = Math.round((available / capacity) * 100);
+                                    
+                                    return (
+                                        <VStack style={{ gap: 6 }}>
+                                            <HStack style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '500' }}>Total Capacity:</Text>
+                                                <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+                                                    {capacity} {capacity === 1 ? 'slot' : 'slots'}
+                                                </Text>
+                                            </HStack>
+                                            <HStack style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '500' }}>Occupied:</Text>
+                                                <Text style={{ fontSize: 12, color: '#EF4444', fontWeight: '700' }}>
+                                                    {occupiedSlots} {occupiedSlots === 1 ? 'slot' : 'slots'}
+                                                </Text>
+                                            </HStack>
+                                            <HStack style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '500' }}>Available:</Text>
+                                                <Text style={{ 
+                                                    fontSize: 12, 
+                                                    color: available === 0 ? '#EF4444' : '#10B981', 
+                                                    fontWeight: '700' 
+                                                }}>
+                                                    {available} {available === 1 ? 'slot' : 'slots'} ({percentage}%)
+                                                </Text>
+                                            </HStack>
+                                        </VStack>
+                                    );
+                                })()
+                                : (
+                                    <VStack style={{ gap: 6 }}>
+                                        <HStack style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '500' }}>Total Capacity:</Text>
+                                            <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+                                                {capacity} {capacity === 1 ? 'slot' : 'slots'}
+                                            </Text>
+                                        </HStack>
+                                        <Text style={{ fontSize: 11, color: '#10B981', fontStyle: 'italic', marginTop: 4 }}>
+                                            Ready for occupancy
+                                        </Text>
+                                    </VStack>
+                                )
+                            }
                             {/* Room Capacity Breakdown */}
                             {roomCapacities && roomCapacities.length > 0 && (
-                                <View className="mt-2 pt-2 border-t border-green-200">
-                                    <Text className="text-xs font-medium text-green-600 mb-1">
-                                        Room Capacity:
+                                <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#D1FAE5' }}>
+                                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#10B981', marginBottom: 6 }}>
+                                        Room Availability:
                                     </Text>
-                                    <View className="flex-row flex-wrap" style={{ gap: 6 }}>
-                                        {roomCapacities.map((roomCap, index) => (
-                                            <View 
-                                                key={index}
-                                                className="bg-white px-2 py-1 rounded-md border border-green-200"
-                                            >
-                                                <Text className="text-xs text-green-700">
-                                                    Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
-                                                </Text>
-                                            </View>
-                                        ))}
+                                    <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 8, alignItems: 'flex-start' }}>
+                                        {roomCapacities.map((roomCap, index) => {
+                                            const available = roomAvailability && roomAvailability[index] !== undefined 
+                                                ? roomAvailability[index] 
+                                                : roomCap; // Fallback to full capacity if availability not provided
+                                            const occupied = roomCap - available;
+                                            const isFullyOccupied = available === 0;
+                                            
+                                            return (
+                                                <View 
+                                                    key={index}
+                                                    style={{
+                                                        flex: 1,
+                                                        minWidth: 0,
+                                                        backgroundColor: isFullyOccupied ? '#FEF2F2' : '#FFFFFF',
+                                                        paddingHorizontal: 8,
+                                                        paddingVertical: 6,
+                                                        borderRadius: 6,
+                                                        borderWidth: 1,
+                                                        borderColor: isFullyOccupied ? '#FEE2E2' : '#D1FAE5',
+                                                        alignItems: 'center'
+                                                    }}
+                                                >
+                                                    <Text style={{ 
+                                                        fontSize: 10, 
+                                                        color: isFullyOccupied ? '#DC2626' : '#10B981', 
+                                                        fontWeight: '500',
+                                                        textAlign: 'center'
+                                                    }} numberOfLines={2}>
+                                                        Room {index + 1}: {available}/{roomCap}
+                                                    </Text>
+                                                    <Text style={{ 
+                                                        fontSize: 9, 
+                                                        color: isFullyOccupied ? '#DC2626' : '#10B981', 
+                                                        fontWeight: '400',
+                                                        textAlign: 'center',
+                                                        marginTop: 2
+                                                    }} numberOfLines={1}>
+                                                        {available === 1 ? 'slot' : 'slots'} available
+                                                    </Text>
+                                                    {isFullyOccupied && (
+                                                        <Text style={{ 
+                                                            fontSize: 9, 
+                                                            color: '#DC2626', 
+                                                            fontWeight: '600',
+                                                            marginTop: 2,
+                                                            textAlign: 'center'
+                                                        }}>
+                                                            Fully Occupied
+                                                        </Text>
+                                                    )}
+                                                </View>
+                                            );
+                                        })}
                                     </View>
                                 </View>
                             )}

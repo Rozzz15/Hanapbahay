@@ -1,0 +1,5209 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+  Alert,
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  Image,
+  Share,
+  TextInput,
+  Dimensions,
+  FlatList,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
+import { 
+  Home, 
+  Calendar, 
+  User, 
+  MessageSquare, 
+  CreditCard,
+  FileText,
+  Bell,
+  Download,
+  ChevronRight,
+  Clock,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
+  Coins,
+  Mail,
+  Phone,
+  MapPin,
+  Edit,
+  X,
+  Share2,
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { getBookingsByTenant } from '../../utils/booking';
+import { BookingRecord } from '../../types';
+import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
+import { loadUserProfilePhoto } from '../../utils/user-profile-photos';
+import {
+  getRentHistorySummary,
+  getPaymentReminders,
+  markRentPaymentAsPaid,
+  generatePaymentReceipt,
+  initializeMonthlyPayments,
+  createRentPayment,
+  getNextDueDate,
+  isPaymentOverdue,
+  getDaysOverdue,
+  getFuturePaymentMonths,
+  type RentPayment,
+  type PaymentReminder,
+  type RentHistorySummary,
+} from '../../utils/tenant-payments';
+import { createOrFindConversation } from '../../utils/conversation-utils';
+import { db } from '../../utils/db';
+import { PublishedListingRecord, PaymentAccount } from '../../types';
+import BookingStatusModal from '@/components/BookingStatusModal';
+import PayMongoPayment from '@/components/PayMongoPayment';
+import { Platform } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+import { getQRCodeProps, generatePaymentQRCodeString } from '../../utils/qr-code-generator';
+import { addCustomEventListener } from '../../utils/custom-events';
+import {
+  loadShownBookingNotifications,
+  markBookingNotificationAsShown,
+  hasBookingNotificationBeenShown,
+} from '../../utils/booking-notifications-storage';
+import * as ImagePicker from 'expo-image-picker';
+import {
+  createMaintenanceRequest,
+  getMaintenanceRequestsByBooking,
+  getPendingMaintenanceRequestsCount,
+  cancelMaintenanceRequest,
+} from '../../utils/maintenance-requests';
+import { MaintenanceRequestRecord } from '../../types';
+import { Wrench, Camera, Video, Plus, Trash2 } from 'lucide-react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
+
+export default function TenantMainDashboard() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeBooking, setActiveBooking] = useState<BookingRecord | null>(null);
+  const [property, setProperty] = useState<PublishedListingRecord | null>(null);
+  const [rentHistory, setRentHistory] = useState<RentHistorySummary | null>(null);
+  const [reminders, setReminders] = useState<PaymentReminder[]>([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<RentPayment | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<string>('');
+  const [futurePayments, setFuturePayments] = useState<RentPayment[]>([]);
+  const [showAdvancedPayment, setShowAdvancedPayment] = useState(false);
+  const [selectedAdvancedPayments, setSelectedAdvancedPayments] = useState<Set<string>>(new Set());
+  const [ownerPaymentAccounts, setOwnerPaymentAccounts] = useState<any[]>([]);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
+  const [showPaymentMethodSelection, setShowPaymentMethodSelection] = useState(false);
+  const [showPayMongoModal, setShowPayMongoModal] = useState(false);
+  const [payMongoUrl, setPayMongoUrl] = useState<string | null>(null);
+  const [processingPayMongo, setProcessingPayMongo] = useState(false);
+  const [showQRCodeModal, setShowQRCodeModal] = useState(false);
+  const [selectedQRCodeAccount, setSelectedQRCodeAccount] = useState<PaymentAccount | null>(null);
+  const [bookingStatusModal, setBookingStatusModal] = useState<{
+    visible: boolean;
+    booking: BookingRecord | null;
+    status: 'approved' | 'rejected';
+  }>({
+    visible: false,
+    booking: null,
+    status: 'approved',
+  });
+  const shownBookingNotificationsRef = useRef<Set<string>>(new Set());
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [profilePhotoError, setProfilePhotoError] = useState(false);
+  const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequestRecord[]>([]);
+  const [pendingMaintenanceCount, setPendingMaintenanceCount] = useState(0);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [maintenanceForm, setMaintenanceForm] = useState({
+    title: '',
+    description: '',
+    category: 'other' as MaintenanceRequestRecord['category'],
+    priority: 'medium' as MaintenanceRequestRecord['priority'],
+    photos: [] as string[],
+    videos: [] as string[],
+  });
+  const [submittingMaintenance, setSubmittingMaintenance] = useState(false);
+  const [showMaintenanceHistory, setShowMaintenanceHistory] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState<string | null>(null);
+  const [selectedMaintenanceRequest, setSelectedMaintenanceRequest] = useState<MaintenanceRequestRecord | null>(null);
+  const [showMaintenanceDetailModal, setShowMaintenanceDetailModal] = useState(false);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+  const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+
+  // Reload profile photo when modal opens
+  useEffect(() => {
+    if (showProfileModal && user?.id) {
+      loadProfilePhoto();
+    }
+  }, [showProfileModal, user?.id, loadProfilePhoto]);
+
+  // Load shown notifications from persistent storage
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadNotifications = async () => {
+      try {
+        const notifications = await loadShownBookingNotifications(user.id);
+        shownBookingNotificationsRef.current = notifications;
+        setNotificationsLoaded(true);
+        console.log(`✅ Tenant Main Dashboard: Loaded ${notifications.size} shown booking notifications from storage`);
+      } catch (error) {
+        console.error('❌ Error loading booking notifications:', error);
+        setNotificationsLoaded(true);
+      }
+    };
+
+    loadNotifications();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) {
+      loadDashboardData();
+      loadProfilePhoto();
+    }
+  }, [user?.id]);
+
+  const loadProfilePhoto = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      const { loadUserProfilePhoto } = await import('../../utils/user-profile-photos');
+      const photoUri = await loadUserProfilePhoto(user.id);
+      if (photoUri && photoUri.trim() && photoUri.length > 10) {
+        setProfilePhoto(photoUri.trim());
+        setProfilePhotoError(false);
+      } else {
+        setProfilePhoto(null);
+      }
+    } catch (error) {
+      console.error('❌ Error loading profile photo:', error);
+      setProfilePhoto(null);
+    }
+  }, [user?.id]);
+
+  const loadDashboardData = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      setLoading(true);
+      
+      // Get active booking (approved and paid)
+      const bookings = await getBookingsByTenant(user.id);
+      const active = bookings.find(
+        b => b.status === 'approved' && b.paymentStatus === 'paid'
+      );
+
+      if (!active) {
+        // No active booking, redirect to property browsing
+        router.replace('/(tabs)');
+        return;
+      }
+
+      setActiveBooking(active);
+
+      // Load property details
+      const propertyData = await db.get<PublishedListingRecord>('published_listings', active.propertyId);
+      setProperty(propertyData || null);
+
+      // Initialize monthly payments if needed
+      await initializeMonthlyPayments(active.id);
+
+      // Load rent history
+      const history = await getRentHistorySummary(user.id);
+      setRentHistory(history);
+
+      // Load payment reminders
+      const paymentReminders = await getPaymentReminders(user.id);
+      setReminders(paymentReminders);
+
+      // Create next payment if it doesn't exist
+      if (history.nextDueDate && history.nextDueAmount) {
+        const existingPayments = history.payments.filter(
+          p => p.dueDate === history.nextDueDate && p.status === 'pending'
+        );
+        
+        if (existingPayments.length === 0) {
+          const paymentMonth = history.nextDueDate.substring(0, 7);
+          await createRentPayment(active.id, paymentMonth, history.nextDueDate);
+          
+          // Reload history
+          const updatedHistory = await getRentHistorySummary(user.id);
+          setRentHistory(updatedHistory);
+        }
+      }
+
+      // Load future payments for advanced payment
+      const future = await getFuturePaymentMonths(active.id, 6);
+      setFuturePayments(future);
+
+      // Load owner payment accounts
+      try {
+        const allAccounts = await db.list('payment_accounts');
+        const ownerAccounts = allAccounts.filter(
+          (account: any) =>
+            account.ownerId === active.ownerId &&
+            account.isActive &&
+            (account.type === 'gcash' || account.type === 'paymaya' || account.type === 'bank_transfer' || account.type === 'cash')
+        );
+        setOwnerPaymentAccounts(ownerAccounts);
+      } catch (error) {
+        console.error('❌ Error loading owner payment accounts:', error);
+      }
+
+        // Load maintenance requests
+        try {
+          const requests = await getMaintenanceRequestsByBooking(active.id);
+          // Sort by created date (newest first)
+          requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setMaintenanceRequests(requests);
+          const pendingCount = await getPendingMaintenanceRequestsCount(user.id);
+          setPendingMaintenanceCount(pendingCount);
+        } catch (error) {
+          console.error('❌ Error loading maintenance requests:', error);
+        }
+
+    } catch (error) {
+      console.error('❌ Error loading dashboard data:', error);
+      Alert.alert('Error', 'Failed to load dashboard data. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id, router]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadDashboardData();
+    loadProfilePhoto();
+    
+  }, [loadDashboardData, loadProfilePhoto]);
+
+  // Function to check for booking status changes
+  const checkBookingStatusChanges = useCallback(async () => {
+    if (!user?.id || !notificationsLoaded) return;
+    
+    try {
+      console.log('🔍 Tenant Main Dashboard: Checking for booking status changes...');
+      const bookings = await getBookingsByTenant(user.id);
+      console.log(`📋 Found ${bookings.length} bookings for tenant`);
+      
+      // Check for newly approved or rejected bookings that haven't been shown yet
+      for (const booking of bookings) {
+        console.log(`🔑 Checking booking ${booking.id} with status ${booking.status}`);
+        console.log(`📝 Already shown notifications:`, Array.from(shownBookingNotificationsRef.current));
+        
+        // Only show modal for approved or rejected bookings that haven't been shown
+        if ((booking.status === 'approved' || booking.status === 'rejected') && 
+            !hasBookingNotificationBeenShown(
+              booking.id,
+              booking.status as 'approved' | 'rejected',
+              shownBookingNotificationsRef.current
+            )) {
+          
+          console.log(`✅ Found new ${booking.status} booking! Showing modal for booking ${booking.id}`);
+          
+          // Mark as shown and save to persistent storage
+          shownBookingNotificationsRef.current = await markBookingNotificationAsShown(
+            user.id,
+            booking.id,
+            booking.status as 'approved' | 'rejected',
+            shownBookingNotificationsRef.current
+          );
+          
+          // Show modal after a short delay to ensure UI is ready
+          setTimeout(() => {
+            console.log(`🎯 Setting modal visible for booking ${booking.id}`);
+            setBookingStatusModal({
+              visible: true,
+              booking: booking,
+              status: booking.status as 'approved' | 'rejected',
+            });
+          }, 500);
+          
+          break; // Only show one notification at a time
+        } else {
+          console.log(`⏭️ Skipping booking ${booking.id} - already shown or not approved/rejected`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error checking booking status changes:', error);
+    }
+  }, [user?.id, notificationsLoaded]);
+
+  // Check for booking status changes and show modal
+  useEffect(() => {
+    if (!user?.id || loading) return; // Wait for loading to complete
+
+    // Check after a delay to ensure component is fully mounted
+    const timeoutId = setTimeout(() => {
+      checkBookingStatusChanges();
+    }, 1000);
+
+    // Also listen for booking status change events
+    const handleBookingStatusChange = async (event?: any) => {
+      const eventDetail = event?.detail || {};
+      console.log('🔄 Tenant Main Dashboard: Booking status changed event received:', eventDetail);
+      
+      if (eventDetail.bookingId && user?.id) {
+        // Reload bookings to get the latest status
+        const bookings = await getBookingsByTenant(user.id);
+        const changedBooking = bookings.find(b => b.id === eventDetail.bookingId);
+        
+        if (changedBooking && (changedBooking.status === 'approved' || changedBooking.status === 'rejected')) {
+          console.log(`🔔 Event: Found ${changedBooking.status} booking ${changedBooking.id}`);
+          
+          if (!hasBookingNotificationBeenShown(
+            changedBooking.id,
+            changedBooking.status as 'approved' | 'rejected',
+            shownBookingNotificationsRef.current
+          )) {
+            // Mark as shown and save to persistent storage
+            shownBookingNotificationsRef.current = await markBookingNotificationAsShown(
+              user.id,
+              changedBooking.id,
+              changedBooking.status as 'approved' | 'rejected',
+              shownBookingNotificationsRef.current
+            );
+            console.log(`✅ Event: Showing modal for booking ${changedBooking.id}`);
+            
+            setTimeout(() => {
+              setBookingStatusModal({
+                visible: true,
+                booking: changedBooking,
+                status: changedBooking.status as 'approved' | 'rejected',
+              });
+            }, 300);
+          } else {
+            console.log(`⏭️ Event: Already shown notification for booking ${changedBooking.id}`);
+          }
+        }
+      }
+    };
+
+    const removeListener = addCustomEventListener('bookingStatusChanged', handleBookingStatusChange);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      removeListener();
+    };
+  }, [user?.id, loading, checkBookingStatusChanges, notificationsLoaded]); // Also depend on loading state
+
+  // Also check when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!loading && user?.id && notificationsLoaded) {
+        // Small delay to ensure component is ready
+        const timeoutId = setTimeout(() => {
+          checkBookingStatusChanges();
+        }, 500);
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }, [loading, user?.id, checkBookingStatusChanges, notificationsLoaded])
+  );
+
+  const handleMessageOwner = useCallback(async () => {
+    if (!activeBooking || !user?.id) return;
+
+    try {
+      const conversationId = await createOrFindConversation({
+        ownerId: activeBooking.ownerId,
+        tenantId: user.id,
+        ownerName: activeBooking.ownerName,
+        tenantName: user.name || 'Tenant',
+        propertyId: activeBooking.propertyId,
+        propertyTitle: activeBooking.propertyTitle,
+      });
+
+      router.push({
+        pathname: '/chat-room',
+        params: {
+          conversationId: conversationId,
+          ownerName: activeBooking.ownerName,
+          ownerAvatar: '',
+          propertyTitle: activeBooking.propertyTitle,
+        },
+      });
+    } catch (error) {
+      console.error('❌ Error starting conversation:', error);
+      Alert.alert('Error', 'Failed to start conversation. Please try again.');
+    }
+  }, [activeBooking, user, router]);
+
+  const handlePickMaintenancePhoto = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newPhotos = result.assets.map(asset => asset.uri);
+        setMaintenanceForm(prev => ({
+          ...prev,
+          photos: [...prev.photos, ...newPhotos],
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking photo:', error);
+      Alert.alert('Error', 'Failed to pick photo. Please try again.');
+    }
+  }, []);
+
+  const handlePickMaintenanceVideo = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your videos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setMaintenanceForm(prev => ({
+          ...prev,
+          videos: [...prev.videos, result.assets[0].uri],
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking video:', error);
+      Alert.alert('Error', 'Failed to pick video. Please try again.');
+    }
+  }, []);
+
+  const handleRemoveMaintenancePhoto = useCallback((index: number) => {
+    setMaintenanceForm(prev => ({
+      ...prev,
+      photos: prev.photos.filter((_, i) => i !== index),
+    }));
+  }, []);
+
+  const handleRemoveMaintenanceVideo = useCallback((index: number) => {
+    setMaintenanceForm(prev => ({
+      ...prev,
+      videos: prev.videos.filter((_, i) => i !== index),
+    }));
+  }, []);
+
+  const handleSubmitMaintenanceRequest = useCallback(async () => {
+    if (!activeBooking || !user?.id) return;
+
+    if (!maintenanceForm.title.trim()) {
+      Alert.alert('Required', 'Please enter a title for the maintenance request.');
+      return;
+    }
+
+    if (!maintenanceForm.description.trim()) {
+      Alert.alert('Required', 'Please describe the issue.');
+      return;
+    }
+
+    try {
+      setSubmittingMaintenance(true);
+
+      const request = await createMaintenanceRequest({
+        bookingId: activeBooking.id,
+        propertyId: activeBooking.propertyId,
+        tenantId: user.id,
+        ownerId: activeBooking.ownerId,
+        title: maintenanceForm.title.trim(),
+        description: maintenanceForm.description.trim(),
+        category: maintenanceForm.category,
+        priority: maintenanceForm.priority,
+        photos: maintenanceForm.photos,
+        videos: maintenanceForm.videos,
+      });
+
+      Alert.alert(
+        'Request Submitted',
+        'Your maintenance request has been submitted. The owner will be notified.',
+        [{ text: 'OK', onPress: () => {
+          setShowMaintenanceModal(false);
+          setMaintenanceForm({
+            title: '',
+            description: '',
+            category: 'other',
+            priority: 'medium',
+            photos: [],
+            videos: [],
+          });
+          loadDashboardData();
+        }}]
+      );
+    } catch (error) {
+      console.error('Error submitting maintenance request:', error);
+      Alert.alert('Error', 'Failed to submit maintenance request. Please try again.');
+    } finally {
+      setSubmittingMaintenance(false);
+    }
+  }, [activeBooking, user, maintenanceForm, loadDashboardData]);
+
+  const handleCancelMaintenanceRequest = useCallback(async (requestId: string) => {
+    if (!user?.id) return;
+
+    Alert.alert(
+      'Cancel Request',
+      'Are you sure you want to cancel this maintenance request?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setCancellingRequest(requestId);
+              const success = await cancelMaintenanceRequest(requestId, user.id);
+              
+              if (success) {
+                Alert.alert('Cancelled', 'Your maintenance request has been cancelled.');
+                await loadDashboardData();
+              } else {
+                Alert.alert('Error', 'Failed to cancel maintenance request. Please try again.');
+              }
+            } catch (error) {
+              console.error('Error cancelling maintenance request:', error);
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              Alert.alert('Error', `Failed to cancel request: ${errorMessage}`);
+            } finally {
+              setCancellingRequest(null);
+            }
+          }
+        }
+      ]
+    );
+  }, [user, loadDashboardData]);
+
+  const handlePayRent = useCallback(async () => {
+    if (!rentHistory?.nextDueDate || !rentHistory?.nextDueAmount || !activeBooking) return;
+
+    // Find the pending payment for next due date
+    const pendingPayment = rentHistory.payments.find(
+      p => p.dueDate === rentHistory.nextDueDate && p.status === 'pending'
+    );
+
+    if (!pendingPayment) {
+      Alert.alert('Error', 'No pending payment found. Please refresh and try again.');
+      return;
+    }
+
+    setSelectedPayment(pendingPayment);
+    setShowPaymentModal(true);
+  }, [rentHistory, activeBooking]);
+
+  const handlePayWithPayMongo = useCallback(async () => {
+    console.log('🔄 handlePayWithPayMongo called', {
+      hasRentHistory: !!rentHistory,
+      nextDueAmount: rentHistory?.nextDueAmount,
+      hasActiveBooking: !!activeBooking,
+      hasUser: !!user,
+    });
+
+    if (!rentHistory?.nextDueAmount || !activeBooking || !user?.id) {
+      console.error('❌ Missing prerequisites:', {
+        rentHistory: !!rentHistory,
+        nextDueAmount: rentHistory?.nextDueAmount,
+        activeBooking: !!activeBooking,
+        userId: user?.id,
+      });
+      Alert.alert('Error', 'Payment information incomplete. Please refresh and try again.');
+      return;
+    }
+
+    // Find the pending payment for next due date
+    const pendingPayment = rentHistory.payments.find(
+      p => p.dueDate === rentHistory.nextDueDate && p.status === 'pending'
+    );
+
+    if (!pendingPayment) {
+      console.error('❌ No pending payment found');
+      Alert.alert('Error', 'No pending payment found. Please refresh and try again.');
+      return;
+    }
+
+    try {
+      setProcessingPayMongo(true);
+      const reference = activeBooking.id.slice(-8).toUpperCase();
+      
+      console.log('📝 Creating PayMongo payment URL:', {
+        bookingId: activeBooking.id,
+        amount: rentHistory.nextDueAmount,
+        reference,
+      });
+      
+      // Create PayMongo payment URL
+      const { createPayMongoPaymentUrl } = await import('../../utils/paymongo-webview-handler');
+      const url = await createPayMongoPaymentUrl(
+        rentHistory.nextDueAmount,
+        `Rent payment for ${activeBooking.propertyTitle}`,
+        reference,
+        undefined,
+        undefined,
+        activeBooking.id
+      );
+      
+      console.log('✅ PayMongo payment URL created:', url);
+      
+      setPayMongoUrl(url);
+      setShowPayMongoModal(true);
+    } catch (error) {
+      console.error('❌ Error creating PayMongo payment:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      Alert.alert(
+        'Payment Error', 
+        `Failed to create payment: ${errorMessage}\n\nPlease check:\n1. PayMongo API key is set in .env\n2. You have an active internet connection\n3. Your PayMongo account is active`
+      );
+    } finally {
+      setProcessingPayMongo(false);
+    }
+  }, [rentHistory, activeBooking, user]);
+
+  const handlePayMongoSuccess = useCallback(async (paymentIntentId: string) => {
+    if (!selectedPayment || !user?.id) return;
+
+    try {
+      setProcessingPayMongo(true);
+      
+      // Verify payment status
+      const { verifyPaymentStatus } = await import('../../utils/paymongo-api');
+      const result = await verifyPaymentStatus(paymentIntentId);
+      
+      if (result.success && result.status === 'succeeded') {
+        // Mark payment as paid
+        try {
+          await markRentPaymentAsPaid(selectedPayment.id, user.id, 'paymongo', paymentIntentId);
+          
+          setShowPayMongoModal(false);
+          setPayMongoUrl(null);
+          
+          // Refresh rent history
+          if (activeBooking?.id) {
+            const summary = await getRentHistorySummary(activeBooking.id);
+            setRentHistory(summary);
+          }
+          
+          Alert.alert(
+            'Payment Submitted', 
+            'Your payment has been verified and is waiting for owner confirmation. You will be notified once the owner confirms receipt.'
+          );
+        } catch (error) {
+          console.error('Error marking payment as paid:', error);
+          Alert.alert('Error', 'Payment verified but failed to update record. Please contact support.');
+        }
+      } else {
+        Alert.alert('Error', result.error || 'Payment verification failed');
+      }
+    } catch (error) {
+      console.error('Error verifying payment:', error);
+      Alert.alert('Error', 'Payment completed but verification failed. Please contact support.');
+    } finally {
+      setProcessingPayMongo(false);
+    }
+  }, [selectedPayment, user, activeBooking]);
+
+  const handlePaymentMethodAction = useCallback(async (account: PaymentAccount) => {
+    if (!selectedPayment && selectedAdvancedPayments.size === 0) return;
+    if (!activeBooking?.id) {
+      Alert.alert('Error', 'Booking information not found. Please try again.');
+      return;
+    }
+
+    try {
+      const cleanPhone = account.accountNumber.replace(/[^0-9]/g, '');
+      const reference = activeBooking.id.slice(-8).toUpperCase();
+      const amount = selectedPayment?.totalAmount || 
+                    futurePayments
+                      .filter(p => selectedAdvancedPayments.has(p.id))
+                      .reduce((sum, p) => sum + p.totalAmount, 0);
+
+      if (!amount || amount <= 0) {
+        Alert.alert('Error', 'Invalid payment amount. Please try again.');
+        return;
+      }
+
+      const methodName = account.type === 'gcash' ? 'GCash' : 
+                        account.type === 'paymaya' ? 'Maya' : 
+                        account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
+
+      // For GCash: Use deep link as primary method (Option 1)
+      if (account.type === 'gcash') {
+        const Linking = await import('expo-linking');
+        const { generateGCashPaymentURL } = await import('../../utils/qr-code-generator');
+        const appUrl = generateGCashPaymentURL(account, amount, reference);
+        
+        // Primary Method: Open GCash app directly with deep link
+        let appOpened = false;
+        try {
+          // Check if GCash app is installed and can be opened
+          const canOpen = await Linking.canOpenURL(appUrl);
+          
+          if (canOpen) {
+            // Open GCash app with payment details pre-filled
+            await Linking.openURL(appUrl);
+            appOpened = true;
+            
+            // Show confirmation with payment details and option to view QR code
+            Alert.alert(
+              'GCash Opened',
+              `GCash app has been opened with your payment details:\n\n💰 Amount: ₱${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n📋 Account: ${account.accountNumber}\n📝 Reference: ${reference}\n\nComplete the payment in GCash, then tap "I Paid" below.`,
+              [
+                { 
+                  text: 'View QR Code Instead', 
+                  onPress: () => {
+                    if (selectedPayment) {
+                      setSelectedQRCodeAccount(account);
+                      setShowQRCodeModal(true);
+                    }
+                  }
+                },
+                { 
+                  text: 'I Paid', 
+                  onPress: () => {
+                    const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
+                    setSelectedPaymentMethod(paymentMethodName);
+                    
+                    if (selectedPayment && !showAdvancedPayment) {
+                      setTimeout(async () => {
+                        try {
+                          const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+                          if (success) {
+                            Alert.alert('Success', 'Payment recorded successfully!');
+                            setShowPaymentModal(false);
+                            setSelectedPayment(null);
+                            setSelectedPaymentMethod(null);
+                            await loadDashboardData();
+                          }
+                        } catch (error) {
+                          console.error('Error confirming payment:', error);
+                        }
+                      }, 300);
+                    }
+                  }
+                },
+                { text: 'OK', style: 'cancel' },
+              ]
+            );
+            
+            // Copy account number to clipboard as backup
+            try {
+              if (Platform.OS === 'web' && navigator.clipboard) {
+                await navigator.clipboard.writeText(cleanPhone);
+              } else {
+                const Clipboard = await import('expo-clipboard');
+                await Clipboard.setStringAsync(cleanPhone);
+              }
+            } catch (e) {
+              // Ignore clipboard errors
+            }
+            
+            return; // Exit early - deep link method succeeded
+          }
+        } catch (error) {
+          console.warn(`Could not open ${methodName} app:`, error);
+        }
+
+        // Fallback: If deep link failed, show QR code modal (if available)
+        if (!appOpened && account.qrCodeImageUri && selectedPayment) {
+          Alert.alert(
+            'GCash Not Available',
+            'Could not open GCash app automatically.\n\nWould you like to scan a QR code instead?',
+            [
+              { 
+                text: 'View QR Code', 
+                onPress: () => {
+                  setSelectedQRCodeAccount(account);
+                  setShowQRCodeModal(true);
+                }
+              },
+              { 
+                text: 'Manual Payment', 
+                onPress: () => {
+                  // Show manual payment instructions
+                  let accountCopied = false;
+                  try {
+                    if (Platform.OS === 'web' && navigator.clipboard) {
+                      navigator.clipboard.writeText(cleanPhone);
+                      accountCopied = true;
+                    } else {
+                      const Clipboard = require('expo-clipboard');
+                      Clipboard.setStringAsync(cleanPhone);
+                      accountCopied = true;
+                    }
+                  } catch (e) {
+                    console.warn('Could not copy to clipboard');
+                  }
+                  
+                  Alert.alert(
+                    `${methodName} Payment`,
+                    `${accountCopied ? '📋 Account number copied to clipboard!\n\n' : ''}Please open ${methodName} manually and send payment to:\n\n📋 Account: ${account.accountNumber}\n💰 Amount: ₱${amount.toLocaleString()}\n📝 Reference: ${reference}\n\nAfter completing payment, tap "I Paid" to record it.`,
+                    [
+                      { 
+                        text: 'I Paid', 
+                        onPress: () => {
+                          const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
+                          setSelectedPaymentMethod(paymentMethodName);
+                          
+                          if (selectedPayment && !showAdvancedPayment) {
+                            setTimeout(async () => {
+                              try {
+                                const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+                                if (success) {
+                                  Alert.alert('Success', 'Payment recorded successfully!');
+                                  setShowPaymentModal(false);
+                                  setSelectedPayment(null);
+                                  setSelectedPaymentMethod(null);
+                                  await loadDashboardData();
+                                }
+                              } catch (error) {
+                                console.error('Error confirming payment:', error);
+                              }
+                            }, 300);
+                          }
+                        }
+                      },
+                      { text: 'Cancel', style: 'cancel' },
+                    ]
+                  );
+                }
+              },
+              { text: 'Cancel', style: 'cancel' },
+            ]
+          );
+          return;
+        }
+
+        // Final fallback: Manual payment instructions
+        let accountCopied = false;
+        try {
+          if (Platform.OS === 'web' && navigator.clipboard) {
+            await navigator.clipboard.writeText(cleanPhone);
+            accountCopied = true;
+          } else {
+            try {
+              const Clipboard = await import('expo-clipboard');
+              await Clipboard.setStringAsync(cleanPhone);
+              accountCopied = true;
+            } catch (e1) {
+              console.warn('Could not copy to clipboard');
+            }
+          }
+        } catch (clipboardError) {
+          console.warn('Clipboard error:', clipboardError);
+        }
+
+        Alert.alert(
+          `${methodName} Payment`,
+          `${methodName} app could not be opened automatically.\n\n${accountCopied ? '📋 Account number is copied to your clipboard.\n\n' : ''}Please open ${methodName} manually and send payment to:\n\n📋 Account: ${account.accountNumber}\n💰 Amount: ₱${amount.toLocaleString()}\n📝 Reference: ${reference}\n\nAfter completing payment, tap "I Paid" to record it.`,
+          [
+            { 
+              text: 'Copy Account Number', 
+              onPress: async () => {
+                try {
+                  if (Platform.OS === 'web' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(cleanPhone);
+                  } else {
+                    try {
+                      const Clipboard = await import('expo-clipboard');
+                      await Clipboard.setStringAsync(cleanPhone);
+                    } catch (e) {
+                      Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                    }
+                  }
+                } catch (e) {
+                  Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                }
+              }
+            },
+            { 
+              text: 'I Paid', 
+              onPress: () => {
+                const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
+                setSelectedPaymentMethod(paymentMethodName);
+                
+                if (selectedPayment && !showAdvancedPayment) {
+                  setTimeout(async () => {
+                    try {
+                      const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+                      if (success) {
+                        Alert.alert('Success', 'Payment recorded successfully!');
+                        setShowPaymentModal(false);
+                        setSelectedPayment(null);
+                        setSelectedPaymentMethod(null);
+                        await loadDashboardData();
+                      }
+                    } catch (error) {
+                      console.error('Error confirming payment:', error);
+                    }
+                  }, 300);
+                }
+              }
+            },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else if (account.type === 'paymaya') {
+        // For Maya: Try to open app first, then copy as backup
+        const Linking = await import('expo-linking');
+        const appUrl = `maya://pay?number=${cleanPhone}&amount=${amount}&reference=${reference}`;
+        
+        let appOpened = false;
+        try {
+          const canOpen = await Linking.canOpenURL(appUrl);
+          if (canOpen) {
+            await Linking.openURL(appUrl);
+            appOpened = true;
+          }
+        } catch (error) {
+          console.warn(`Could not open ${methodName} app:`, error);
+        }
+        
+        // Copy account number to clipboard (as backup/helper)
+        let accountCopied = false;
+        try {
+          if (Platform.OS === 'web' && navigator.clipboard) {
+            await navigator.clipboard.writeText(cleanPhone);
+            accountCopied = true;
+          } else {
+            try {
+              const Clipboard = await import('expo-clipboard');
+              await Clipboard.setStringAsync(cleanPhone);
+              accountCopied = true;
+            } catch (e1) {
+              console.warn('Could not copy to clipboard');
+            }
+          }
+        } catch (clipboardError) {
+          console.warn('Clipboard error:', clipboardError);
+        }
+
+        if (!appOpened) {
+          // App failed to open - show instructions
+          Alert.alert(
+            `${methodName} Not Available`,
+            `${methodName} app is not installed or could not be opened.\n\n${accountCopied ? '📋 Account number is copied to your clipboard.\n\n' : ''}Please install ${methodName} from the App Store or Google Play, or use the account number manually.\n\n📋 Account: ${account.accountNumber}\n💰 Amount: ₱${amount.toLocaleString()}\n📝 Reference: ${reference}`,
+            [
+              { 
+                text: 'Copy Account Number', 
+                onPress: async () => {
+                  try {
+                    if (Platform.OS === 'web' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(cleanPhone);
+                    } else {
+                      try {
+                        const Clipboard = await import('expo-clipboard');
+                        await Clipboard.setStringAsync(cleanPhone);
+                      } catch (e) {
+                        Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                      }
+                    }
+                  } catch (e) {
+                    Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                  }
+                }
+              },
+              { text: 'OK' },
+            ]
+          );
+        }
+      } else {
+        // For bank transfer or cash: Just copy account number
+        let accountCopied = false;
+        try {
+          if (Platform.OS === 'web' && navigator.clipboard) {
+            await navigator.clipboard.writeText(cleanPhone);
+            accountCopied = true;
+          } else {
+            try {
+              const Clipboard = await import('expo-clipboard');
+              await Clipboard.setStringAsync(cleanPhone);
+              accountCopied = true;
+            } catch (e1) {
+              console.warn('Could not copy to clipboard');
+            }
+          }
+        } catch (clipboardError) {
+          console.warn('Clipboard error:', clipboardError);
+        }
+
+        // Show confirmation alert
+        Alert.alert(
+          `${methodName} Payment`,
+          `${accountCopied ? 'Account number copied to clipboard!\n\n' : ''}📋 Account: ${account.accountNumber}\n💰 Amount: ₱${amount.toLocaleString()}\n📝 Reference: ${reference}\n\nAfter completing payment, tap "I Paid" to record it.`,
+          [
+            { text: 'Copy Amount', onPress: async () => {
+              try {
+                if (Platform.OS === 'web' && navigator.clipboard) {
+                  await navigator.clipboard.writeText(amount.toString());
+                } else {
+                  try {
+                    const Clipboard = await import('expo-clipboard');
+                    await Clipboard.setStringAsync(amount.toString());
+                  } catch (e) {
+                    console.warn('Failed to copy amount to clipboard:', e);
+                    Alert.alert('Amount', `₱${amount.toLocaleString()}`);
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to copy amount:', e);
+                Alert.alert('Amount', `₱${amount.toLocaleString()}`);
+              }
+            }},
+            { text: 'I Paid', onPress: () => {
+              const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
+              setSelectedPaymentMethod(paymentMethodName);
+              
+              // If this is for a single payment (not advanced), automatically confirm
+              if (selectedPayment && !showAdvancedPayment) {
+                setTimeout(async () => {
+                  try {
+                    const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+                    if (success) {
+                      Alert.alert('Success', 'Payment recorded successfully!');
+                      setShowPaymentModal(false);
+                      setSelectedPayment(null);
+                      setSelectedPaymentMethod(null);
+                      await loadDashboardData();
+                    }
+                  } catch (error) {
+                    console.error('Error confirming payment:', error);
+                  }
+                }, 300);
+              }
+            }},
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error handling payment method:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      Alert.alert(
+        'Payment Error',
+        `Unable to process payment: ${errorMessage}\n\nPlease try again.`,
+        [{ text: 'OK' }]
+      );
+    }
+  }, [selectedPayment, selectedAdvancedPayments, futurePayments, activeBooking, loadDashboardData]);
+
+  const handleConfirmPayment = useCallback(async () => {
+    if (!selectedPayment) return;
+
+    // If no payment method selected, show payment method selection
+    if (!selectedPaymentMethod && ownerPaymentAccounts.length > 0) {
+      Alert.alert('Select Payment Method', 'Please select a payment method first.');
+      return;
+    }
+
+    try {
+      const paymentMethodName = selectedPaymentMethod || 'Manual Payment';
+      
+      const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+      
+      if (success) {
+        Alert.alert('Success', 'Payment recorded successfully!');
+        setShowPaymentModal(false);
+        setSelectedPayment(null);
+        setSelectedPaymentMethod(null);
+        
+        // Reload data
+        await loadDashboardData();
+      } else {
+        Alert.alert('Error', 'Failed to record payment. Please try again.');
+      }
+    } catch (error) {
+      console.error('❌ Error confirming payment:', error);
+      Alert.alert('Error', 'Failed to record payment. Please try again.');
+    }
+  }, [selectedPayment, selectedPaymentMethod, ownerPaymentAccounts, loadDashboardData]);
+
+  const handleAdvancedPayment = useCallback(async () => {
+    if (selectedAdvancedPayments.size === 0) {
+      Alert.alert('No Selection', 'Please select at least one month to pay in advance.');
+      return;
+    }
+
+    // If no payment method selected and owner has payment accounts, show selection
+    if (!selectedPaymentMethod && ownerPaymentAccounts.length > 0) {
+      setShowPaymentMethodSelection(true);
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      let failCount = 0;
+      const paymentMethodName = selectedPaymentMethod || 'Advanced Payment';
+
+      for (const paymentId of selectedAdvancedPayments) {
+        const payment = futurePayments.find(p => p.id === paymentId);
+        if (payment) {
+          // Save payment to database if it doesn't exist yet (check if it's already in DB)
+          try {
+            const existing = await db.get('rent_payments', payment.id);
+            if (!existing) {
+              await db.upsert('rent_payments', payment.id, payment);
+            }
+          } catch (dbError) {
+            // Payment doesn't exist, create it
+            await db.upsert('rent_payments', payment.id, payment);
+          }
+          
+          const success = await markRentPaymentAsPaid(payment.id, paymentMethodName);
+          if (success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        }
+      }
+
+      if (successCount > 0) {
+        Alert.alert(
+          'Success',
+          `Successfully paid for ${successCount} month${successCount > 1 ? 's' : ''} in advance!${failCount > 0 ? `\n\n${failCount} payment${failCount > 1 ? 's' : ''} failed.` : ''}`
+        );
+        setShowAdvancedPayment(false);
+        setSelectedAdvancedPayments(new Set());
+        setSelectedPaymentMethod(null);
+        
+        // Reload data
+        await loadDashboardData();
+      } else {
+        Alert.alert('Error', 'Failed to process advanced payments. Please try again.');
+      }
+    } catch (error) {
+      console.error('❌ Error processing advanced payments:', error);
+      Alert.alert('Error', 'Failed to process advanced payments. Please try again.');
+    }
+  }, [selectedAdvancedPayments, futurePayments, selectedPaymentMethod, ownerPaymentAccounts, loadDashboardData]);
+
+  const handleViewReceipt = useCallback((payment: RentPayment) => {
+    if (!activeBooking) return;
+
+    const receipt = generatePaymentReceipt(payment, activeBooking);
+    setSelectedReceipt(receipt);
+    setShowReceiptModal(true);
+  }, [activeBooking]);
+
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={sharedStyles.container} edges={['bottom', 'left', 'right']}>
+        <View style={sharedStyles.loadingContainer}>
+          <ActivityIndicator size="large" color={designTokens.colors.primary} />
+          <Text style={sharedStyles.loadingText}>Loading dashboard...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!activeBooking) {
+    return null; // Will redirect
+  }
+
+  const nextDueDays = rentHistory?.nextDueDate 
+    ? Math.ceil((new Date(rentHistory.nextDueDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  const isNextDueOverdue = rentHistory?.nextDueDate 
+    ? isPaymentOverdue(rentHistory.nextDueDate)
+    : false;
+
+  // Calculate next month's payment date - exactly 1 month after current due date
+  // Payments are monthly and due on the same day of month as move-in date
+  // Skips months that are already paid (for advance payments)
+  const getNextMonthPaymentDate = () => {
+    if (!activeBooking?.startDate || !rentHistory?.nextDueDate) return null;
+    
+    // Get the day of the month from the start date (when tenant moved in)
+    const startDate = new Date(activeBooking.startDate);
+    const moveInDay = startDate.getDate();
+    
+    // Get the current next due date
+    const currentDueDate = new Date(rentHistory.nextDueDate);
+    
+    // Start from 1 month after current due date
+    let nextMonth = new Date(currentDueDate);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    
+    // Ensure it's on the same day of month as move-in date
+    // Handle edge cases where the day doesn't exist in the target month (e.g., Jan 31 -> Feb 28/29)
+    const lastDayOfTargetMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
+    const targetDay = Math.min(moveInDay, lastDayOfTargetMonth);
+    nextMonth.setDate(targetDay);
+    
+    // Check if this month's payment is already paid, and skip to next unpaid month
+    // Limit to checking up to 12 months ahead to avoid infinite loops
+    let attempts = 0;
+    const maxAttempts = 12;
+    
+    while (attempts < maxAttempts) {
+      // Format the payment month as YYYY-MM
+      const paymentMonth = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Check if this month's payment exists and is already paid
+      const existingPayment = rentHistory?.payments?.find(
+        p => p.paymentMonth === paymentMonth && p.status === 'paid'
+      );
+      
+      // If payment doesn't exist or is not paid, this is the next unpaid month
+      if (!existingPayment) {
+        return nextMonth;
+      }
+      
+      // Payment is already paid, skip to next month
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+      
+      // Recalculate the day of month for the new month
+      const newLastDayOfMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
+      const newTargetDay = Math.min(moveInDay, newLastDayOfMonth);
+      nextMonth.setDate(newTargetDay);
+      
+      attempts++;
+    }
+    
+    // If we've checked 12 months and all are paid, return the last calculated date
+    // (This shouldn't normally happen, but prevents infinite loops)
+    return nextMonth;
+  };
+
+  const nextMonthPaymentDate = getNextMonthPaymentDate();
+  const daysUntilNextMonth = nextMonthPaymentDate 
+    ? Math.ceil((nextMonthPaymentDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  const formatDateDetailed = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return {
+        day: date.getDate(),
+        month: date.toLocaleDateString('en-US', { month: 'long' }),
+        year: date.getFullYear(),
+        full: date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        }),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 18) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+
+  return (
+    <SafeAreaView style={sharedStyles.container} edges={['bottom', 'left', 'right']}>
+      <ScrollView
+        style={sharedStyles.scrollView}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Compact Header with Profile */}
+        <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.md, paddingBottom: designTokens.spacing.sm }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+            <TouchableOpacity
+              onPress={() => setShowProfileModal(true)}
+              activeOpacity={0.7}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                overflow: 'hidden',
+                borderWidth: 2,
+                borderColor: designTokens.colors.primary,
+                backgroundColor: designTokens.colors.white,
+              }}
+            >
+              {profilePhoto && !profilePhotoError ? (
+                <Image
+                  source={{ uri: profilePhoto }}
+                  style={{ width: '100%', height: '100%' }}
+                  onError={() => setProfilePhotoError(true)}
+                />
+              ) : (
+                <View style={{
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: designTokens.colors.primary + '20',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <User size={20} color={designTokens.colors.primary} />
+                </View>
+              )}
+            </TouchableOpacity>
+            
+            <View style={{ flex: 1, flexShrink: 1 }}>
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                fontWeight: designTokens.typography.medium,
+                color: designTokens.colors.textSecondary,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                marginBottom: 2,
+              }}>
+                {getGreeting()}
+              </Text>
+              <Text style={{
+                fontSize: designTokens.typography.lg,
+                fontWeight: designTokens.typography.bold,
+                color: designTokens.colors.textPrimary,
+                flexShrink: 1,
+              }} numberOfLines={1}>
+                {user?.name || 'Tenant'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Compact Payment Notification Banner */}
+        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
+          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+            <LinearGradient
+              colors={isNextDueOverdue ? designTokens.gradients.error || ['#DC2626', '#EF4444'] : designTokens.gradients.primary}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[sharedStyles.cardModern, { marginBottom: designTokens.spacing.md, padding: designTokens.spacing.md }]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: designTokens.spacing.sm }}>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+                  <View style={[sharedStyles.statIcon, { backgroundColor: 'rgba(255, 255, 255, 0.2)', width: 36, height: 36 }]}>
+                    <Bell size={18} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      fontWeight: designTokens.typography.medium,
+                      color: '#FFFFFF',
+                      marginBottom: 2,
+                    }}>
+                      {isNextDueOverdue 
+                        ? `Overdue - ${getDaysOverdue(rentHistory.nextDueDate)} days`
+                        : nextDueDays <= 7 
+                          ? `Due in ${nextDueDays} day${nextDueDays !== 1 ? 's' : ''}`
+                          : 'Upcoming Payment'}
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xl,
+                      fontWeight: designTokens.typography.bold,
+                      color: '#FFFFFF',
+                      marginBottom: 2,
+                    }}>
+                      ₱{rentHistory.nextDueAmount.toLocaleString()}
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: 'rgba(255, 255, 255, 0.9)',
+                    }}>
+                      {formatDateDetailed(rentHistory.nextDueDate)?.full}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[sharedStyles.primaryButton, { backgroundColor: 'rgba(255, 255, 255, 0.2)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.3)', paddingVertical: 10, paddingHorizontal: 16 }]}
+                  onPress={handlePayRent}
+                  activeOpacity={0.8}
+                >
+                  <Coins size={16} color="#FFFFFF" />
+                  <Text style={[sharedStyles.primaryButtonText, { color: '#FFFFFF', fontSize: 14 }]}>Pay</Text>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
+        )}
+
+        {/* Compact Property Information Card */}
+        <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+          <View style={sharedStyles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
+              <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 32, height: 32 }]}>
+                <Home size={16} color="#3B82F6" />
+              </View>
+              <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Property</Text>
+            </View>
+            <View>
+              <Text style={{
+                fontSize: designTokens.typography.base,
+                fontWeight: designTokens.typography.bold,
+                color: designTokens.colors.textPrimary,
+                marginBottom: 4,
+              }}>{activeBooking.propertyTitle}</Text>
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                color: designTokens.colors.textSecondary,
+                marginBottom: designTokens.spacing.sm,
+              }} numberOfLines={1}>{activeBooking.propertyAddress}</Text>
+              
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, marginBottom: 4 }}>
+                <Calendar size={14} color={designTokens.colors.textSecondary} />
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textSecondary,
+                }}>
+                  {formatDate(activeBooking.startDate)}
+                </Text>
+                <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary, marginLeft: designTokens.spacing.sm }}>
+                  • {activeBooking.ownerName}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[sharedStyles.primaryButton, { marginTop: designTokens.spacing.sm, paddingVertical: 10 }]}
+                onPress={handleMessageOwner}
+                activeOpacity={0.8}
+              >
+                <MessageSquare size={16} color="#FFFFFF" />
+                <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Message Owner</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Compact Maintenance Requests */}
+        <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+          <View style={sharedStyles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 32, height: 32 }]}>
+                  <Wrench size={16} color="#3B82F6" />
+                </View>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Maintenance Requests</Text>
+              </View>
+              {pendingMaintenanceCount > 0 && (
+                <View style={{
+                  backgroundColor: designTokens.colors.warning,
+                  borderRadius: 12,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    fontWeight: designTokens.typography.bold,
+                    color: '#FFFFFF',
+                  }}>
+                    {pendingMaintenanceCount}
+                  </Text>
+                </View>
+              )}
+            </View>
+            
+            <View style={{ gap: designTokens.spacing.sm }}>
+              {maintenanceRequests.length > 0 ? (
+                <>
+                  {maintenanceRequests.slice(0, 3).map((request) => (
+                    <TouchableOpacity
+                      key={request.id}
+                      onPress={() => {
+                        setSelectedMaintenanceRequest(request);
+                        setShowMaintenanceDetailModal(true);
+                      }}
+                      activeOpacity={0.7}
+                      style={[sharedStyles.listItem, { marginBottom: 0, paddingVertical: 10 }]}
+                    >
+                      <View style={[sharedStyles.listItemIcon, 
+                        request.status === 'resolved' ? iconBackgrounds.green :
+                        request.status === 'cancelled' ? iconBackgrounds.red :
+                        request.status === 'in_progress' ? iconBackgrounds.blue :
+                        request.priority === 'urgent' ? iconBackgrounds.red :
+                        iconBackgrounds.orange,
+                        { width: 28, height: 28 }
+                      ]}>
+                        {request.status === 'resolved' ? (
+                          <CheckCircle size={16} color="#10B981" />
+                        ) : request.status === 'cancelled' ? (
+                          <XCircle size={16} color="#EF4444" />
+                        ) : request.status === 'in_progress' ? (
+                          <Clock size={16} color="#3B82F6" />
+                        ) : (
+                          <AlertCircle size={16} color={request.priority === 'urgent' ? "#EF4444" : "#F59E0B"} />
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold,
+                          color: designTokens.colors.textPrimary,
+                          marginBottom: 2,
+                        }} numberOfLines={1}>
+                          {request.title}
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: designTokens.colors.textSecondary,
+                        }}>
+                          {request.category.replace('_', ' ')} • {request.priority}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: request.status === 'resolved' ? designTokens.colors.success :
+                                 request.status === 'cancelled' ? designTokens.colors.error :
+                                 request.status === 'in_progress' ? designTokens.colors.info :
+                                 designTokens.colors.warning,
+                          fontWeight: designTokens.typography.medium,
+                          textTransform: 'capitalize',
+                        }}>
+                          {request.status.replace('_', ' ')}
+                        </Text>
+                        {(request.status === 'pending' || request.status === 'in_progress') && (
+                          <TouchableOpacity
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleCancelMaintenanceRequest(request.id);
+                            }}
+                            disabled={cancellingRequest === request.id}
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              backgroundColor: designTokens.colors.errorLight,
+                              borderRadius: 6,
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            {cancellingRequest === request.id ? (
+                              <ActivityIndicator size="small" color={designTokens.colors.error} />
+                            ) : (
+                              <Text style={{
+                                fontSize: designTokens.typography.xs,
+                                color: designTokens.colors.error,
+                                fontWeight: designTokens.typography.semibold,
+                              }}>
+                                Cancel
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                  {maintenanceRequests.length > 3 && (
+                    <TouchableOpacity
+                      onPress={() => setShowMaintenanceHistory(true)}
+                      style={{
+                        padding: designTokens.spacing.sm,
+                        alignItems: 'center',
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.primary,
+                        fontWeight: designTokens.typography.semibold,
+                      }}>
+                        View All {maintenanceRequests.length} Request{maintenanceRequests.length > 1 ? 's' : ''} →
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  textAlign: 'center',
+                  paddingVertical: designTokens.spacing.md,
+                }}>
+                  No maintenance requests yet
+                </Text>
+              )}
+              
+              <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.xs }}>
+                <TouchableOpacity
+                  style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: 10 }]}
+                  onPress={() => setShowMaintenanceModal(true)}
+                  activeOpacity={0.8}
+                >
+                  <Plus size={16} color="#FFFFFF" />
+                  <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Report Issue</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[sharedStyles.secondaryButton, { flex: 1, paddingVertical: 10 }]}
+                  onPress={() => setShowMaintenanceHistory(true)}
+                  activeOpacity={0.8}
+                >
+                  <FileText size={16} color={designTokens.colors.info} />
+                  <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>History</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={[sharedStyles.secondaryButton, { paddingVertical: 10 }]}
+                onPress={handleMessageOwner}
+                activeOpacity={0.8}
+              >
+                <MessageSquare size={16} color={designTokens.colors.info} />
+                <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>Chat Owner</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Compact Payment Reminders */}
+        {reminders.length > 0 && (
+          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+            <View style={sharedStyles.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { width: 32, height: 32 }]}>
+                  <Bell size={16} color="#F59E0B" />
+                </View>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Reminders</Text>
+              </View>
+              <View style={{ gap: designTokens.spacing.sm }}>
+                {reminders.map((reminder) => (
+                  <View key={reminder.id} style={[sharedStyles.listItem, { marginBottom: 0, paddingVertical: 10 }]}>
+                    <View style={[sharedStyles.listItemIcon, reminder.type === 'overdue' ? iconBackgrounds.red : iconBackgrounds.orange, { width: 28, height: 28 }]}>
+                      {reminder.type === 'overdue' ? (
+                        <AlertCircle size={16} color="#EF4444" />
+                      ) : (
+                        <Clock size={16} color="#F59E0B" />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold,
+                        color: designTokens.colors.textPrimary,
+                        marginBottom: 2,
+                      }}>{reminder.message}</Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        {formatDate(reminder.dueDate)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Compact Payment Details Card */}
+        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
+          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+            <View style={[
+              sharedStyles.card,
+              isNextDueOverdue && { borderWidth: 2, borderColor: designTokens.colors.error }
+            ]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                <View style={[sharedStyles.statIcon, isNextDueOverdue ? iconBackgrounds.red : iconBackgrounds.green, { width: 32, height: 32 }]}>
+                  <CreditCard size={16} color={isNextDueOverdue ? "#EF4444" : "#10B981"} />
+                </View>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Payment Details</Text>
+              </View>
+              <View>
+                <View style={sharedStyles.grid}>
+                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Amount Due</Text>
+                    <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base }]}>
+                      ₱{rentHistory.nextDueAmount.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Due Date</Text>
+                    <Text style={[sharedStyles.statValue, isNextDueOverdue && { color: designTokens.colors.error }, { fontSize: designTokens.typography.sm }]}>
+                      {formatDate(rentHistory.nextDueDate)}
+                    </Text>
+                  </View>
+                  {nextMonthPaymentDate && (
+                    <View style={[sharedStyles.gridItem, { width: '100%', marginTop: designTokens.spacing.xs }]}>
+                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Next Month</Text>
+                      <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.sm }]}>
+                        {formatDate(nextMonthPaymentDate.toISOString().split('T')[0])}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                
+                {isNextDueOverdue && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: designTokens.spacing.xs,
+                    backgroundColor: designTokens.colors.errorLight,
+                    padding: designTokens.spacing.sm,
+                    borderRadius: designTokens.borderRadius.md,
+                    marginTop: designTokens.spacing.sm,
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <AlertCircle size={16} color="#EF4444" style={{ marginTop: 2 }} />
+                    <Text style={{
+                      flex: 1,
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.error,
+                      lineHeight: 16,
+                    }}>
+                      {getDaysOverdue(rentHistory.nextDueDate)} days overdue. Pay immediately to avoid late fees.
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                  <TouchableOpacity
+                    style={[sharedStyles.primaryButton, isNextDueOverdue && { backgroundColor: designTokens.colors.error }, { flex: 1, paddingVertical: 10 }]}
+                    onPress={handlePayRent}
+                    activeOpacity={0.8}
+                  >
+                    <Coins size={16} color="#FFFFFF" />
+                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Pay Now</Text>
+                  </TouchableOpacity>
+
+                  {/* PayMongo Payment Button */}
+                  <TouchableOpacity
+                    style={[sharedStyles.secondaryButton, { flex: 1, paddingVertical: 10 }]}
+                    onPress={async () => {
+                      try {
+                        console.log('💳 PayMongo button clicked');
+                        
+                        if (!rentHistory?.nextDueDate || !rentHistory?.nextDueAmount) {
+                          Alert.alert('Error', 'Payment information not available. Please refresh and try again.');
+                          return;
+                        }
+                        
+                        if (!activeBooking) {
+                          Alert.alert('Error', 'Booking information not found.');
+                          return;
+                        }
+                        
+                        const pendingPayment = rentHistory.payments.find(
+                          p => p.dueDate === rentHistory.nextDueDate && p.status === 'pending'
+                        );
+                        
+                        if (!pendingPayment) {
+                          Alert.alert('Error', 'No pending payment found. Please refresh and try again.');
+                          return;
+                        }
+                        
+                        setSelectedPayment(pendingPayment);
+                        await handlePayWithPayMongo();
+                      } catch (error) {
+                        console.error('Error in PayMongo button handler:', error);
+                        Alert.alert('Error', 'Failed to process payment. Please try again.');
+                      }
+                    }}
+                    disabled={processingPayMongo}
+                    activeOpacity={0.8}
+                  >
+                    {processingPayMongo ? (
+                      <ActivityIndicator size="small" color={designTokens.colors.primary} />
+                    ) : (
+                      <>
+                        <CreditCard size={16} color={designTokens.colors.info} />
+                        <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 12 }]}>PayMongo</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* Advanced Payment Button */}
+                {futurePayments.length > 0 && (
+                  <TouchableOpacity
+                    style={[sharedStyles.secondaryButton, { marginTop: designTokens.spacing.xs, paddingVertical: 10 }]}
+                    onPress={() => setShowAdvancedPayment(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Calendar size={16} color={designTokens.colors.info} />
+                    <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>Pay in Advance</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Compact Rent History */}
+        {rentHistory && rentHistory.payments.length > 0 && (
+          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.lg }]}>
+            <View style={sharedStyles.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 32, height: 32 }]}>
+                  <FileText size={16} color="#3B82F6" />
+                </View>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Rent History</Text>
+              </View>
+              <View>
+                {/* Summary */}
+                <View style={sharedStyles.grid}>
+                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Total Paid</Text>
+                    <Text style={[sharedStyles.statValue, { color: designTokens.colors.success, fontSize: designTokens.typography.base }]}>
+                      ₱{rentHistory.totalPaid.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Pending</Text>
+                    <Text style={[sharedStyles.statValue, { color: designTokens.colors.warning, fontSize: designTokens.typography.base }]}>
+                      ₱{rentHistory.totalPending.toLocaleString()}
+                    </Text>
+                  </View>
+                  {rentHistory.totalOverdue > 0 && (
+                    <>
+                      <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                        <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Overdue</Text>
+                        <Text style={[sharedStyles.statValue, { color: designTokens.colors.error, fontSize: designTokens.typography.base }]}>
+                          ₱{rentHistory.totalOverdue.toLocaleString()}
+                        </Text>
+                      </View>
+                      {rentHistory.totalLateFees > 0 && (
+                        <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                          <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Late Fees</Text>
+                          <Text style={[sharedStyles.statValue, { color: designTokens.colors.error, fontSize: designTokens.typography.base }]}>
+                            ₱{rentHistory.totalLateFees.toLocaleString()}
+                          </Text>
+                        </View>
+                      )}
+                    </>
+                  )}
+                </View>
+
+                {/* Payment List */}
+                <View style={{ gap: designTokens.spacing.sm, marginTop: designTokens.spacing.md }}>
+                  {rentHistory.payments.map((payment) => (
+                    <TouchableOpacity
+                      key={payment.id}
+                      style={[sharedStyles.listItem, { marginBottom: 0, paddingVertical: 10 }]}
+                      onPress={() => payment.status === 'paid' && handleViewReceipt(payment)}
+                      activeOpacity={payment.status === 'paid' ? 0.7 : 1}
+                    >
+                      <View style={[sharedStyles.listItemIcon, 
+                        payment.status === 'paid' ? iconBackgrounds.green :
+                        payment.status === 'overdue' ? iconBackgrounds.red :
+                        iconBackgrounds.orange,
+                        { width: 28, height: 28 }
+                      ]}>
+                        {payment.status === 'paid' ? (
+                          <CheckCircle size={16} color="#10B981" />
+                        ) : payment.status === 'overdue' ? (
+                          <XCircle size={16} color="#EF4444" />
+                        ) : (
+                          <Clock size={16} color="#F59E0B" />
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold,
+                          color: designTokens.colors.textPrimary,
+                          marginBottom: 2,
+                        }}>
+                          {new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                          })}
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: designTokens.colors.textSecondary,
+                        }}>
+                          {formatDate(payment.dueDate)}
+                          {payment.paidDate && ` • ${formatDate(payment.paidDate)}`}
+                        </Text>
+                        {payment.lateFee > 0 && (
+                          <Text style={{
+                            fontSize: designTokens.typography.xs,
+                            color: designTokens.colors.error,
+                            marginTop: 2,
+                          }}>
+                            +₱{payment.lateFee.toLocaleString()} late fee
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.bold,
+                          color: payment.status === 'paid' ? designTokens.colors.success :
+                                 payment.status === 'overdue' ? designTokens.colors.error :
+                                 designTokens.colors.textPrimary,
+                        }}>
+                          ₱{payment.totalAmount.toLocaleString()}
+                        </Text>
+                        {payment.status === 'paid' && (
+                          <ChevronRight size={14} color={designTokens.colors.textSecondary} />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Payment Confirmation Modal */}
+      <Modal
+        visible={showPaymentModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowPaymentModal(false);
+          setSelectedPaymentMethod(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Confirm Payment</Text>
+              <TouchableOpacity onPress={() => {
+                setShowPaymentModal(false);
+                setSelectedPaymentMethod(null);
+              }}>
+                <XCircle size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            {selectedPayment && (
+              <ScrollView style={styles.modalBody}>
+                <Text style={styles.modalText}>
+                  Select payment method and confirm your payment
+                </Text>
+                <View style={styles.modalPaymentDetails}>
+                  <Text style={styles.modalPaymentLabel}>Amount:</Text>
+                  <Text style={styles.modalPaymentValue}>
+                    ₱{selectedPayment.totalAmount.toLocaleString()}
+                  </Text>
+                </View>
+                {selectedPayment.lateFee > 0 && (
+                  <View style={styles.modalPaymentDetails}>
+                    <Text style={styles.modalPaymentLabel}>Late Fee:</Text>
+                    <Text style={styles.modalPaymentValue}>
+                      ₱{selectedPayment.lateFee.toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.modalPaymentDetails}>
+                  <Text style={styles.modalPaymentLabel}>Due Date:</Text>
+                  <Text style={styles.modalPaymentValue}>
+                    {formatDate(selectedPayment.dueDate)}
+                  </Text>
+                </View>
+
+                {/* Owner Payment Methods */}
+                {ownerPaymentAccounts.length > 0 && (
+                  <View style={styles.paymentMethodsSection}>
+                    <Text style={styles.paymentMethodsTitle}>Payment Method</Text>
+                    <View style={styles.paymentMethodsList}>
+                      {ownerPaymentAccounts.map((account) => {
+                        const isSelected = selectedPaymentMethod === `${account.type} - ${account.accountNumber.slice(-4)}`;
+                        const methodName = account.type === 'gcash' ? 'GCash' : 
+                                          account.type === 'paymaya' ? 'Maya' :
+                                          account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
+                        const methodIcon = account.type === 'gcash' ? '📱' : 
+                                          account.type === 'paymaya' ? '💳' :
+                                          account.type === 'bank_transfer' ? '🏦' : '💵';
+                        
+                        return (
+                          <View key={account.id}>
+                            <TouchableOpacity
+                              style={[
+                                styles.paymentMethodOption,
+                                isSelected && styles.paymentMethodOptionSelected
+                              ]}
+                              onPress={() => handlePaymentMethodAction(account)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.paymentMethodLeft}>
+                                <Text style={styles.paymentMethodIcon}>{methodIcon}</Text>
+                                <View style={styles.paymentMethodInfo}>
+                                  <Text style={styles.paymentMethodName}>{methodName}</Text>
+                                  <Text style={styles.paymentMethodAccount}>
+                                    {account.accountName} • {account.accountNumber}
+                                  </Text>
+                                </View>
+                              </View>
+                              {(account.type === 'gcash' || account.type === 'paymaya') && (
+                                <View style={styles.paymentMethodAction}>
+                                  <Text style={styles.paymentMethodActionText}>Pay</Text>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                            {isSelected && (
+                              <View style={styles.paymentMethodSelectedIndicator}>
+                                <CheckCircle size={16} color="#10B981" />
+                                <Text style={styles.paymentMethodSelectedText}>
+                                  Selected - Tap "Confirm Payment" to record
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })}
+                      
+                      {/* PayMongo Payment Option */}
+                      <TouchableOpacity
+                        style={[
+                          styles.paymentMethodOption,
+                          selectedPaymentMethod === 'paymongo' && styles.paymentMethodOptionSelected
+                        ]}
+                        onPress={async () => {
+                          try {
+                            if (!activeBooking || !rentHistory?.nextDueAmount) {
+                              Alert.alert('Error', 'Payment information not available.');
+                              return;
+                            }
+                            
+                            setSelectedPaymentMethod('paymongo');
+                            setProcessingPayMongo(true);
+                            const reference = activeBooking.id.slice(-8).toUpperCase();
+                            const { createPayMongoPaymentUrl } = await import('../../utils/paymongo-webview-handler');
+                            const url = await createPayMongoPaymentUrl(
+                              rentHistory.nextDueAmount,
+                              `Rent payment for ${activeBooking.propertyTitle}`,
+                              reference,
+                              undefined,
+                              undefined,
+                              activeBooking.id
+                            );
+                            setPayMongoUrl(url);
+                            setShowPayMongoModal(true);
+                            setShowPaymentModal(false);
+                          } catch (error) {
+                            console.error('Error creating PayMongo payment:', error);
+                            Alert.alert('Error', 'Failed to create payment. Please try again.');
+                          } finally {
+                            setProcessingPayMongo(false);
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.paymentMethodLeft}>
+                          <Text style={styles.paymentMethodIcon}>💳</Text>
+                          <View style={styles.paymentMethodInfo}>
+                            <Text style={styles.paymentMethodName}>PayMongo GCash</Text>
+                            <Text style={styles.paymentMethodAccount}>
+                              Secure payment via PayMongo
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.paymentMethodAction}>
+                          <Text style={styles.paymentMethodActionText}>Pay</Text>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {ownerPaymentAccounts.length === 0 && (
+                  <View style={styles.noPaymentMethods}>
+                    <Text style={styles.noPaymentMethodsText}>
+                      Owner has not set up payment methods. Please contact the owner for payment instructions.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setShowPaymentModal(false);
+                  setSelectedPaymentMethod(null);
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton, 
+                  styles.modalButtonConfirm,
+                  ownerPaymentAccounts.length > 0 && !selectedPaymentMethod && styles.modalButtonDisabled
+                ]}
+                onPress={handleConfirmPayment}
+                disabled={ownerPaymentAccounts.length > 0 && !selectedPaymentMethod}
+              >
+                <Text style={styles.modalButtonConfirmText}>Confirm Payment</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Advanced Payment Modal */}
+      <Modal
+        visible={showAdvancedPayment}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowAdvancedPayment(false);
+          setSelectedAdvancedPayments(new Set());
+          setSelectedPaymentMethod(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.advancedPaymentModalContent]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pay in Advance</Text>
+              <TouchableOpacity onPress={() => {
+                setShowAdvancedPayment(false);
+                setSelectedAdvancedPayments(new Set());
+                setSelectedPaymentMethod(null);
+              }}>
+                <XCircle size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.advancedPaymentScrollView}>
+              <Text style={styles.advancedPaymentModalDescription}>
+                Select the months you want to pay in advance. You can pay up to 6 months ahead.
+              </Text>
+              
+              <View style={styles.advancedPaymentList}>
+                {futurePayments.map((payment) => {
+                  const isSelected = selectedAdvancedPayments.has(payment.id);
+                  const monthName = new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                  });
+                  
+                  return (
+                    <TouchableOpacity
+                      key={payment.id}
+                      style={[
+                        styles.advancedPaymentModalItem,
+                        isSelected && styles.advancedPaymentModalItemSelected
+                      ]}
+                      onPress={() => {
+                        const newSet = new Set(selectedAdvancedPayments);
+                        if (isSelected) {
+                          newSet.delete(payment.id);
+                        } else {
+                          newSet.add(payment.id);
+                        }
+                        setSelectedAdvancedPayments(newSet);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.advancedPaymentModalLeft}>
+                        <View style={[
+                          styles.advancedPaymentModalCheckbox,
+                          isSelected && styles.advancedPaymentModalCheckboxSelected
+                        ]}>
+                          {isSelected && <CheckCircle size={18} color="#FFFFFF" />}
+                        </View>
+                        <View style={styles.advancedPaymentModalInfo}>
+                          <Text style={styles.advancedPaymentModalMonth}>{monthName}</Text>
+                          <Text style={styles.advancedPaymentModalDate}>
+                            Due: {formatDate(payment.dueDate)}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.advancedPaymentModalAmount}>
+                        ₱{payment.totalAmount.toLocaleString()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {selectedAdvancedPayments.size > 0 && (
+                <View style={styles.advancedPaymentModalSummary}>
+                  <View style={styles.advancedPaymentModalSummaryRow}>
+                    <Text style={styles.advancedPaymentModalSummaryLabel}>
+                      Selected: {selectedAdvancedPayments.size} month{selectedAdvancedPayments.size > 1 ? 's' : ''}
+                    </Text>
+                    <Text style={styles.advancedPaymentModalSummaryAmount}>
+                      ₱{futurePayments
+                        .filter(p => selectedAdvancedPayments.has(p.id))
+                        .reduce((sum, p) => sum + p.totalAmount, 0)
+                        .toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Owner Payment Methods */}
+              {ownerPaymentAccounts.length > 0 && (
+                <View style={styles.paymentMethodsSection}>
+                  <Text style={styles.paymentMethodsTitle}>Payment Method</Text>
+                  <View style={styles.paymentMethodsList}>
+                    {ownerPaymentAccounts.map((account) => {
+                      const isSelected = selectedPaymentMethod === `${account.type === 'gcash' ? 'GCash' : account.type === 'paymaya' ? 'Maya' : account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash'} - ${account.accountNumber.slice(-4)}`;
+                      const methodName = account.type === 'gcash' ? 'GCash' : 
+                                        account.type === 'paymaya' ? 'Maya' :
+                                        account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
+                      const methodIcon = account.type === 'gcash' ? '📱' : 
+                                        account.type === 'paymaya' ? '💳' :
+                                        account.type === 'bank_transfer' ? '🏦' : '💵';
+                      
+                      return (
+                        <View key={account.id}>
+                          <TouchableOpacity
+                            style={[
+                              styles.paymentMethodOption,
+                              isSelected && styles.paymentMethodOptionSelected
+                            ]}
+                            onPress={() => handlePaymentMethodAction(account)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.paymentMethodLeft}>
+                              <Text style={styles.paymentMethodIcon}>{methodIcon}</Text>
+                              <View style={styles.paymentMethodInfo}>
+                                <Text style={styles.paymentMethodName}>{methodName}</Text>
+                                <Text style={styles.paymentMethodAccount}>
+                                  {account.accountName} • {account.accountNumber}
+                                </Text>
+                              </View>
+                            </View>
+                            {(account.type === 'gcash' || account.type === 'paymaya') && (
+                              <View style={styles.paymentMethodAction}>
+                                <Text style={styles.paymentMethodActionText}>Pay</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                          {isSelected && (
+                            <View style={styles.paymentMethodSelectedIndicator}>
+                              <CheckCircle size={16} color="#10B981" />
+                              <Text style={styles.paymentMethodSelectedText}>
+                                Selected - Tap "Pay X Months" to confirm
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {ownerPaymentAccounts.length === 0 && (
+                <View style={styles.noPaymentMethods}>
+                  <Text style={styles.noPaymentMethodsText}>
+                    Owner has not set up payment methods. Please contact the owner for payment instructions.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setShowAdvancedPayment(false);
+                  setSelectedAdvancedPayments(new Set());
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  styles.modalButtonConfirm,
+                  (selectedAdvancedPayments.size === 0 || (ownerPaymentAccounts.length > 0 && !selectedPaymentMethod)) && styles.modalButtonDisabled
+                ]}
+                onPress={handleAdvancedPayment}
+                disabled={selectedAdvancedPayments.size === 0 || (ownerPaymentAccounts.length > 0 && !selectedPaymentMethod)}
+              >
+                <Text style={styles.modalButtonConfirmText}>
+                  Pay {selectedAdvancedPayments.size} Month{selectedAdvancedPayments.size !== 1 ? 's' : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Receipt Modal */}
+      <Modal
+        visible={showReceiptModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowReceiptModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Payment Receipt</Text>
+              <TouchableOpacity onPress={() => setShowReceiptModal(false)}>
+                <XCircle size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.receiptContent}>
+              <Text style={styles.receiptText}>{selectedReceipt}</Text>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={() => {
+                  // TODO: Implement download functionality
+                  Alert.alert('Info', 'Download functionality will be implemented soon.');
+                }}
+              >
+                <Download size={18} color="#FFFFFF" />
+                <Text style={styles.modalButtonPrimaryText}>Download</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={() => setShowReceiptModal(false)}
+              >
+                <Text style={styles.modalButtonSecondaryText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Tenant Profile Modal */}
+      <Modal
+        visible={showProfileModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowProfileModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'flex-end',
+        }}>
+          <View style={{
+            backgroundColor: designTokens.colors.white,
+            borderTopLeftRadius: designTokens.borderRadius.xl,
+            borderTopRightRadius: designTokens.borderRadius.xl,
+            maxHeight: '90%',
+            ...designTokens.shadows.xl,
+          }}>
+            {/* Modal Header */}
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingHorizontal: designTokens.spacing.xl,
+              paddingTop: designTokens.spacing.xl,
+              paddingBottom: designTokens.spacing.lg,
+              borderBottomWidth: 1,
+              borderBottomColor: designTokens.colors.border,
+              backgroundColor: designTokens.colors.white,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography['2xl'],
+                fontWeight: designTokens.typography.bold,
+                color: designTokens.colors.textPrimary,
+                flex: 1,
+              }}>My Profile</Text>
+              <TouchableOpacity
+                onPress={() => setShowProfileModal(false)}
+                style={{
+                  padding: designTokens.spacing.sm,
+                  marginLeft: designTokens.spacing.md,
+                }}
+                activeOpacity={0.7}
+              >
+                <X size={24} color={designTokens.colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Profile Content */}
+            <ScrollView 
+              style={{
+                flex: 1,
+                paddingHorizontal: designTokens.spacing.xl,
+              }} 
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{
+                paddingBottom: designTokens.spacing['2xl'],
+              }}
+            >
+              {/* Profile Photo */}
+              <View style={{
+                alignItems: 'center',
+                paddingVertical: designTokens.spacing['2xl'],
+                borderBottomWidth: 1,
+                borderBottomColor: designTokens.colors.border,
+                marginBottom: designTokens.spacing.lg,
+              }}>
+                {profilePhoto && !profilePhotoError ? (
+                  <Image
+                    source={{ uri: profilePhoto }}
+                    style={{
+                      width: 100,
+                      height: 100,
+                      borderRadius: 50,
+                      borderWidth: 4,
+                      borderColor: designTokens.colors.white,
+                      ...designTokens.shadows.lg,
+                      marginBottom: designTokens.spacing.lg,
+                    }}
+                    onError={() => setProfilePhotoError(true)}
+                  />
+                ) : (
+                  <View style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: 50,
+                    backgroundColor: designTokens.colors.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderWidth: 4,
+                    borderColor: designTokens.colors.white,
+                    ...designTokens.shadows.lg,
+                    marginBottom: designTokens.spacing.lg,
+                  }}>
+                    <Text style={{
+                      fontSize: 40,
+                      fontWeight: designTokens.typography.bold,
+                      color: designTokens.colors.white,
+                    }}>
+                      {user?.name?.charAt(0).toUpperCase() || 'U'}
+                    </Text>
+                  </View>
+                )}
+                <Text style={{
+                  fontSize: designTokens.typography['2xl'],
+                  fontWeight: designTokens.typography.bold,
+                  color: designTokens.colors.textPrimary,
+                  marginBottom: designTokens.spacing.xs,
+                }}>{user?.name || 'Tenant'}</Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  fontWeight: designTokens.typography.medium,
+                }}>Tenant</Text>
+              </View>
+
+              {/* Profile Information */}
+              <View style={{
+                paddingVertical: designTokens.spacing.xl,
+                gap: designTokens.spacing.lg,
+              }}>
+                {user?.email && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: designTokens.spacing.lg,
+                  }}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+                      <Mail size={20} color="#3B82F6" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                        fontWeight: designTokens.typography.semibold,
+                        marginBottom: designTokens.spacing.xs,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>Email</Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
+                        fontWeight: designTokens.typography.medium,
+                      }}>{user.email}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {user?.phone && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: designTokens.spacing.lg,
+                  }}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+                      <Phone size={20} color="#3B82F6" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                        fontWeight: designTokens.typography.semibold,
+                        marginBottom: designTokens.spacing.xs,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>Phone</Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
+                        fontWeight: designTokens.typography.medium,
+                      }}>{user.phone}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {activeBooking?.propertyAddress && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: designTokens.spacing.lg,
+                  }}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+                      <MapPin size={20} color="#3B82F6" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                        fontWeight: designTokens.typography.semibold,
+                        marginBottom: designTokens.spacing.xs,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>Current Property</Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
+                        fontWeight: designTokens.typography.medium,
+                      }} numberOfLines={2}>
+                        {activeBooking.propertyAddress}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              {/* Action Button */}
+              <TouchableOpacity
+                style={[sharedStyles.primaryButton, { marginTop: designTokens.spacing.lg }]}
+                onPress={() => {
+                  setShowProfileModal(false);
+                  router.push('/(tabs)/profile');
+                }}
+                activeOpacity={0.7}
+              >
+                <Edit size={18} color="#FFFFFF" />
+                <Text style={sharedStyles.primaryButtonText}>Edit Profile</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Booking Status Modal */}
+      <BookingStatusModal
+        visible={bookingStatusModal.visible}
+        booking={bookingStatusModal.booking}
+        status={bookingStatusModal.status}
+        onClose={() => {
+          setBookingStatusModal(prev => ({ ...prev, visible: false }));
+        }}
+        onViewBooking={() => {
+          setBookingStatusModal(prev => ({ ...prev, visible: false }));
+          router.push('/(tabs)/bookings');
+        }}
+      />
+
+      {/* PayMongo Payment Modal */}
+      {showPayMongoModal && payMongoUrl && (
+        <Modal
+          visible={showPayMongoModal}
+          animationType="slide"
+          onRequestClose={() => {
+            setShowPayMongoModal(false);
+            setPayMongoUrl(null);
+          }}
+        >
+          <View style={styles.payMongoModalContainer}>
+            <View style={styles.payMongoModalHeader}>
+              <Text style={styles.payMongoModalTitle}>Pay with PayMongo</Text>
+              <TouchableOpacity
+                style={styles.payMongoModalCloseButton}
+                onPress={() => {
+                  setShowPayMongoModal(false);
+                  setPayMongoUrl(null);
+                }}
+              >
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            <PayMongoPayment
+              paymentUrl={payMongoUrl}
+              onPaymentSuccess={(paymentIntentId) => {
+                handlePayMongoSuccess(paymentIntentId);
+              }}
+              onPaymentError={(error) => {
+                Alert.alert('Payment Error', error);
+                setShowPayMongoModal(false);
+                setPayMongoUrl(null);
+              }}
+              onPaymentCancel={() => {
+                setShowPayMongoModal(false);
+                setPayMongoUrl(null);
+              }}
+            />
+          </View>
+        </Modal>
+      )}
+
+      {/* Dynamic QR Code Modal for GCash Payment */}
+      {showQRCodeModal && selectedQRCodeAccount && selectedPayment && (
+        <Modal
+          visible={showQRCodeModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => {
+            setShowQRCodeModal(false);
+            setSelectedQRCodeAccount(null);
+          }}
+        >
+          <View style={styles.qrCodeModalOverlay}>
+            <View style={styles.qrCodeModalContainer}>
+              <View style={styles.qrCodeModalHeader}>
+                <Text style={styles.qrCodeModalTitle}>Scan to Pay with GCash</Text>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity
+                    style={styles.qrCodeModalShareButton}
+                    onPress={async () => {
+                      try {
+                        const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
+                        const qrData = generatePaymentQRCodeString(selectedPayment, selectedQRCodeAccount);
+                        const paymentDetails = `GCash Payment QR Code\n\nAmount: ₱${selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${selectedPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${selectedPayment.paymentMonth}\nDue Date: ${new Date(selectedPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
+                        
+                        if (Platform.OS === 'web') {
+                          // For web, copy to clipboard
+                          if (navigator.clipboard) {
+                            await navigator.clipboard.writeText(`${paymentDetails}\n\nQR Code Data:\n${qrData}`);
+                            Alert.alert('Copied', 'Payment details copied to clipboard! You can paste and share it.');
+                          }
+                        } else {
+                          // For mobile, use React Native Share API
+                          try {
+                            await Share.share({
+                              message: `${paymentDetails}\n\nQR Code Data:\n${qrData}`,
+                              title: 'GCash Payment QR Code',
+                            });
+                          } catch (shareError) {
+                            // Fallback to clipboard if share fails
+                            const Clipboard = await import('expo-clipboard');
+                            await Clipboard.setStringAsync(`${paymentDetails}\n\nQR Code Data:\n${qrData}`);
+                            Alert.alert('Copied', 'Payment details copied to clipboard!');
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Error sharing QR code:', error);
+                        Alert.alert('Error', 'Failed to share QR code. Please try again.');
+                      }
+                    }}
+                  >
+                    <Share2 size={20} color="#3B82F6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.qrCodeModalCloseButton}
+                    onPress={() => {
+                      setShowQRCodeModal(false);
+                      setSelectedQRCodeAccount(null);
+                    }}
+                  >
+                    <X size={24} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView style={styles.qrCodeModalBody} showsVerticalScrollIndicator={false}>
+                <View style={styles.qrCodeSection}>
+                  <Text style={styles.qrCodeLabel}>Payment QR Code</Text>
+                  <Text style={styles.qrCodeSubtitle}>
+                    Scan this QR-PH code with your GCash app{'\n'}
+                    GCash will recognize the payment details automatically{'\n'}
+                    Or share it to another device to scan
+                  </Text>
+                  
+                  <View style={styles.qrCodeWrapper}>
+                    <QRCode
+                      {...getQRCodeProps(selectedPayment, selectedQRCodeAccount, 250)}
+                    />
+                  </View>
+                  
+                  <TouchableOpacity
+                    style={styles.qrCodeShareButton}
+                    onPress={async () => {
+                      try {
+                        const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
+                        const qrData = generatePaymentQRCodeString(selectedPayment, selectedQRCodeAccount);
+                        const paymentDetails = `GCash Payment QR Code\n\nAmount: ₱${selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${selectedPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${selectedPayment.paymentMonth}\nDue Date: ${new Date(selectedPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
+                        
+                        if (Platform.OS === 'web') {
+                          // For web, copy to clipboard
+                          if (navigator.clipboard) {
+                            await navigator.clipboard.writeText(`${paymentDetails}\n\nQR Code Data:\n${qrData}`);
+                            Alert.alert('Copied', 'Payment details copied to clipboard! You can paste and share it.');
+                          }
+                        } else {
+                          // For mobile, use React Native Share API
+                          try {
+                            await Share.share({
+                              message: `${paymentDetails}\n\nQR Code Data:\n${qrData}`,
+                              title: 'GCash Payment QR Code',
+                            });
+                          } catch (shareError) {
+                            // Fallback to clipboard if share fails
+                            const Clipboard = await import('expo-clipboard');
+                            await Clipboard.setStringAsync(`${paymentDetails}\n\nQR Code Data:\n${qrData}`);
+                            Alert.alert('Copied', 'Payment details copied to clipboard!');
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Error sharing QR code:', error);
+                        Alert.alert('Error', 'Failed to share QR code. Please try again.');
+                      }
+                    }}
+                  >
+                    <Share2 size={18} color="#3B82F6" />
+                    <Text style={styles.qrCodeShareButtonText}>Share QR Code</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.qrCodePaymentDetails}>
+                  <Text style={styles.qrCodeDetailsTitle}>Payment Details</Text>
+                  
+                  <View style={styles.qrCodeDetailRow}>
+                    <Text style={styles.qrCodeDetailLabel}>Amount:</Text>
+                    <Text style={styles.qrCodeDetailValue}>
+                      ₱{selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+
+                  <View style={styles.qrCodeDetailRow}>
+                    <Text style={styles.qrCodeDetailLabel}>Reference:</Text>
+                    <Text style={styles.qrCodeDetailValue}>{selectedPayment.receiptNumber}</Text>
+                  </View>
+
+                  <View style={styles.qrCodeDetailRow}>
+                    <Text style={styles.qrCodeDetailLabel}>Account:</Text>
+                    <Text style={styles.qrCodeDetailValue}>
+                      {selectedQRCodeAccount.accountName} ({selectedQRCodeAccount.accountNumber})
+                    </Text>
+                  </View>
+
+                  <View style={styles.qrCodeDetailRow}>
+                    <Text style={styles.qrCodeDetailLabel}>Payment Month:</Text>
+                    <Text style={styles.qrCodeDetailValue}>{selectedPayment.paymentMonth}</Text>
+                  </View>
+
+                  <View style={styles.qrCodeDetailRow}>
+                    <Text style={styles.qrCodeDetailLabel}>Due Date:</Text>
+                    <Text style={styles.qrCodeDetailValue}>
+                      {new Date(selectedPayment.dueDate).toLocaleDateString()}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.qrCodeInstructions}>
+                  <Text style={styles.qrCodeInstructionsTitle}>How to Pay with QR-PH:</Text>
+                  <Text style={styles.qrCodeInstructionsText}>
+                    <Text style={{ fontWeight: '600' }}>Option 1: Scan on this device</Text>{'\n'}
+                    1. Open your GCash app{'\n'}
+                    2. Tap "Scan QR" or "QR Code"{'\n'}
+                    3. Point camera at this QR-PH code{'\n'}
+                    4. GCash will show payment details automatically{'\n'}
+                    5. Confirm amount and complete payment{'\n\n'}
+                    <Text style={{ fontWeight: '600' }}>Option 2: Share to another device</Text>{'\n'}
+                    1. Tap "Share QR Code" above{'\n'}
+                    2. Send to another device{'\n'}
+                    3. Open GCash and scan the QR-PH code{'\n'}
+                    4. Confirm and complete payment{'\n\n'}
+                    This QR-PH code contains all payment details. After payment, tap "I Paid" below to confirm.
+                  </Text>
+                </View>
+              </ScrollView>
+
+              <View style={styles.qrCodeModalFooter}>
+                <TouchableOpacity
+                  style={styles.qrCodeConfirmButton}
+                  onPress={async () => {
+                    const paymentMethodName = `GCash - ${selectedQRCodeAccount.accountNumber.slice(-4)}`;
+                    setSelectedPaymentMethod(paymentMethodName);
+                    
+                    try {
+                      const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+                      if (success) {
+                        Alert.alert('Success', 'Payment recorded successfully!');
+                        setShowQRCodeModal(false);
+                        setShowPaymentModal(false);
+                        setSelectedPayment(null);
+                        setSelectedPaymentMethod(null);
+                        setSelectedQRCodeAccount(null);
+                        await loadDashboardData();
+                      } else {
+                        Alert.alert('Error', 'Failed to record payment. Please try again.');
+                      }
+                    } catch (error) {
+                      console.error('Error confirming payment:', error);
+                      Alert.alert('Error', 'Failed to record payment. Please try again.');
+                    }
+                  }}
+                >
+                  <CheckCircle size={20} color="#FFFFFF" />
+                  <Text style={styles.qrCodeConfirmButtonText}>I Paid</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.qrCodeCancelButton}
+                  onPress={() => {
+                    setShowQRCodeModal(false);
+                    setSelectedQRCodeAccount(null);
+                  }}
+                >
+                  <Text style={styles.qrCodeCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Maintenance Request Modal */}
+      <Modal
+        visible={showMaintenanceModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMaintenanceModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Report Maintenance Issue</Text>
+              <TouchableOpacity onPress={() => setShowMaintenanceModal(false)}>
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              <View style={{ gap: designTokens.spacing.md }}>
+                {/* Title */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Title *</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="e.g., Leaky faucet in kitchen"
+                    value={maintenanceForm.title}
+                    onChangeText={(text) => setMaintenanceForm(prev => ({ ...prev, title: text }))}
+                    maxLength={100}
+                  />
+                </View>
+
+                {/* Description */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Description *</Text>
+                  <TextInput
+                    style={[styles.modalInput, { minHeight: 100, textAlignVertical: 'top' }]}
+                    placeholder="Describe the issue in detail..."
+                    value={maintenanceForm.description}
+                    onChangeText={(text) => setMaintenanceForm(prev => ({ ...prev, description: text }))}
+                    multiline
+                    numberOfLines={4}
+                    maxLength={500}
+                  />
+                </View>
+
+                {/* Category */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Category</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs }}>
+                    {(['plumbing', 'electrical', 'appliance', 'heating_cooling', 'structural', 'other'] as const).map((cat) => (
+                      <TouchableOpacity
+                        key={cat}
+                        style={[
+                          styles.categoryButton,
+                          maintenanceForm.category === cat && styles.categoryButtonSelected
+                        ]}
+                        onPress={() => setMaintenanceForm(prev => ({ ...prev, category: cat }))}
+                      >
+                        <Text style={[
+                          styles.categoryButtonText,
+                          maintenanceForm.category === cat && styles.categoryButtonTextSelected
+                        ]}>
+                          {cat.replace('_', ' ')}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Priority */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Priority</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs }}>
+                    {(['low', 'medium', 'high', 'urgent'] as const).map((pri) => {
+                      const priorityStyle = maintenanceForm.priority === pri ? (
+                        pri === 'low' ? styles.priorityButtonLow :
+                        pri === 'medium' ? styles.priorityButtonMedium :
+                        pri === 'high' ? styles.priorityButtonHigh :
+                        styles.priorityButtonUrgent
+                      ) : null;
+                      
+                      return (
+                        <TouchableOpacity
+                          key={pri}
+                          style={[
+                            styles.priorityButton,
+                            priorityStyle
+                          ]}
+                          onPress={() => setMaintenanceForm(prev => ({ ...prev, priority: pri }))}
+                        >
+                          <Text style={[
+                            styles.priorityButtonText,
+                            maintenanceForm.priority === pri && styles.priorityButtonTextSelected,
+                            priorityStyle && {
+                              color: pri === 'low' ? '#10B981' :
+                                     pri === 'medium' ? '#F59E0B' :
+                                     pri === 'high' ? '#EF4444' :
+                                     '#DC2626'
+                            }
+                          ]}>
+                            {pri}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Photos */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Photos</Text>
+                  <TouchableOpacity
+                    style={styles.mediaButton}
+                    onPress={handlePickMaintenancePhoto}
+                  >
+                    <Camera size={18} color={designTokens.colors.primary} />
+                    <Text style={styles.mediaButtonText}>Add Photos</Text>
+                  </TouchableOpacity>
+                  {maintenanceForm.photos.length > 0 && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                      {maintenanceForm.photos.map((photo, index) => (
+                        <View key={index} style={styles.mediaPreview}>
+                          <Image source={{ uri: photo }} style={styles.mediaPreviewImage} />
+                          <TouchableOpacity
+                            style={styles.mediaRemoveButton}
+                            onPress={() => handleRemoveMaintenancePhoto(index)}
+                          >
+                            <X size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Videos */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Videos</Text>
+                  <TouchableOpacity
+                    style={styles.mediaButton}
+                    onPress={handlePickMaintenanceVideo}
+                  >
+                    <Video size={18} color={designTokens.colors.primary} />
+                    <Text style={styles.mediaButtonText}>Add Video</Text>
+                  </TouchableOpacity>
+                  {maintenanceForm.videos.length > 0 && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                      {maintenanceForm.videos.map((video, index) => (
+                        <View key={index} style={styles.mediaPreview}>
+                          <Video size={40} color={designTokens.colors.primary} />
+                          <TouchableOpacity
+                            style={styles.mediaRemoveButton}
+                            onPress={() => handleRemoveMaintenanceVideo(index)}
+                          >
+                            <X size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setShowMaintenanceModal(false);
+                  setMaintenanceForm({
+                    title: '',
+                    description: '',
+                    category: 'other',
+                    priority: 'medium',
+                    photos: [],
+                    videos: [],
+                  });
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonConfirm, submittingMaintenance && styles.modalButtonDisabled]}
+                onPress={handleSubmitMaintenanceRequest}
+                disabled={submittingMaintenance}
+              >
+                {submittingMaintenance ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalButtonConfirmText}>Submit Request</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Maintenance History Modal */}
+      <Modal
+        visible={showMaintenanceHistory}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMaintenanceHistory(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Maintenance History</Text>
+              <TouchableOpacity onPress={() => setShowMaintenanceHistory(false)}>
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              {maintenanceRequests.length === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: designTokens.spacing['2xl'] }}>
+                  <Wrench size={48} color={designTokens.colors.textMuted} />
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    color: designTokens.colors.textSecondary,
+                    marginTop: designTokens.spacing.md,
+                  }}>
+                    No maintenance requests yet
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ gap: designTokens.spacing.md }}>
+                  {maintenanceRequests.map((request) => (
+                    <TouchableOpacity
+                      key={request.id}
+                      onPress={() => {
+                        setSelectedMaintenanceRequest(request);
+                        setShowMaintenanceDetailModal(true);
+                        setShowMaintenanceHistory(false);
+                      }}
+                      activeOpacity={0.7}
+                      style={[
+                        sharedStyles.card,
+                        {
+                          padding: designTokens.spacing.md,
+                          borderLeftWidth: 4,
+                          borderLeftColor:
+                            request.status === 'resolved' ? designTokens.colors.success :
+                            request.status === 'cancelled' ? designTokens.colors.error :
+                            request.status === 'in_progress' ? designTokens.colors.info :
+                            request.priority === 'urgent' ? designTokens.colors.error :
+                            designTokens.colors.warning,
+                        }
+                      ]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: designTokens.spacing.md }}>
+                        <View style={[
+                          sharedStyles.statIcon,
+                          request.status === 'resolved' ? iconBackgrounds.green :
+                          request.status === 'cancelled' ? iconBackgrounds.red :
+                          request.status === 'in_progress' ? iconBackgrounds.blue :
+                          request.priority === 'urgent' ? iconBackgrounds.red :
+                          iconBackgrounds.orange,
+                          { width: 40, height: 40 }
+                        ]}>
+                          {request.status === 'resolved' ? (
+                            <CheckCircle size={20} color="#10B981" />
+                          ) : request.status === 'cancelled' ? (
+                            <XCircle size={20} color="#EF4444" />
+                          ) : request.status === 'in_progress' ? (
+                            <Clock size={20} color="#3B82F6" />
+                          ) : (
+                            <AlertCircle size={20} color={request.priority === 'urgent' ? "#EF4444" : "#F59E0B"} />
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.xs }}>
+                            <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 0 }]} numberOfLines={2}>
+                              {request.title}
+                            </Text>
+                            <View style={[
+                              sharedStyles.statusBadge,
+                              request.status === 'resolved' ? { backgroundColor: designTokens.colors.successLight } :
+                              request.status === 'cancelled' ? { backgroundColor: designTokens.colors.errorLight } :
+                              request.status === 'in_progress' ? { backgroundColor: designTokens.colors.infoLight } :
+                              request.priority === 'urgent' ? { backgroundColor: designTokens.colors.errorLight } :
+                              { backgroundColor: designTokens.colors.warningLight }
+                            ]}>
+                              <Text style={[
+                                sharedStyles.statusText,
+                                request.status === 'resolved' ? { color: designTokens.colors.success } :
+                                request.status === 'cancelled' ? { color: designTokens.colors.error } :
+                                request.status === 'in_progress' ? { color: designTokens.colors.info } :
+                                request.priority === 'urgent' ? { color: designTokens.colors.error } :
+                                { color: designTokens.colors.warning }
+                              ]}>
+                                {request.status.replace('_', ' ')}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs }]} numberOfLines={3}>
+                            {request.description}
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm, flexWrap: 'wrap', marginBottom: designTokens.spacing.xs }}>
+                            <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 0 }]}>
+                              {request.category.replace('_', ' ')} • {request.priority}
+                            </Text>
+                            {(request.photos.length > 0 || request.videos.length > 0) && (
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 0, color: designTokens.colors.info }]}>
+                                📷 {request.photos.length} photo{request.photos.length > 1 ? 's' : ''}
+                                {request.videos.length > 0 && ` • 🎥 ${request.videos.length} video${request.videos.length > 1 ? 's' : ''}`}
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: designTokens.spacing.xs }]}>
+                            {new Date(request.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </Text>
+                          {request.resolvedAt && (
+                            <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, color: designTokens.colors.success }]}>
+                              Resolved: {new Date(request.resolvedAt).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </Text>
+                          )}
+                          {request.ownerNotes && (
+                            <View style={{
+                              marginTop: designTokens.spacing.xs,
+                              padding: designTokens.spacing.sm,
+                              backgroundColor: designTokens.colors.infoLight,
+                              borderRadius: designTokens.borderRadius.md,
+                            }}>
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 4, fontWeight: designTokens.typography.semibold }]}>
+                                Owner Notes:
+                              </Text>
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>
+                                {request.ownerNotes}
+                              </Text>
+                            </View>
+                          )}
+                          {(request.status === 'pending' || request.status === 'in_progress') && (
+                            <TouchableOpacity
+                              onPress={() => {
+                                setShowMaintenanceHistory(false);
+                                handleCancelMaintenanceRequest(request.id);
+                              }}
+                              disabled={cancellingRequest === request.id}
+                              style={{
+                                marginTop: designTokens.spacing.sm,
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                backgroundColor: designTokens.colors.errorLight,
+                                borderRadius: designTokens.borderRadius.md,
+                                alignSelf: 'flex-start',
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              {cancellingRequest === request.id ? (
+                                <ActivityIndicator size="small" color={designTokens.colors.error} />
+                              ) : (
+                                <Text style={{
+                                  fontSize: designTokens.typography.sm,
+                                  color: designTokens.colors.error,
+                                  fontWeight: designTokens.typography.semibold,
+                                }}>
+                                  Cancel Request
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setShowMaintenanceHistory(false)}
+              >
+                <Text style={styles.modalButtonCancelText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Maintenance Request Detail Modal */}
+      <Modal
+        visible={showMaintenanceDetailModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowMaintenanceDetailModal(false);
+          setSelectedMaintenanceRequest(null);
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'flex-end',
+        }}>
+          <View style={{
+            backgroundColor: designTokens.colors.white,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: Dimensions.get('window').height * 0.9,
+            height: Dimensions.get('window').height * 0.9,
+            ...designTokens.shadows.xl,
+            flexDirection: 'column',
+          }}>
+            {selectedMaintenanceRequest ? (
+              <>
+                {/* Header */}
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: designTokens.spacing.xl,
+                  borderBottomWidth: 1,
+                  borderBottomColor: designTokens.colors.border,
+                  flexShrink: 0,
+                }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: designTokens.typography['2xl'],
+                      fontWeight: designTokens.typography.bold,
+                      color: designTokens.colors.textPrimary,
+                      marginBottom: designTokens.spacing.xs,
+                    }}>
+                      {selectedMaintenanceRequest.title}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm, flexWrap: 'wrap' }}>
+                      <View style={[
+                        sharedStyles.statusBadge,
+                        selectedMaintenanceRequest.status === 'resolved' ? { backgroundColor: designTokens.colors.successLight } :
+                        selectedMaintenanceRequest.status === 'cancelled' ? { backgroundColor: designTokens.colors.errorLight } :
+                        selectedMaintenanceRequest.status === 'in_progress' ? { backgroundColor: designTokens.colors.infoLight } :
+                        selectedMaintenanceRequest.priority === 'urgent' ? { backgroundColor: designTokens.colors.errorLight } :
+                        { backgroundColor: designTokens.colors.warningLight }
+                      ]}>
+                        <Text style={[
+                          sharedStyles.statusText,
+                          selectedMaintenanceRequest.status === 'resolved' ? { color: designTokens.colors.success } :
+                          selectedMaintenanceRequest.status === 'cancelled' ? { color: designTokens.colors.error } :
+                          selectedMaintenanceRequest.status === 'in_progress' ? { color: designTokens.colors.info } :
+                          selectedMaintenanceRequest.priority === 'urgent' ? { color: designTokens.colors.error } :
+                          { color: designTokens.colors.warning }
+                        ]}>
+                          {selectedMaintenanceRequest.status.replace('_', ' ')}
+                        </Text>
+                      </View>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        {selectedMaintenanceRequest.category.replace('_', ' ')} • {selectedMaintenanceRequest.priority}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowMaintenanceDetailModal(false);
+                      setSelectedMaintenanceRequest(null);
+                    }}
+                    style={{
+                      padding: designTokens.spacing.sm,
+                      marginLeft: designTokens.spacing.md,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <X size={24} color={designTokens.colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Content */}
+                <ScrollView
+                  style={{
+                    flex: 1,
+                  }}
+                  contentContainerStyle={{
+                    padding: designTokens.spacing.xl,
+                  }}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <View style={{ gap: designTokens.spacing.lg }}>
+                    {/* Description */}
+                    <View>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.sm,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>
+                        Description
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
+                        lineHeight: 22,
+                      }}>
+                        {selectedMaintenanceRequest.description}
+                      </Text>
+                    </View>
+
+                    {/* Photos */}
+                    {selectedMaintenanceRequest.photos.length > 0 && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.md,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Photos ({selectedMaintenanceRequest.photos.length})
+                        </Text>
+                        {selectedMaintenanceRequest.photos.length === 1 ? (
+                          <TouchableOpacity
+                            activeOpacity={0.9}
+                            onPress={() => setSelectedPhotoIndex(0)}
+                            style={{
+                              width: '100%',
+                              aspectRatio: 1,
+                              borderRadius: 12,
+                              overflow: 'hidden',
+                              backgroundColor: designTokens.colors.borderLight,
+                            }}
+                          >
+                            <Image
+                              source={{ uri: selectedMaintenanceRequest.photos[0] }}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                              }}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                        ) : selectedMaintenanceRequest.photos.length === 2 ? (
+                          <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
+                            {selectedMaintenanceRequest.photos.map((photo, index) => (
+                              <TouchableOpacity
+                                key={index}
+                                activeOpacity={0.9}
+                                onPress={() => setSelectedPhotoIndex(index)}
+                                style={{
+                                  flex: 1,
+                                  aspectRatio: 1,
+                                  borderRadius: 12,
+                                  overflow: 'hidden',
+                                  backgroundColor: designTokens.colors.borderLight,
+                                }}
+                              >
+                                <Image
+                                  source={{ uri: photo }}
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                  }}
+                                  resizeMode="cover"
+                                />
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        ) : (
+                          <View>
+                            <ScrollView 
+                              horizontal 
+                              showsHorizontalScrollIndicator={true}
+                              contentContainerStyle={{ paddingRight: designTokens.spacing.md }}
+                              style={{ marginTop: designTokens.spacing.xs }}
+                            >
+                              <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
+                                {selectedMaintenanceRequest.photos.map((photo, index) => (
+                                  <TouchableOpacity
+                                    key={index}
+                                    activeOpacity={0.9}
+                                    onPress={() => setSelectedPhotoIndex(index)}
+                                    style={{
+                                      width: 280,
+                                      height: 280,
+                                      borderRadius: 12,
+                                      overflow: 'hidden',
+                                      backgroundColor: designTokens.colors.borderLight,
+                                    }}
+                                  >
+                                    <Image
+                                      source={{ uri: photo }}
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                      }}
+                                      resizeMode="cover"
+                                    />
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            </ScrollView>
+                            {selectedMaintenanceRequest.photos.length > 3 && (
+                              <Text style={{
+                                fontSize: designTokens.typography.xs,
+                                color: designTokens.colors.textMuted,
+                                marginTop: designTokens.spacing.xs,
+                                textAlign: 'center',
+                              }}>
+                                Tap to view photos • Swipe to see all {selectedMaintenanceRequest.photos.length}
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Videos */}
+                    {selectedMaintenanceRequest.videos.length > 0 && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.md,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Videos ({selectedMaintenanceRequest.videos.length})
+                        </Text>
+                        <View style={{ gap: designTokens.spacing.sm }}>
+                          {selectedMaintenanceRequest.videos.map((video, index) => (
+                            <TouchableOpacity
+                              key={index}
+                              activeOpacity={0.7}
+                              onPress={() => setSelectedVideoIndex(index)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                padding: designTokens.spacing.md,
+                                backgroundColor: designTokens.colors.background,
+                                borderRadius: designTokens.borderRadius.md,
+                                borderWidth: 1,
+                                borderColor: designTokens.colors.borderLight,
+                              }}
+                            >
+                              <View style={{
+                                width: 48,
+                                height: 48,
+                                borderRadius: 8,
+                                backgroundColor: designTokens.colors.primary + '20',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: designTokens.spacing.md,
+                              }}>
+                                <Video size={24} color={designTokens.colors.primary} />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{
+                                  fontSize: designTokens.typography.base,
+                                  fontWeight: designTokens.typography.semibold,
+                                  color: designTokens.colors.textPrimary,
+                                  marginBottom: 2,
+                                }}>
+                                  Video {index + 1}
+                                </Text>
+                                <Text style={{
+                                  fontSize: designTokens.typography.xs,
+                                  color: designTokens.colors.textSecondary,
+                                }}>
+                                  Tap to play video
+                                </Text>
+                              </View>
+                              <ChevronRight size={20} color={designTokens.colors.textMuted} />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Owner Notes */}
+                    {selectedMaintenanceRequest.ownerNotes && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.sm,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Owner Notes
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.base,
+                          color: designTokens.colors.textPrimary,
+                          lineHeight: 22,
+                          backgroundColor: designTokens.colors.infoLight,
+                          padding: designTokens.spacing.md,
+                          borderRadius: designTokens.borderRadius.md,
+                        }}>
+                          {selectedMaintenanceRequest.ownerNotes}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Created Date */}
+                    <View>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        Submitted: {new Date(selectedMaintenanceRequest.createdAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </Text>
+                      {selectedMaintenanceRequest.resolvedAt && (
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: designTokens.colors.textSecondary,
+                          marginTop: designTokens.spacing.xs,
+                        }}>
+                          Resolved: {new Date(selectedMaintenanceRequest.resolvedAt).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </ScrollView>
+
+                {/* Actions */}
+                <View style={{
+                  padding: designTokens.spacing.xl,
+                  borderTopWidth: 1,
+                  borderTopColor: designTokens.colors.border,
+                  gap: designTokens.spacing.sm,
+                  flexShrink: 0,
+                }}>
+                  {(selectedMaintenanceRequest.status === 'pending' || selectedMaintenanceRequest.status === 'in_progress') && (
+                    <TouchableOpacity
+                      style={[sharedStyles.secondaryButton, { borderColor: designTokens.colors.error, borderWidth: 1 }]}
+                      onPress={() => {
+                        setShowMaintenanceDetailModal(false);
+                        handleCancelMaintenanceRequest(selectedMaintenanceRequest.id);
+                      }}
+                      disabled={cancellingRequest === selectedMaintenanceRequest.id}
+                      activeOpacity={0.8}
+                    >
+                      {cancellingRequest === selectedMaintenanceRequest.id ? (
+                        <ActivityIndicator size="small" color={designTokens.colors.error} />
+                      ) : (
+                        <>
+                          <XCircle size={18} color={designTokens.colors.error} />
+                          <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.error }]}>
+                            Cancel Request
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[sharedStyles.secondaryButton]}
+                    onPress={() => {
+                      setShowMaintenanceDetailModal(false);
+                      setSelectedMaintenanceRequest(null);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={sharedStyles.secondaryButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <View style={{ padding: designTokens.spacing.xl, alignItems: 'center' }}>
+                <Text style={{
+                  fontSize: designTokens.typography.base,
+                  color: designTokens.colors.textSecondary,
+                }}>
+                  Loading...
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Photo Viewer Modal */}
+      <Modal
+        visible={selectedPhotoIndex !== null && selectedMaintenanceRequest !== null && selectedMaintenanceRequest.photos.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setSelectedPhotoIndex(null);
+          setCurrentPhotoIndex(0);
+        }}
+      >
+        {selectedPhotoIndex !== null && selectedMaintenanceRequest && selectedMaintenanceRequest.photos.length > 0 && (
+          <PhotoViewerContent
+            photos={selectedMaintenanceRequest.photos}
+            initialIndex={selectedPhotoIndex}
+            onClose={() => {
+              setSelectedPhotoIndex(null);
+              setCurrentPhotoIndex(0);
+            }}
+            onIndexChange={setCurrentPhotoIndex}
+          />
+        )}
+      </Modal>
+
+      {/* Video Player Modal */}
+      <Modal
+        visible={selectedVideoIndex !== null && selectedMaintenanceRequest !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedVideoIndex(null)}
+      >
+        {selectedMaintenanceRequest && selectedVideoIndex !== null && (
+          <VideoPlayerModal
+            videoUri={selectedMaintenanceRequest.videos[selectedVideoIndex]}
+            onClose={() => setSelectedVideoIndex(null)}
+          />
+        )}
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+// Photo Viewer Component
+function PhotoViewerContent({ photos, initialIndex, onClose, onIndexChange }: { photos: string[]; initialIndex: number; onClose: () => void; onIndexChange: (index: number) => void }) {
+  const flatListRef = useRef<any>(null);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+
+  useEffect(() => {
+    if (flatListRef.current && initialIndex !== null) {
+      setTimeout(() => {
+        try {
+          flatListRef.current?.scrollToIndex({
+            index: initialIndex,
+            animated: false,
+          });
+          setCurrentIndex(initialIndex);
+        } catch (error) {
+          // Fallback to scrollToOffset if scrollToIndex fails
+          flatListRef.current?.scrollToOffset({
+            offset: initialIndex * screenWidth,
+            animated: false,
+          });
+          setCurrentIndex(initialIndex);
+        }
+      }, 100);
+    }
+  }, [initialIndex, screenWidth]);
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0) {
+      const index = viewableItems[0].index;
+      if (index !== null && index !== undefined) {
+        setCurrentIndex(index);
+        onIndexChange(index);
+      }
+    }
+  }).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
+  const getItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: screenWidth,
+      offset: screenWidth * index,
+      index,
+    }),
+    [screenWidth]
+  );
+
+  const renderItem = useCallback(({ item }: { item: string }) => (
+    <PhotoItem photo={item} />
+  ), []);
+
+  const keyExtractor = useCallback((item: string, index: number) => `photo-${index}-${item}`, []);
+
+  return (
+    <View style={{
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.95)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    }}>
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          right: 20,
+          zIndex: 10,
+          padding: designTokens.spacing.md,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          borderRadius: 24,
+        }}
+        onPress={onClose}
+        activeOpacity={0.7}
+      >
+        <X size={24} color="#FFFFFF" />
+      </TouchableOpacity>
+      
+      <FlatList
+        ref={flatListRef}
+        data={photos}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        getItemLayout={getItemLayout}
+        initialScrollIndex={initialIndex}
+        removeClippedSubviews={false}
+        maxToRenderPerBatch={3}
+        windowSize={3}
+        initialNumToRender={3}
+        style={{ flex: 1, width: '100%' }}
+      />
+      
+      {photos.length > 1 && (
+        <View style={{
+          position: 'absolute',
+          bottom: 50,
+          alignSelf: 'center',
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          paddingHorizontal: designTokens.spacing.md,
+          paddingVertical: designTokens.spacing.sm,
+          borderRadius: 20,
+        }}>
+          <Text style={{
+            color: '#FFFFFF',
+            fontSize: designTokens.typography.sm,
+          }}>
+            {currentIndex + 1} / {photos.length}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// Memoized Photo Item Component
+const PhotoItem = React.memo(({ photo }: { photo: string }) => {
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+
+  return (
+    <View
+      style={{
+        width: screenWidth,
+        height: screenHeight,
+        justifyContent: 'center',
+        alignItems: 'center',
+      }}
+    >
+      <Image
+        source={{ uri: photo }}
+        style={{
+          width: '100%',
+          height: '100%',
+        }}
+        resizeMode="contain"
+        showSkeleton={false}
+      />
+    </View>
+  );
+}, (prevProps, nextProps) => {
+  // Only re-render if the photo URI changes
+  return prevProps.photo === nextProps.photo;
+});
+
+PhotoItem.displayName = 'PhotoItem';
+
+// Video Player Component
+function VideoPlayerModal({ videoUri, onClose }: { videoUri: string; onClose: () => void }) {
+  const player = useVideoPlayer(videoUri, (player) => {
+    player.loop = false;
+    player.play();
+  });
+
+  return (
+    <View style={{
+      flex: 1,
+      backgroundColor: '#000000',
+      justifyContent: 'center',
+      alignItems: 'center',
+    }}>
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 50,
+          right: 20,
+          zIndex: 10,
+          padding: designTokens.spacing.md,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          borderRadius: 24,
+        }}
+        onPress={onClose}
+        activeOpacity={0.7}
+      >
+        <X size={24} color="#FFFFFF" />
+      </TouchableOpacity>
+      
+      <VideoView
+        player={player}
+        style={{
+          width: Dimensions.get('window').width,
+          height: Dimensions.get('window').height * 0.6,
+        }}
+        allowsFullscreen
+        allowsPictureInPicture
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  headerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  headerGradient: {
+    paddingBottom: 20,
+    paddingTop: 16,
+  },
+  header: {
+    paddingHorizontal: 20,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTextSection: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+    letterSpacing: -0.3,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  profileButton: {
+    marginLeft: 16,
+  },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  profileAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  profileAvatarText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  profileModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  profileModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  profileModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  profileModalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  profileModalCloseButton: {
+    padding: 4,
+  },
+  profileModalBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  profileModalPhotoSection: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  profileModalAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 16,
+  },
+  profileModalAvatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 16,
+  },
+  profileModalAvatarText: {
+    fontSize: 40,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  profileModalName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  profileModalRole: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  profileModalInfoSection: {
+    paddingVertical: 24,
+    gap: 20,
+  },
+  profileModalInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+  },
+  profileModalInfoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileModalInfoContent: {
+    flex: 1,
+  },
+  profileModalInfoLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  profileModalInfoValue: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '500',
+  },
+  profileModalEditButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 32,
+    marginTop: 8,
+  },
+  profileModalEditButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  section: {
+    paddingHorizontal: 20,
+    marginTop: 20,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  cardOverdue: {
+    borderColor: '#EF4444',
+    borderWidth: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  cardContent: {
+    gap: 16,
+  },
+  propertyTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  propertyAddress: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#374151',
+  },
+  messageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 8,
+    marginTop: 8,
+  },
+  messageButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  reminderItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  reminderIcon: {
+    marginTop: 2,
+  },
+  reminderContent: {
+    flex: 1,
+  },
+  reminderMessage: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  reminderDate: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  paymentAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  paymentAmount: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  overdueBadge: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  overdueBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+  paymentDueDate: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  payButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    gap: 8,
+  },
+  payButtonOverdue: {
+    backgroundColor: '#EF4444',
+  },
+  payButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  summaryItem: {
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  summaryValueSuccess: {
+    color: '#10B981',
+  },
+  summaryValueWarning: {
+    color: '#F59E0B',
+  },
+  summaryValueError: {
+    color: '#EF4444',
+  },
+  paymentsList: {
+    gap: 12,
+  },
+  paymentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  paymentItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  paymentStatusIcon: {
+    marginTop: 2,
+  },
+  paymentItemContent: {
+    flex: 1,
+  },
+  paymentItemMonth: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  paymentItemDate: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  paymentItemRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  paymentItemAmount: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  paymentItemAmountPaid: {
+    color: '#10B981',
+  },
+  paymentItemAmountOverdue: {
+    color: '#EF4444',
+  },
+  paymentItemLateFee: {
+    fontSize: 11,
+    color: '#EF4444',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalBody: {
+    marginBottom: 20,
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#374151',
+    marginBottom: 16,
+  },
+  modalPaymentDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalPaymentLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  modalPaymentValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalButtonCancel: {
+    backgroundColor: '#F3F4F6',
+  },
+  modalButtonCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  modalButtonConfirm: {
+    backgroundColor: '#10B981',
+  },
+  modalButtonConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#3B82F6',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modalButtonPrimaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#F3F4F6',
+  },
+  modalButtonSecondaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  receiptContent: {
+    maxHeight: 400,
+    marginBottom: 20,
+  },
+  receiptText: {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    color: '#111827',
+    lineHeight: 18,
+  },
+  payMongoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#3B82F6',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  payMongoButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  payMongoModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  payMongoModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  payMongoModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  payMongoModalCloseButton: {
+    padding: 4,
+  },
+  // QR Code Modal Styles
+  qrCodeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  qrCodeModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
+    paddingBottom: 20,
+  },
+  qrCodeModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  qrCodeModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  qrCodeModalCloseButton: {
+    padding: 4,
+  },
+  qrCodeModalShareButton: {
+    padding: 4,
+  },
+  qrCodeShareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3B82F6',
+  },
+  qrCodeShareButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  qrCodeModalBody: {
+    padding: 20,
+  },
+  qrCodeSection: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  qrCodeLabel: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  qrCodeSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  qrCodeWrapper: {
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  qrCodePaymentDetails: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  qrCodeDetailsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  qrCodeDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  qrCodeDetailLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  qrCodeDetailValue: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+  },
+  qrCodeInstructions: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  qrCodeInstructionsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E40AF',
+    marginBottom: 8,
+  },
+  qrCodeInstructionsText: {
+    fontSize: 14,
+    color: '#1E40AF',
+    lineHeight: 22,
+  },
+  qrCodeModalFooter: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    gap: 12,
+  },
+  qrCodeConfirmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#10B981',
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  qrCodeConfirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  qrCodeCancelButton: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  qrCodeCancelButtonText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  advancedPayButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3B82F6',
+    marginTop: 12,
+  },
+  advancedPayButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  advancedPaymentDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  futurePaymentsList: {
+    gap: 12,
+    marginBottom: 16,
+  },
+  futurePaymentItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  futurePaymentItemSelected: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+    borderWidth: 2,
+  },
+  futurePaymentLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  futurePaymentCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  futurePaymentCheckboxSelected: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  futurePaymentInfo: {
+    flex: 1,
+  },
+  futurePaymentMonth: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  futurePaymentDate: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  futurePaymentAmount: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  viewAllButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  advancedPaymentSummary: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  advancedPaymentSummaryLabel: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 4,
+  },
+  advancedPaymentSummaryAmount: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  advancedPayConfirmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    marginTop: 16,
+  },
+  advancedPayConfirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  advancedPaymentModalContent: {
+    maxHeight: '80%',
+  },
+  advancedPaymentScrollView: {
+    maxHeight: 400,
+  },
+  advancedPaymentList: {
+    gap: 12,
+  },
+  advancedPaymentModalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  advancedPaymentModalItemSelected: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+    borderWidth: 2,
+  },
+  advancedPaymentModalLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  advancedPaymentModalCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  advancedPaymentModalCheckboxSelected: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  advancedPaymentModalInfo: {
+    flex: 1,
+  },
+  advancedPaymentModalMonth: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  advancedPaymentModalDate: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  advancedPaymentModalAmount: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  advancedPaymentModalDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  advancedPaymentModalSummary: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  advancedPaymentModalSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  advancedPaymentModalSummaryLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  advancedPaymentModalSummaryAmount: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  modalButtonDisabled: {
+    opacity: 0.5,
+  },
+  paymentMethodsSection: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  paymentMethodsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  paymentMethodsList: {
+    gap: 12,
+  },
+  paymentMethodOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  paymentMethodOptionSelected: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+    borderWidth: 2,
+  },
+  paymentMethodLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  paymentMethodIcon: {
+    fontSize: 24,
+  },
+  paymentMethodInfo: {
+    flex: 1,
+  },
+  paymentMethodName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  paymentMethodAccount: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  noPaymentMethods: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  noPaymentMethodsText: {
+    fontSize: 14,
+    color: '#92400E',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  paymentMethodAction: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  paymentMethodActionText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  paymentMethodSelectedIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    padding: 10,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  paymentMethodSelectedText: {
+    fontSize: 13,
+    color: '#10B981',
+    fontWeight: '500',
+  },
+  paymentBanner: {
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  paymentBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  paymentBannerIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  paymentBannerText: {
+    flex: 1,
+  },
+  paymentBannerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  paymentBannerAmount: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  paymentBannerDate: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
+  },
+  paymentBannerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    gap: 8,
+  },
+  paymentBannerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  nextMonthNotification: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  nextMonthNotificationText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  paymentDetailsGrid: {
+    gap: 16,
+    marginBottom: 16,
+  },
+  paymentDetailItem: {
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  paymentDetailLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  paymentDetailValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  paymentDetailValueError: {
+    color: '#EF4444',
+  },
+  overdueWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF2F2',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    marginBottom: 16,
+    gap: 12,
+  },
+  overdueWarningText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#DC2626',
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+  modalInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111827',
+  },
+  categoryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  categoryButtonSelected: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+    borderWidth: 2,
+  },
+  categoryButtonText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  categoryButtonTextSelected: {
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  priorityButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  priorityButtonLow: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#10B981',
+    borderWidth: 2,
+  },
+  priorityButtonMedium: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+    borderWidth: 2,
+  },
+  priorityButtonHigh: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#EF4444',
+    borderWidth: 2,
+  },
+  priorityButtonUrgent: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#DC2626',
+    borderWidth: 2,
+  },
+  priorityButtonText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  priorityButtonTextSelected: {
+    fontWeight: '600',
+  },
+  mediaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  mediaButtonText: {
+    fontSize: 14,
+    color: '#3B82F6',
+    fontWeight: '500',
+  },
+  mediaPreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  mediaPreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mediaRemoveButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+

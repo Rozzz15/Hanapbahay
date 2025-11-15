@@ -6,15 +6,34 @@ import { useAuth } from '../context/AuthContext';
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { isLoading } = useAuth();
+  const { isLoading, user, isAuthenticated, redirectOwnerBasedOnListings, redirectTenantToTabs, redirectBrgyOfficial } = useAuth();
 
-  // Redirect to Get Started screen on first load
+  // Redirect authenticated users to their appropriate dashboard
   useEffect(() => {
     if (!isLoading) {
-      // Redirect to get-started screen as the first layout
+      if (isAuthenticated && user) {
+        const roles = user.roles || [];
+        
+        if (Array.isArray(roles) && roles.includes('owner')) {
+          console.log('🏠 Owner detected on index, redirecting to owner dashboard');
+          redirectOwnerBasedOnListings(user.id);
+          return;
+        } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
+          console.log('🏛️ Barangay official detected on index, redirecting to brgy dashboard');
+          redirectBrgyOfficial();
+          return;
+        } else if (isAuthenticated) {
+          console.log('👤 Tenant detected on index, redirecting to tenant tabs');
+          redirectTenantToTabs();
+          return;
+        }
+      }
+      
+      // Only redirect to get-started if user is not authenticated
+      console.log('🚀 No authenticated user, redirecting to get-started');
       router.replace('/(get-started)');
     }
-  }, [isLoading, router]);
+  }, [isLoading, isAuthenticated, user, redirectOwnerBasedOnListings, redirectTenantToTabs, redirectBrgyOfficial, router]);
 
   // Show loading while checking authentication
   if (isLoading) {

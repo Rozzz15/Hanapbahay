@@ -890,6 +890,46 @@ const goToNextPhoto = () => {
                           {review.isAnonymous === true && (
                             <Text style={styles.anonymousLabel}>Anonymous Review</Text>
                           )}
+                          {/* Owner Reply */}
+                          {review.ownerReply && review.ownerReply.trim() !== '' && (
+                            <View style={{
+                              marginTop: 12,
+                              padding: 12,
+                              backgroundColor: '#E0F2FE',
+                              borderRadius: 8,
+                              borderLeftWidth: 3,
+                              borderLeftColor: '#3B82F6',
+                            }}>
+                              <Text style={{
+                                fontSize: 12,
+                                fontWeight: '600',
+                                color: '#3B82F6',
+                                marginBottom: 4,
+                              }}>
+                                Owner's Reply
+                              </Text>
+                              <Text style={{
+                                fontSize: 14,
+                                color: '#1F2937',
+                                lineHeight: 20,
+                              }}>
+                                {review.ownerReply}
+                              </Text>
+                              {review.ownerReplyAt && (
+                                <Text style={{
+                                  fontSize: 11,
+                                  color: '#6B7280',
+                                  marginTop: 4,
+                                }}>
+                                  {new Date(review.ownerReplyAt).toLocaleDateString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric'
+                                  })}
+                                </Text>
+                              )}
+                            </View>
+                          )}
                         </View>
                       ))}
                     </View>

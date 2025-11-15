@@ -100,6 +100,7 @@ export interface PaymentAccount {
   accountName: string;
   accountNumber: string;
   accountDetails: string;
+  qrCodeImageUri?: string; // QR code image URI for GCash payments
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

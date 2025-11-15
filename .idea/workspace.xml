@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="NONE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="f395c24e-697a-4164-9851-bbfebb616a6d" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/android/app/src/main/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/android/app/src/main/AndroidManifest.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.json" beforeDir="false" afterPath="$PROJECT_DIR$/app.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(owner)/bookings.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(owner)/bookings.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(owner)/create-listing.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(owner)/create-listing.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(owner)/dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(owner)/dashboard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(owner)/listings.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(owner)/listings.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(tabs)/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(tabs)/_layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(tabs)/bookings.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(tabs)/bookings.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(tabs)/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(tabs)/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/book-now.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/book-now.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/listing-dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/listing-dashboard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/login.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/login.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/payment-methods.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/payment-methods.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/sign-up.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/sign-up.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/ApprovedBookingsPayment.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/ApprovedBookingsPayment.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/LoginModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/LoginModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/SignUpModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/SignUpModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/listings/ListingCard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/listings/ListingCard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/context/AuthContext.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/context/AuthContext.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/styles/create-listing-professional.ts" beforeDir="false" afterPath="$PROJECT_DIR$/styles/create-listing-professional.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/types/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/types/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/booking.ts" beforeDir="false" afterPath="$PROJECT_DIR$/utils/booking.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/db.ts" beforeDir="false" afterPath="$PROJECT_DIR$/utils/db.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/listing-capacity.ts" beforeDir="false" afterPath="$PROJECT_DIR$/utils/listing-capacity.ts" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "customColor": "",
+  "associatedIndex": 4
+}]]></component>
+  <component name="ProjectId" id="35QXrL8gJWHgxx6epXOgw6VsMtQ" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "main"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="f395c24e-697a-4164-9851-bbfebb616a6d" name="Changes" comment="" />
+      <created>1763043467604</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1763043467604</updated>
+    </task>
+    <servers />
+  </component>
+</project>

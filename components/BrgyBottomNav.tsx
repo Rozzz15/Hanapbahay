@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { 
   LayoutDashboard, 
   Users, 
@@ -8,63 +9,86 @@ import {
   FileText, 
   Settings 
 } from 'lucide-react-native';
+import { designTokens } from '../styles/owner-dashboard-styles';
+
+const navigationItems = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    path: '/(brgy)/dashboard',
+    color: '#3B82F6'
+  },
+  {
+    id: 'residents',
+    label: 'Residents',
+    icon: Users,
+    path: '/(brgy)/residents',
+    color: '#10B981'
+  },
+  {
+    id: 'properties',
+    label: 'Properties',
+    icon: Home,
+    path: '/(brgy)/properties',
+    color: '#F59E0B'
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: FileText,
+    path: '/(brgy)/reports',
+    color: '#8B5CF6'
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: Settings,
+    path: '/(brgy)/settings',
+    color: '#14B8A6'
+  }
+];
 
 export default function BrgyBottomNav() {
   const router = useRouter();
   const pathname = usePathname();
-  
-  const navItems = [
-    { 
-      icon: LayoutDashboard, 
-      label: 'Dashboard', 
-      route: '/(brgy)/dashboard' 
-    },
-    { 
-      icon: Users, 
-      label: 'Residents', 
-      route: '/(brgy)/residents' 
-    },
-    { 
-      icon: Home, 
-      label: 'Properties', 
-      route: '/(brgy)/properties' 
-    },
-    { 
-      icon: FileText, 
-      label: 'Reports', 
-      route: '/(brgy)/reports' 
-    },
-    { 
-      icon: Settings, 
-      label: 'Settings', 
-      route: '/(brgy)/settings' 
-    }
-  ];
+  const insets = useSafeAreaInsets();
 
-  const isActive = (route: string) => {
-    return pathname?.includes(route.split('/').pop() || '');
+  const isActive = (path: string) => {
+    return pathname === path;
+  };
+
+  const handleNavigation = (path: string) => {
+    router.push(path as any);
   };
 
   return (
-    <View style={styles.container}>
-      {navItems.map((item) => {
+    <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      {navigationItems.map((item) => {
         const Icon = item.icon;
-        const active = isActive(item.route);
+        const active = isActive(item.path);
         
         return (
           <TouchableOpacity
-            key={item.label}
-            style={styles.navItem}
-            onPress={() => router.push(item.route as any)}
-            activeOpacity={0.7}
+            key={item.id}
+            style={[
+              styles.navItem,
+              active && styles.navItemActive
+            ]}
+            onPress={() => handleNavigation(item.path)}
           >
-            <Icon 
-              size={20} 
-              color={active ? '#10B981' : '#9CA3AF'} 
-            />
+            <View style={[
+              styles.navIcon,
+              { backgroundColor: active ? item.color : 'transparent' }
+            ]}>
+              <Icon 
+                size={18} 
+                color={active ? 'white' : designTokens.colors.textSecondary} 
+              />
+            </View>
             <Text style={[
               styles.navLabel,
-              { color: active ? '#10B981' : '#9CA3AF' }
+              active && { color: item.color, fontWeight: '600' as const }
             ]}>
               {item.label}
             </Text>
@@ -76,31 +100,41 @@ export default function BrgyBottomNav() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  bottomNav: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designTokens.colors.white,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: designTokens.colors.border,
     paddingVertical: 8,
-    paddingHorizontal: 8,
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 5,
+    paddingHorizontal: 12,
+    ...designTokens.shadows.md,
   },
+  
   navItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
     flex: 1,
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
+  
+  navItemActive: {
+    // Active state styling handled by icon and text
+  },
+  
+  navIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  
   navLabel: {
     fontSize: 10,
-    fontWeight: '500',
-    marginTop: 4,
+    color: designTokens.colors.textSecondary,
+    fontWeight: '500' as const,
+    textAlign: 'center',
+    lineHeight: 12,
   },
 });

@@ -82,13 +82,38 @@ export const designTokens = {
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.05,
       shadowRadius: 2,
+      elevation: 2,
     },
     md: {
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 4,
     },
+    lg: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 8,
+    },
+    xl: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.2,
+      shadowRadius: 16,
+      elevation: 12,
+    },
+  },
+  
+  gradients: {
+    primary: ['#10B981', '#059669'],
+    success: ['#10B981', '#34D399'],
+    info: ['#3B82F6', '#60A5FA'],
+    warning: ['#F59E0B', '#FBBF24'],
+    purple: ['#8B5CF6', '#A78BFA'],
+    teal: ['#14B8A6', '#5EEAD4'],
   },
 };
 
@@ -117,6 +142,23 @@ export const sharedStyles = StyleSheet.create({
     marginBottom: designTokens.spacing.xl, // Reduced from 3xl (32) to xl (20)
   } as ViewStyle,
   
+  headerModern: {
+    padding: designTokens.spacing.xl,
+    borderRadius: designTokens.borderRadius.xl,
+    marginBottom: designTokens.spacing['2xl'],
+    position: 'relative',
+    overflow: 'hidden',
+  } as ViewStyle,
+  
+  headerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    opacity: 0.1,
+  } as ViewStyle,
+  
   headerLeft: {
     flex: 1,
   } as ViewStyle,
@@ -143,10 +185,22 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: designTokens.colors.primary,
-    paddingHorizontal: designTokens.spacing.lg,
-    paddingVertical: designTokens.spacing.sm,
-    borderRadius: designTokens.borderRadius.md,
-    gap: designTokens.spacing.xs,
+    paddingHorizontal: designTokens.spacing.xl,
+    paddingVertical: designTokens.spacing.md,
+    borderRadius: designTokens.borderRadius.lg,
+    gap: designTokens.spacing.sm,
+    ...designTokens.shadows.md,
+  } as ViewStyle,
+  
+  primaryButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: designTokens.spacing.xl,
+    paddingVertical: designTokens.spacing.md,
+    borderRadius: designTokens.borderRadius.lg,
+    gap: designTokens.spacing.sm,
+    ...designTokens.shadows.md,
+    overflow: 'hidden',
   } as ViewStyle,
   
   primaryButtonText: {
@@ -183,10 +237,18 @@ export const sharedStyles = StyleSheet.create({
   card: {
     backgroundColor: designTokens.colors.white,
     padding: designTokens.spacing.xl,
-    borderRadius: designTokens.borderRadius.lg,
-    ...designTokens.shadows.md,
-    borderWidth: 1,
-    borderColor: designTokens.colors.border,
+    borderRadius: designTokens.borderRadius.xl,
+    ...designTokens.shadows.lg,
+    borderWidth: 0,
+  } as ViewStyle,
+  
+  cardModern: {
+    backgroundColor: designTokens.colors.white,
+    padding: designTokens.spacing.xl,
+    borderRadius: designTokens.borderRadius.xl,
+    ...designTokens.shadows.lg,
+    borderWidth: 0,
+    overflow: 'hidden',
   } as ViewStyle,
   
   // Section Styles
@@ -218,12 +280,34 @@ export const sharedStyles = StyleSheet.create({
   statCard: {
     backgroundColor: designTokens.colors.white,
     padding: designTokens.spacing.lg, // Reduced from xl (20) to lg (16)
-    borderRadius: designTokens.borderRadius.lg,
-    ...designTokens.shadows.md,
-    borderWidth: 1,
-    borderColor: designTokens.colors.border,
+    borderRadius: designTokens.borderRadius.xl,
+    ...designTokens.shadows.lg,
+    borderWidth: 0,
     minHeight: 100, // Reduced from 120
     width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+  } as ViewStyle,
+  
+  statCardGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    borderRadius: designTokens.borderRadius.xl,
+  } as ViewStyle,
+  
+  statCardModern: {
+    backgroundColor: designTokens.colors.white,
+    padding: designTokens.spacing.xl,
+    borderRadius: designTokens.borderRadius.xl,
+    ...designTokens.shadows.lg,
+    borderWidth: 0,
+    minHeight: 120,
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
   } as ViewStyle,
   
   statIconContainer: {
@@ -231,9 +315,17 @@ export const sharedStyles = StyleSheet.create({
   } as ViewStyle,
   
   statIcon: {
-    width: 32, // Reduced from 40
-    height: 32, // Reduced from 40
-    borderRadius: 16, // Reduced from 20
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  } as ViewStyle,
+  
+  statIconLarge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   } as ViewStyle,
@@ -266,11 +358,20 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: designTokens.colors.white,
-    padding: designTokens.spacing.md, // Reduced from lg (16) to md (12)
-    borderRadius: designTokens.borderRadius.lg,
+    padding: designTokens.spacing.lg,
+    borderRadius: designTokens.borderRadius.xl,
     ...designTokens.shadows.md,
-    borderWidth: 1,
-    borderColor: designTokens.colors.border,
+    borderWidth: 0,
+    marginBottom: designTokens.spacing.md,
+  } as ViewStyle,
+  
+  listItemIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: designTokens.spacing.md,
   } as ViewStyle,
   
   // Form Styles
@@ -373,6 +474,7 @@ export const iconBackgrounds = {
   orange: { backgroundColor: designTokens.colors.iconOrange },
   red: { backgroundColor: designTokens.colors.iconRed },
   teal: { backgroundColor: designTokens.colors.iconTeal },
+  purple: { backgroundColor: '#F3E8FF' },
 };
 
 // Status Colors

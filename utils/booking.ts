@@ -8,6 +8,7 @@ export interface CreateBookingData {
   endDate: string;
   duration: number; // in months
   specialRequests?: string;
+  selectedRoom?: number; // Room index (0-based) that the tenant selected
   selectedPaymentMethod?: string;
   paymentMethodDetails?: {
     type: string;
@@ -125,6 +126,7 @@ export async function createBooking(data: CreateBookingData): Promise<BookingRec
       ownerEmail: property.email,
       ownerPhone: property.contactNumber,
       specialRequests: data.specialRequests,
+      selectedRoom: data.selectedRoom,
       selectedPaymentMethod: data.selectedPaymentMethod,
       paymentMethodDetails: data.paymentMethodDetails,
       createdAt: new Date().toISOString(),

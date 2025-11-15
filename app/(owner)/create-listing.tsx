@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Modal, useWindowDimensions, KeyboardAvoidingView, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, generateId } from '../../utils/db';
 import * as ImagePicker from 'expo-image-picker';
@@ -74,6 +74,7 @@ export default function CreateListing() {
   const [showWarnings, setShowWarnings] = useState(false);
   const [showPhotoSourceModal, setShowPhotoSourceModal] = useState(false);
   const [photoSourceType, setPhotoSourceType] = useState<'cover' | 'photos' | null>(null);
+  const [hasPaymentMethods, setHasPaymentMethods] = useState<boolean | null>(null);
   const [formData, setFormData] = useState<ListingFormData>({
     propertyType: '',
     rentalType: '',
@@ -100,6 +101,38 @@ export default function CreateListing() {
     capacity: '1', // Default capacity (calculated from room capacities)
     roomCapacities: [] // Capacity per room
   });
+
+  // Function to check payment methods
+  const checkPaymentMethods = useCallback(async () => {
+    if (!user?.id) {
+      setHasPaymentMethods(null);
+      return;
+    }
+
+    try {
+      const allAccounts = await db.list('payment_accounts');
+      const ownerAccounts = allAccounts.filter(
+        (account: any) => account.ownerId === user.id && account.isActive === true
+      );
+      setHasPaymentMethods(ownerAccounts.length > 0);
+      console.log(`💳 Payment methods check: ${ownerAccounts.length > 0 ? 'Found' : 'Not found'} payment methods`);
+    } catch (error) {
+      console.error('❌ Error checking payment methods:', error);
+      setHasPaymentMethods(null); // Unknown state
+    }
+  }, [user?.id]);
+
+  // Check for payment methods on mount and when user changes
+  useEffect(() => {
+    checkPaymentMethods();
+  }, [checkPaymentMethods]);
+
+  // Refresh payment methods check when screen comes into focus (e.g., returning from payment settings)
+  useFocusEffect(
+    useCallback(() => {
+      checkPaymentMethods();
+    }, [checkPaymentMethods])
+  );
 
   // Update form data when user data becomes available
   useEffect(() => {
@@ -392,6 +425,38 @@ export default function CreateListing() {
     if (!user?.id) {
       showAlert('Error', 'User not authenticated. Please log in again.');
       return;
+    }
+
+    // Check if owner has payment methods set up
+    try {
+      const allAccounts = await db.list('payment_accounts');
+      const ownerAccounts = allAccounts.filter(
+        (account: any) => account.ownerId === user.id && account.isActive === true
+      );
+
+      if (ownerAccounts.length === 0) {
+        showAlert(
+          'Payment Methods Required',
+          'You need to add at least one payment method before creating a listing. This allows tenants to pay rent for your property.\n\nWould you like to add payment methods now?',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => {}
+            },
+            {
+              text: 'Add Payment Methods',
+              onPress: () => {
+                router.push('/(owner)/payment-settings');
+              }
+            }
+          ]
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('❌ Error checking payment methods:', error);
+      // Continue with listing creation if check fails (don't block user)
     }
 
     // Validate all steps before submitting
@@ -1597,6 +1662,30 @@ export default function CreateListing() {
           <View style={{ width: 40 }} />
         </View>
       </View>
+
+      {/* Payment Methods Reminder Banner */}
+      {hasPaymentMethods === false && (
+        <View style={professionalStyles.paymentWarningBanner}>
+          <View style={professionalStyles.paymentWarningContent}>
+            <AlertCircle size={20} color="#F59E0B" />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={professionalStyles.paymentWarningTitle}>
+                Payment Methods Required
+              </Text>
+              <Text style={professionalStyles.paymentWarningText}>
+                You need to add payment methods before creating a listing. Tenants will need this to pay rent.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={professionalStyles.paymentWarningButton}
+              onPress={() => router.push('/(owner)/payment-settings')}
+            >
+              <CreditCard size={16} color="#FFFFFF" />
+              <Text style={professionalStyles.paymentWarningButtonText}>Add Now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Progress Display */}
       <View style={professionalStyles.progressContainer}>

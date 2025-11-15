@@ -368,6 +368,14 @@ export default function BookingsPage() {
                         Move-in: {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
                       </Text>
                     </View>
+                    {booking.selectedRoom !== undefined && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="home" size={14} color="#10B981" />
+                        <Text style={[styles.detailText, { color: '#10B981', fontWeight: '600' }]}>
+                          Selected Room: Room {booking.selectedRoom + 1}
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.detailRow}>
                       <Ionicons name="cash" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>
@@ -380,6 +388,24 @@ export default function BookingsPage() {
                         Total: ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
                       </Text>
                     </View>
+                    {booking.status === 'approved' && (
+                      <View style={styles.detailRow}>
+                        <Ionicons 
+                          name={booking.paymentStatus === 'paid' ? "checkmark-circle" : "time"} 
+                          size={14} 
+                          color={booking.paymentStatus === 'paid' ? '#10B981' : '#F59E0B'} 
+                        />
+                        <Text style={[
+                          styles.detailText, 
+                          { 
+                            fontWeight: '600',
+                            color: booking.paymentStatus === 'paid' ? '#10B981' : '#F59E0B'
+                          }
+                        ]}>
+                          Payment: {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {/* Special Requests */}
@@ -407,6 +433,118 @@ export default function BookingsPage() {
                       >
                         <Ionicons name="close-circle" size={16} color="white" />
                         <Text style={styles.rejectButtonText}>Reject</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Mark as Paid - For approved bookings not yet paid */}
+                  {booking.status === 'approved' && booking.paymentStatus !== 'paid' && (
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          if (!user?.id) return;
+
+                          Alert.alert(
+                            'Mark as Paid',
+                            `Have you received the payment from ${booking.tenantName}?\n\nThis will mark the booking as paid and add the tenant to your tenants list.`,
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Yes, Mark as Paid',
+                                onPress: async () => {
+                                  try {
+                                    const updatedBooking: BookingRecord = {
+                                      ...booking,
+                                      paymentStatus: 'paid',
+                                      updatedAt: new Date().toISOString()
+                                    };
+
+                                    await db.upsert('bookings', booking.id, updatedBooking);
+                                    
+                                    console.log(`✅ Marked booking as paid: ${booking.id}`);
+                                    
+                                    // Create initial payment record for payment history
+                                    try {
+                                      const { getRentPaymentsByBooking } = await import('../../utils/tenant-payments');
+                                      const { generateId } = await import('../../utils/db');
+                                      const existingPayments = await getRentPaymentsByBooking(booking.id);
+                                      
+                                      // Check if there's already a payment for the booking start month
+                                      const startDate = new Date(booking.startDate);
+                                      const paymentMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+                                      const existingInitialPayment = existingPayments.find(
+                                        p => p.paymentMonth === paymentMonth && p.status === 'paid'
+                                      );
+                                      
+                                      // Only create if it doesn't exist
+                                      if (!existingInitialPayment) {
+                                        const { RentPaymentRecord } = await import('../../types');
+                                        const now = new Date();
+                                        const paidDate = now.toISOString();
+                                        
+                                        // Create initial booking payment record
+                                        const initialPayment: RentPaymentRecord = {
+                                          id: generateId('rent_payment'),
+                                          bookingId: booking.id,
+                                          tenantId: booking.tenantId,
+                                          ownerId: booking.ownerId,
+                                          propertyId: booking.propertyId,
+                                          amount: booking.monthlyRent || booking.totalAmount,
+                                          lateFee: 0,
+                                          totalAmount: booking.totalAmount,
+                                          paymentMonth: paymentMonth,
+                                          dueDate: booking.startDate,
+                                          paidDate: paidDate,
+                                          status: 'paid',
+                                          paymentMethod: booking.selectedPaymentMethod || 'Manual',
+                                          receiptNumber: `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+                                          notes: 'Initial booking payment',
+                                          createdAt: paidDate,
+                                          updatedAt: paidDate,
+                                        };
+                                        
+                                        await db.upsert('rent_payments', initialPayment.id, initialPayment);
+                                        console.log('✅ Created initial booking payment record:', initialPayment.id);
+                                      }
+                                    } catch (paymentError) {
+                                      console.error('❌ Error creating initial payment record:', paymentError);
+                                    }
+                                    
+                                    // Dispatch event to notify other parts of the app
+                                    try {
+                                      const { dispatchCustomEvent } = await import('../../utils/custom-events');
+                                      dispatchCustomEvent('bookingStatusChanged', {
+                                        bookingId: booking.id,
+                                        status: 'approved',
+                                        paymentStatus: 'paid',
+                                        ownerId: user.id,
+                                        timestamp: new Date().toISOString()
+                                      });
+                                      dispatchCustomEvent('paymentUpdated', {
+                                        bookingId: booking.id,
+                                        ownerId: user.id,
+                                        tenantId: booking.tenantId,
+                                        status: 'paid',
+                                      });
+                                    } catch (eventError) {
+                                      console.warn('⚠️ Could not dispatch events:', eventError);
+                                    }
+                                    
+                                    showAlert('Success', 'Booking marked as paid. Tenant has been added to your tenants list.');
+                                    loadBookings();
+                                  } catch (error) {
+                                    console.error('❌ Error marking booking as paid:', error);
+                                    showAlert('Error', 'Failed to mark booking as paid');
+                                  }
+                                }
+                              }
+                            ]
+                          );
+                        }}
+                        style={styles.markPaidButton}
+                      >
+                        <Ionicons name="checkmark-circle" size={16} color="white" />
+                        <Text style={styles.markPaidButtonText}>Mark as Paid</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -794,5 +932,20 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
     fontSize: 14,
     fontWeight: '500',
+  },
+  markPaidButton: {
+    flex: 1,
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  markPaidButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

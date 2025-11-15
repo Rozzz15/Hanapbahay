@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Pressable, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Pressable, Platform, Image, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, generateId } from '../../utils/db';
 import { useToast } from '@/components/ui/toast';
 import { createNotification } from '@/utils';
-import { ArrowLeft, Plus, Trash2, CreditCard, Save } from 'lucide-react-native';
+import { ArrowLeft, Plus, Trash2, CreditCard, Save, ImageIcon, X } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
+import * as ImagePicker from 'expo-image-picker';
 
 interface PaymentAccount {
   id: string;
@@ -16,6 +17,7 @@ interface PaymentAccount {
   accountName: string;
   accountNumber: string;
   accountDetails: string;
+  qrCodeImageUri?: string; // QR code image URI for GCash payments
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -41,7 +43,8 @@ export default function PaymentSettings() {
     type: 'gcash' as PaymentAccount['type'],
     accountName: '',
     accountNumber: '',
-    accountDetails: ''
+    accountDetails: '',
+    qrCodeImageUri: '' as string | undefined
   });
 
   useEffect(() => {
@@ -96,7 +99,8 @@ export default function PaymentSettings() {
       type: 'gcash',
       accountName: '',
       accountNumber: '',
-      accountDetails: ''
+      accountDetails: '',
+      qrCodeImageUri: undefined
     });
     setEditingAccount(null);
     setShowAddForm(false);
@@ -186,6 +190,7 @@ export default function PaymentSettings() {
           accountName: formData.accountName.trim(),
           accountNumber: formData.accountNumber.trim(),
           accountDetails: formData.accountDetails.trim(),
+          qrCodeImageUri: formData.qrCodeImageUri || editingAccount.qrCodeImageUri,
           updatedAt: now
         };
 
@@ -207,6 +212,7 @@ export default function PaymentSettings() {
           accountName: formData.accountName.trim(),
           accountNumber: formData.accountNumber.trim(),
           accountDetails: formData.accountDetails.trim(),
+          qrCodeImageUri: formData.qrCodeImageUri,
           isActive: true,
           createdAt: now,
           updatedAt: now
@@ -290,10 +296,54 @@ export default function PaymentSettings() {
       type: account.type,
       accountName: account.accountName,
       accountNumber: account.accountNumber,
-      accountDetails: account.accountDetails
+      accountDetails: account.accountDetails,
+      qrCodeImageUri: account.qrCodeImageUri
     });
     setEditingAccount(account);
     setShowAddForm(true);
+  };
+
+  const handlePickQRCode = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant permission to access your photo library to upload QR code.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setFormData(prev => ({ ...prev, qrCodeImageUri: result.assets[0].uri }));
+        toast.show(createNotification({
+          title: 'QR Code Added',
+          description: 'QR code image has been selected.',
+          type: 'success'
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking QR code image:', error);
+      toast.show(createNotification({
+        title: 'Error',
+        description: 'Failed to pick QR code image. Please try again.',
+        type: 'error'
+      }));
+    }
+  };
+
+  const handleRemoveQRCode = () => {
+    setFormData(prev => ({ ...prev, qrCodeImageUri: undefined }));
   };
 
   // Dedicated handler for opening the add form
@@ -310,7 +360,8 @@ export default function PaymentSettings() {
       type: 'gcash',
       accountName: '',
       accountNumber: '',
-      accountDetails: ''
+      accountDetails: '',
+      qrCodeImageUri: undefined
     });
     
     console.log('✅ State updates dispatched - form should show');
@@ -324,6 +375,10 @@ export default function PaymentSettings() {
   const renderAddForm = () => {
     const selectedType = PAYMENT_TYPES.find(t => t.id === formData.type);
     
+    // Check if owner already has accounts of the selected type
+    const existingAccountsOfType = accounts.filter(acc => acc.type === formData.type && (!editingAccount || acc.id !== editingAccount.id));
+    const hasExistingAccount = existingAccountsOfType.length > 0;
+    
     return (
       <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
         <Text style={[sharedStyles.sectionTitle, { marginBottom: designTokens.spacing.lg }]}>
@@ -331,26 +386,63 @@ export default function PaymentSettings() {
         </Text>
 
         <View style={sharedStyles.formGroup}>
-          <Text style={sharedStyles.formLabel}>Payment Method *</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
-            {PAYMENT_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type.id}
-                style={[
-                  sharedStyles.secondaryButton,
-                  formData.type === type.id && { backgroundColor: designTokens.colors.primary, borderColor: designTokens.colors.primary }
-                ]}
-                onPress={() => setFormData(prev => ({ ...prev, type: type.id as PaymentAccount['type'] }))}
-              >
-                <Text style={[
-                  sharedStyles.secondaryButtonText,
-                  formData.type === type.id && { color: 'white' }
-                ]}>
-                  {type.icon} {type.name}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
+            <Text style={sharedStyles.formLabel}>Payment Method *</Text>
+            {hasExistingAccount && !editingAccount && (
+              <View style={{
+                backgroundColor: designTokens.colors.infoLight,
+                paddingHorizontal: designTokens.spacing.sm,
+                paddingVertical: designTokens.spacing.xs,
+                borderRadius: designTokens.borderRadius.sm,
+              }}>
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.info,
+                  fontWeight: designTokens.typography.medium,
+                }}>
+                  {existingAccountsOfType.length} existing {formData.type === 'gcash' ? 'GCash' : formData.type === 'paymaya' ? 'Maya' : formData.type}
                 </Text>
-              </TouchableOpacity>
-            ))}
+              </View>
+            )}
           </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
+            {PAYMENT_TYPES.map((type) => {
+              const existingOfThisType = accounts.filter(acc => acc.type === type.id && (!editingAccount || acc.id !== editingAccount.id));
+              return (
+                <TouchableOpacity
+                  key={type.id}
+                  style={[
+                    sharedStyles.secondaryButton,
+                    formData.type === type.id && { backgroundColor: designTokens.colors.primary, borderColor: designTokens.colors.primary }
+                  ]}
+                  onPress={() => setFormData(prev => ({ ...prev, type: type.id as PaymentAccount['type'] }))}
+                >
+                  <Text style={[
+                    sharedStyles.secondaryButtonText,
+                    formData.type === type.id && { color: 'white' }
+                  ]}>
+                    {type.icon} {type.name}
+                    {existingOfThisType.length > 0 && ` (${existingOfThisType.length})`}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {hasExistingAccount && !editingAccount && (
+            <View style={{
+              marginTop: designTokens.spacing.sm,
+              padding: designTokens.spacing.sm,
+              backgroundColor: designTokens.colors.infoLight,
+              borderRadius: designTokens.borderRadius.md,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                color: designTokens.colors.info,
+              }}>
+                ℹ️ You already have {existingAccountsOfType.length} {formData.type === 'gcash' ? 'GCash' : formData.type} account{existingAccountsOfType.length > 1 ? 's' : ''}. You can add another one if needed. Tenants will be able to choose which account to use for payments.
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={sharedStyles.formGroup}>
@@ -389,6 +481,69 @@ export default function PaymentSettings() {
           />
         </View>
 
+        {/* QR Code Upload - Only for GCash */}
+        {formData.type === 'gcash' && (
+          <View style={sharedStyles.formGroup}>
+            <Text style={sharedStyles.formLabel}>GCash QR Code (Optional)</Text>
+            <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm, fontSize: 12 }]}>
+              Upload your GCash QR code image. This will be used to generate dynamic QR codes for each rental invoice.
+            </Text>
+            {formData.qrCodeImageUri ? (
+              <View style={{ position: 'relative', marginTop: designTokens.spacing.sm }}>
+                <Image
+                  source={{ uri: formData.qrCodeImageUri }}
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: designTokens.spacing.sm,
+                    borderWidth: 1,
+                    borderColor: designTokens.colors.borderLight,
+                    alignSelf: 'center'
+                  }}
+                  resizeMode="contain"
+                />
+                <TouchableOpacity
+                  style={{
+                    position: 'absolute',
+                    top: -8,
+                    right: 20,
+                    backgroundColor: designTokens.colors.error,
+                    borderRadius: 15,
+                    width: 30,
+                    height: 30,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: 'white'
+                  }}
+                  onPress={handleRemoveQRCode}
+                >
+                  <X size={16} color="white" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  sharedStyles.secondaryButton,
+                  {
+                    paddingVertical: designTokens.spacing.md,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: designTokens.spacing.sm
+                  }
+                ]}
+                onPress={handlePickQRCode}
+              >
+                <ImageIcon size={18} color={designTokens.colors.primary} />
+                <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.primary }]}>
+                  Upload QR Code Image
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         <View style={{ flexDirection: 'row', gap: designTokens.spacing.md }}>
           <TouchableOpacity
             style={[sharedStyles.secondaryButton, { flex: 1 }]}
@@ -420,7 +575,8 @@ export default function PaymentSettings() {
                   type: 'gcash',
                   accountName: '',
                   accountNumber: '',
-                  accountDetails: ''
+                  accountDetails: '',
+                  qrCodeImageUri: undefined
                 });
                 setEditingAccount(null);
                 // Keep showAddForm as true
@@ -441,6 +597,11 @@ export default function PaymentSettings() {
   const renderAccountCard = (account: PaymentAccount) => {
     const paymentType = PAYMENT_TYPES.find(t => t.id === account.type);
     
+    // Count how many accounts of the same type exist (to show if there are multiple)
+    const accountsOfSameType = accounts.filter(acc => acc.type === account.type);
+    const hasMultipleOfSameType = accountsOfSameType.length > 1;
+    const accountIndex = accountsOfSameType.findIndex(acc => acc.id === account.id) + 1;
+    
     return (
       <View key={account.id} style={sharedStyles.card}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.lg }}>
@@ -449,12 +610,35 @@ export default function PaymentSettings() {
               <Text style={{ fontSize: 20 }}>{paymentType?.icon}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[sharedStyles.statLabel, { marginBottom: 4, fontSize: designTokens.typography.lg }]}>
-                {paymentType?.name}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, marginBottom: 4 }}>
+                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.lg }]}>
+                  {paymentType?.name}
+                </Text>
+                {hasMultipleOfSameType && (
+                  <View style={{
+                    backgroundColor: designTokens.colors.primary + '20',
+                    paddingHorizontal: designTokens.spacing.xs,
+                    paddingVertical: 2,
+                    borderRadius: designTokens.borderRadius.sm,
+                  }}>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.primary,
+                      fontWeight: designTokens.typography.semibold,
+                    }}>
+                      #{accountIndex}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.textPrimary }]}>
                 {account.accountName}
               </Text>
+              {hasMultipleOfSameType && (
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, color: designTokens.colors.textMuted, marginTop: 2 }]}>
+                  {account.accountNumber}
+                </Text>
+              )}
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
@@ -491,6 +675,23 @@ export default function PaymentSettings() {
               <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, flex: 1, textAlign: 'right' }]}>
                 {account.accountDetails}
               </Text>
+            </View>
+          )}
+          
+          {account.type === 'gcash' && account.qrCodeImageUri && (
+            <View style={{ marginTop: designTokens.spacing.md, alignItems: 'center' }}>
+              <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm }]}>QR Code:</Text>
+              <Image
+                source={{ uri: account.qrCodeImageUri }}
+                style={{
+                  width: 150,
+                  height: 150,
+                  borderRadius: designTokens.spacing.sm,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight
+                }}
+                resizeMode="contain"
+              />
             </View>
           )}
           

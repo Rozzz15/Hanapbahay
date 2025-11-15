@@ -39,16 +39,19 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
     const [countdown, setCountdown] = useState(0);
     const [isLocked, setIsLocked] = useState(false);
 
-    // Load saved email and remember me preference
+    // Load saved email and remember me preference - only on mount or when modal first opens
+    const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
+    
     useEffect(() => {
-        if (!visible) return;
+        if (!visible || hasLoadedInitialData) return;
         
         const loadSavedData = async () => {
             try {
                 const savedEmail = await AsyncStorage.getItem('remembered_email');
                 const rememberMePref = await AsyncStorage.getItem('remember_me');
                 
-                if (savedEmail) {
+                // Only set email if it's not already set (preserve user input)
+                if (savedEmail && !email) {
                     setSavedEmail(savedEmail);
                     setEmail(savedEmail);
                 }
@@ -82,13 +85,16 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                         setIsLocked(false);
                     }
                 }
+                
+                setHasLoadedInitialData(true);
             } catch (error) {
                 console.error('Error loading saved data:', error);
+                setHasLoadedInitialData(true);
             }
         };
         
         loadSavedData();
-    }, [visible]);
+    }, [visible, hasLoadedInitialData, email]);
 
     // Countdown timer effect
     useEffect(() => {
@@ -109,6 +115,20 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
             return () => clearInterval(timer);
         }
     }, [countdown]);
+
+    // Reset form when modal closes (only if not submitting)
+    useEffect(() => {
+        if (!visible && !isSubmitting) {
+            // Reset form state when modal closes (but preserve email if remember me is checked)
+            if (!rememberMe) {
+                setEmail('');
+            }
+            setPassword('');
+            setErrors({ email: '', password: '' });
+            setShowPassword(false);
+            setHasLoadedInitialData(false); // Allow reloading saved data next time
+        }
+    }, [visible, isSubmitting, rememberMe]);
 
     const onSubmit = async () => {
         try {
@@ -142,12 +162,14 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
             const result = await loginUser({ email, password });
             
             if (result.success) {
+                // Clear failed attempts on successful login
                 setFailedAttempts(0);
                 setIsLocked(false);
                 setCountdown(0);
                 await AsyncStorage.removeItem('login_failed_attempts');
                 await AsyncStorage.removeItem('login_countdown_end');
                 
+                // Save remember me preference
                 if (rememberMe) {
                     await AsyncStorage.setItem('remembered_email', email);
                     await AsyncStorage.setItem('remember_me', 'true');
@@ -156,66 +178,160 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                     await AsyncStorage.removeItem('remember_me');
                 }
                 
+                // Clear password field for security (but keep email if remember me is checked)
+                setPassword('');
+                setErrors({ email: '', password: '' });
+                
+                // Refresh user state
                 await refreshUser();
-                await new Promise(resolve => setTimeout(resolve, 200));
+                // Wait a bit longer to ensure user state is fully updated in AuthContext
+                await new Promise(resolve => setTimeout(resolve, 400));
                 
                 toast.show(notifications.loginSuccess());
 
-                const roles = (result as any).roles || (result as any).user?.roles || [];
+                // Get roles and userId from auth storage to ensure we have the latest data
+                let roles: string[] = [];
+                let userId: string | undefined;
                 
-                setTimeout(async () => {
-                    if (Array.isArray(roles) && roles.includes('owner')) {
-                        let ownerId = (result as any).user?.id || (result as any).id;
-                        
-                        try {
-                            const { getAuthUser } = await import('@/utils/auth-user');
-                            const authUser = await getAuthUser();
-                            if (authUser?.id) {
-                                ownerId = authUser.id;
-                            }
-                        } catch (authError) {
-                            console.warn('⚠️ Could not get userId from auth context:', authError);
-                        }
-                        
-                        if (!ownerId) {
-                            showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
-                            return;
-                        }
-                        
-                        try {
-                            const isApproved = await isOwnerApproved(ownerId);
-                            const hasPending = await hasPendingOwnerApplication(ownerId);
+                // Try multiple times to get the user data (in case of race conditions)
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                while (attempts < maxAttempts && (!roles || roles.length === 0 || !userId)) {
+                    try {
+                        const { getAuthUser } = await import('@/utils/auth-user');
+                        const authUser = await getAuthUser();
+                        if (authUser) {
+                            roles = authUser.roles || [];
+                            userId = authUser.id;
                             
-                            if (!isApproved) {
-                                if (hasPending) {
-                                    showSimpleAlert('Application Pending', 'Your owner application is still under review.');
-                                } else {
-                                    showSimpleAlert('Access Denied', 'Your owner application has not been approved yet.');
-                                }
-                                return;
+                            if (roles.length > 0 && userId) {
+                                break; // Success, exit loop
                             }
-                            
-                            redirectOwnerBasedOnListings(ownerId);
-                        } catch (error) {
-                            console.error('❌ Error checking owner approval:', error);
-                            showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
                         }
-                    } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
-                        redirectBrgyOfficial();
-                    } else {
-                        redirectTenantToTabs();
+                    } catch (authError) {
+                        console.warn(`⚠️ Attempt ${attempts + 1}: Could not get user from auth storage:`, authError);
                     }
                     
-                    // Close modal and call success callback
+                    // Fallback to login result if auth storage doesn't have it yet
+                    if ((!roles || roles.length === 0) && (result as any).roles) {
+                        roles = (result as any).roles || (result as any).user?.roles || [];
+                    }
+                    if (!userId && (result as any).user?.id) {
+                        userId = (result as any).user?.id || (result as any).id;
+                    }
+                    
+                    if (roles.length > 0 && userId) {
+                        break; // Success, exit loop
+                    }
+                    
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        // Wait a bit before retrying
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }
+                
+                // Final fallback to login result
+                if (!roles || roles.length === 0) {
+                    roles = (result as any).roles || (result as any).user?.roles || [];
+                }
+                if (!userId) {
+                    userId = (result as any).user?.id || (result as any).id;
+                }
+                
+                console.log('🔍 Login redirect - roles:', roles, 'userId:', userId, 'attempts:', attempts + 1);
+                
+                if (!roles || roles.length === 0) {
+                    console.error('❌ No roles found after login, defaulting to tenant');
+                    showSimpleAlert('Warning', 'Unable to determine your account type. Redirecting to default dashboard.');
+                    redirectTenantToTabs(userId);
                     onClose();
                     if (onLoginSuccess) {
                         onLoginSuccess();
                     }
-                }, 100);
+                    return;
+                }
+                
+                // Wait a bit more before redirecting to ensure AuthContext state is updated
+                setTimeout(async () => {
+                    try {
+                        if (Array.isArray(roles) && roles.includes('owner')) {
+                            let ownerId = userId;
+                            
+                            if (!ownerId) {
+                                try {
+                                    const { getAuthUser } = await import('@/utils/auth-user');
+                                    const authUser = await getAuthUser();
+                                    if (authUser?.id) {
+                                        ownerId = authUser.id;
+                                    }
+                                } catch (authError) {
+                                    console.warn('⚠️ Could not get userId from auth context:', authError);
+                                }
+                            }
+                            
+                            if (!ownerId) {
+                                console.error('❌ No owner ID found');
+                                showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
+                                setIsSubmitting(false);
+                                return;
+                            }
+                            
+                            try {
+                                const isApproved = await isOwnerApproved(ownerId);
+                                const hasPending = await hasPendingOwnerApplication(ownerId);
+                                
+                                if (!isApproved) {
+                                    if (hasPending) {
+                                        showSimpleAlert('Application Pending', 'Your owner application is still under review.');
+                                    } else {
+                                        showSimpleAlert('Access Denied', 'Your owner application has not been approved yet.');
+                                    }
+                                    setIsSubmitting(false);
+                                    return;
+                                }
+                                
+                                console.log('✅ Owner approved, redirecting to owner dashboard');
+                                redirectOwnerBasedOnListings(ownerId);
+                            } catch (error) {
+                                console.error('❌ Error checking owner approval:', error);
+                                showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
+                                setIsSubmitting(false);
+                                return;
+                            }
+                        } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
+                            console.log('🏛️ Redirecting barangay official to dashboard');
+                            redirectBrgyOfficial();
+                        } else {
+                            console.log('🏠 Redirecting tenant to tabs');
+                            // Pass userId to redirectTenantToTabs to ensure it has the user ID even if state hasn't updated
+                            redirectTenantToTabs(userId);
+                        }
+                        
+                        // Close modal and call success callback
+                        onClose();
+                        if (onLoginSuccess) {
+                            onLoginSuccess();
+                        }
+                    } catch (redirectError) {
+                        console.error('❌ Error during redirect:', redirectError);
+                        // Fallback to tenant tabs if redirect fails
+                        redirectTenantToTabs(userId);
+                        onClose();
+                        if (onLoginSuccess) {
+                            onLoginSuccess();
+                        }
+                    }
+                }, 150);
             } else {
+                // Login failed - don't clear form fields, just show error
                 const newFailedAttempts = failedAttempts + 1;
                 setFailedAttempts(newFailedAttempts);
                 await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
+                
+                // Clear password field for security, but keep email
+                setPassword('');
                 
                 if (newFailedAttempts >= 5) {
                     const initialCountdown = 60;
@@ -240,9 +356,13 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
         } catch (error) {
             console.error('Login error:', error);
             
+            // Login error - don't clear form fields, just show error
             const newFailedAttempts = failedAttempts + 1;
             setFailedAttempts(newFailedAttempts);
             await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
+            
+            // Clear password field for security, but keep email
+            setPassword('');
             
             if (newFailedAttempts >= 5) {
                 const initialCountdown = 60;
@@ -258,9 +378,10 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                 );
             } else {
                 const remainingAttempts = 5 - newFailedAttempts;
+                const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
                 showSimpleAlert(
                     'Login Failed ❌',
-                    `Invalid email or password. ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
+                    `${errorMessage}. ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
                 );
             }
         } finally {

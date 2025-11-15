@@ -64,6 +64,31 @@
       "typedRoutes": true
     },
     "scheme": "hanapbahay",
+    "ios": {
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "gcash",
+          "maya"
+        ]
+      }
+    },
+    "android": {
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "hanapbahay"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
     "extra": {
       "router": {
         "origin": false

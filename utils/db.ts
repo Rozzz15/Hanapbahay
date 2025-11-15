@@ -16,7 +16,9 @@ import {
   PropertyVideoRecord,
   BookingRecord,
   FavoriteRecord,
-  PropertyRatingRecord
+  PropertyRatingRecord,
+  TenantPaymentMethod,
+  RentPaymentRecord
 } from '../types';
 
 type CollectionName =
@@ -42,9 +44,11 @@ type CollectionName =
   | 'listing_inquiries'
   | 'media_backups'
   | 'user_favorites'
-  | 'listings';
+  | 'listings'
+  | 'tenant_payment_methods'
+  | 'rent_payments';
 
-type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | OwnerApplicationRecord | BrgyNotificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord;
+type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | OwnerApplicationRecord | BrgyNotificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord | TenantPaymentMethod | RentPaymentRecord;
 
 // Type guards for better type safety
 export function isPublishedListingRecord(record: AnyRecord): record is PublishedListingRecord {
@@ -108,17 +112,20 @@ async function readCollection<T extends AnyRecord>(name: CollectionName): Promis
 async function writeCollection<T extends AnyRecord>(name: CollectionName, data: Record<string, T>): Promise<void> {
   const key = KEY_PREFIX + name;
   
-  // Update cache immediately for consistency
-  collectionCache.set(key, data);
-  
+  // Write to AsyncStorage first
   await AsyncStorage.setItem(key, JSON.stringify(data));
+  
+  // Clear and update cache with a fresh copy to ensure consistency
+  collectionCache.delete(key);
+  collectionCache.set(key, { ...data });
 }
 
 export const db = {
   async upsert<T extends AnyRecord>(name: CollectionName, id: string, record: T): Promise<void> {
     const col = await readCollection<T>(name);
-    col[id] = record;
-    await writeCollection<T>(name, col);
+    // Create a new object to ensure proper cache invalidation
+    const updatedCol = { ...col, [id]: record };
+    await writeCollection<T>(name, updatedCol);
   },
   async get<T extends AnyRecord>(name: CollectionName, id: string): Promise<T | null> {
     const col = await readCollection<T>(name);
@@ -140,8 +147,9 @@ export const db = {
       return;
     }
     const col = await readCollection<any>(name);
-    delete col[id];
-    await writeCollection<any>(name, col);
+    // Create a new object without the deleted record
+    const { [id]: removed, ...updatedCol } = col;
+    await writeCollection<any>(name, updatedCol);
   }
 };
 
@@ -287,6 +295,13 @@ export async function getAll<T extends AnyRecord>(name: CollectionName): Promise
 export async function clearCache(): Promise<void> {
   collectionCache.clear();
   console.log('🗑️ Database cache cleared');
+}
+
+// Clear cache for a specific collection
+export function clearCollectionCache(name: CollectionName): void {
+  const key = KEY_PREFIX + name;
+  collectionCache.delete(key);
+  console.log(`🗑️ Cache cleared for collection: ${name}`);
 }
 
 // Get all published listings with proper typing

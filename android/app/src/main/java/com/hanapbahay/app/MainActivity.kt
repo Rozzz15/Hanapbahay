@@ -3,6 +3,8 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -61,5 +63,22 @@ class MainActivity : ReactActivity() {
       // Use the default back button implementation on Android S
       // because it's doing more than [Activity.moveTaskToBack] in fact.
       super.invokeDefaultOnBackPressed()
+  }
+
+  /**
+   * Handle GCash deep links from WebView (PayMongo integration)
+   * This allows PayMongo payment pages to properly redirect to GCash app
+   */
+  fun shouldOverrideUrlLoading(url: String): Boolean {
+    // Use gcash:// on production and sit environment
+    if (url.startsWith("gcash://")) {
+      val intent = Intent(Intent.ACTION_VIEW)
+      intent.data = Uri.parse(url)
+      startActivity(intent)
+      return true // Let the WebView handle the URL normally
+    } else {
+      // Use existing logic
+      return false // Allow the WebView in your application to do its thing
+    }
   }
 }

@@ -34,6 +34,10 @@ export default function TenantBookings() {
       const tenantBookings = await getBookingsByTenant(user.id);
       setBookings(tenantBookings);
       console.log(`✅ Loaded ${tenantBookings.length} bookings for tenant ${user.id}`);
+      // Debug: Log special requests for each booking
+      tenantBookings.forEach((booking, index) => {
+        console.log(`📝 Booking ${index + 1} (${booking.id}): specialRequests =`, booking.specialRequests);
+      });
     } catch (error) {
       console.error('❌ Error loading bookings:', error);
       showAlert('Error', 'Failed to load bookings. Please try again.');
@@ -361,6 +365,14 @@ export default function TenantBookings() {
                         Move-in: {booking.startDate ? new Date(booking.startDate).toLocaleDateString() : 'N/A'}
                       </Text>
                     </View>
+                    {booking.selectedRoom !== undefined && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="home" size={14} color="#10B981" />
+                        <Text style={[styles.detailText, { color: '#10B981', fontWeight: '600' }]}>
+                          Selected Room: Room {booking.selectedRoom + 1}
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.detailRow}>
                       <Ionicons name="cash" size={14} color="#6B7280" />
                       <Text style={styles.detailText}>
@@ -377,13 +389,15 @@ export default function TenantBookings() {
                     )}
                   </View>
 
-                  {/* Special Requests */}
-                  {booking.specialRequests && (
-                    <View style={styles.specialRequests}>
-                      <Text style={styles.detailsTitle}>Special Requests</Text>
-                      <Text style={styles.specialRequestsText}>{booking.specialRequests}</Text>
-                    </View>
-                  )}
+                  {/* Special Requests - Always show section */}
+                  <View style={styles.specialRequests}>
+                    <Text style={styles.detailsTitle}>Special Requests</Text>
+                    <Text style={styles.specialRequestsText}>
+                      {booking.specialRequests && String(booking.specialRequests).trim() 
+                        ? String(booking.specialRequests).trim()
+                        : 'No special requests provided'}
+                    </Text>
+                  </View>
 
                   {/* Contact Owner - Only show for approved bookings */}
                   {booking.status === 'approved' && (

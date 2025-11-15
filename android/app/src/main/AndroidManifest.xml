@@ -12,6 +12,22 @@
       <category android:name="android.intent.category.BROWSABLE"/>
       <data android:scheme="https"/>
     </intent>
+    <!-- GCash app package for Android 11+ -->
+    <package android:name="com.globe.gcash.android"/>
+    <!-- GCash URL scheme -->
+    <intent>
+      <action android:name="android.intent.action.VIEW"/>
+      <category android:name="android.intent.category.BROWSABLE"/>
+      <data android:scheme="gcash"/>
+    </intent>
+    <!-- Maya app package -->
+    <package android:name="ph.com.maya.maya"/>
+    <!-- Maya URL scheme -->
+    <intent>
+      <action android:name="android.intent.action.VIEW"/>
+      <category android:name="android.intent.category.BROWSABLE"/>
+      <data android:scheme="maya"/>
+    </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>

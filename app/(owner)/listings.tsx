@@ -55,37 +55,72 @@ export default function ListingsPage() {
       setLoading(true);
       const ownerListings = await getOwnerListings(user.id);
       
+      // Load room availability for each listing
+      const { getAvailableSlotsPerRoom, getOccupiedSlots } = await import('../../utils/listing-capacity');
+      
       // Sanitize listing data to prevent text rendering errors
-      const sanitizedListings = ownerListings.map((listing: any) => ({
-        id: String(listing.id || ''),
-        userId: user.id,
-        propertyType: String(listing.propertyType || 'Property'),
-        address: String(listing.address || 'No address'),
-        status: String(listing.status || 'draft'),
-        businessName: listing.businessName ? String(listing.businessName) : '',
-        ownerName: listing.ownerName ? String(listing.ownerName) : '',
-        rentalType: String(listing.rentalType || 'Long-term'),
-        availabilityStatus: String(listing.availabilityStatus || 'Available'),
-        description: listing.description ? String(listing.description) : '',
-        contactNumber: listing.contactNumber ? String(listing.contactNumber) : '',
-        email: listing.email ? String(listing.email) : '',
-        amenities: Array.isArray(listing.amenities) ? listing.amenities.map((a: any) => String(a || '')) : [],
-        monthlyRent: Number(listing.monthlyRent) || 0,
-        rooms: Number(listing.rooms || listing.bedrooms) || 0,
-        bathrooms: Number(listing.bathrooms) || 0,
-        size: Number(listing.size) || 0,
-        baseRent: Number(listing.baseRent) || 0,
-        securityDeposit: Number(listing.securityDeposit) || 0,
-        views: Number(listing.views) || 0,
-        inquiries: Number(listing.inquiries) || 0,
-        createdAt: String(listing.createdAt || new Date().toISOString()),
-        updatedAt: String(listing.updatedAt || new Date().toISOString()),
-        photos: Array.isArray(listing.photos) ? listing.photos : [],
-        videos: Array.isArray(listing.videos) ? listing.videos : [],
-        coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : '',
-        capacity: listing.capacity !== undefined ? Number(listing.capacity) : undefined,
-        occupiedSlots: listing.occupiedSlots !== undefined ? Number(listing.occupiedSlots) : undefined,
-        roomCapacities: Array.isArray(listing.roomCapacities) ? listing.roomCapacities.map((rc: any) => Number(rc)) : undefined
+      const sanitizedListings = await Promise.all(ownerListings.map(async (listing: any) => {
+        // Get room availability if room capacities are defined
+        let roomAvailability: number[] | undefined = undefined;
+        let hasAvailability = true;
+        
+        if (listing.roomCapacities && Array.isArray(listing.roomCapacities) && listing.roomCapacities.length > 0) {
+          try {
+            roomAvailability = await getAvailableSlotsPerRoom(listing.id, listing.roomCapacities.map((rc: any) => Number(rc)));
+            // Check if all rooms have 0 available slots
+            hasAvailability = roomAvailability.some(slots => slots > 0);
+          } catch (error) {
+            console.error(`Error loading room availability for listing ${listing.id}:`, error);
+          }
+        } else if (listing.capacity !== undefined) {
+          // For listings without room capacities, check overall capacity
+          try {
+            const occupiedSlots = await getOccupiedSlots(listing.id);
+            const capacity = Number(listing.capacity);
+            hasAvailability = occupiedSlots < capacity;
+          } catch (error) {
+            console.error(`Error checking capacity for listing ${listing.id}:`, error);
+          }
+        }
+        
+        // Determine availability status based on room availability
+        let availabilityStatus = String(listing.availabilityStatus || 'Available');
+        if (!hasAvailability) {
+          availabilityStatus = 'Occupied';
+        }
+        
+        return {
+          id: String(listing.id || ''),
+          userId: user.id,
+          propertyType: String(listing.propertyType || 'Property'),
+          address: String(listing.address || 'No address'),
+          status: String(listing.status || 'draft'),
+          businessName: listing.businessName ? String(listing.businessName) : '',
+          ownerName: listing.ownerName ? String(listing.ownerName) : '',
+          rentalType: String(listing.rentalType || 'Long-term'),
+          availabilityStatus: availabilityStatus,
+          description: listing.description ? String(listing.description) : '',
+          contactNumber: listing.contactNumber ? String(listing.contactNumber) : '',
+          email: listing.email ? String(listing.email) : '',
+          amenities: Array.isArray(listing.amenities) ? listing.amenities.map((a: any) => String(a || '')) : [],
+          monthlyRent: Number(listing.monthlyRent) || 0,
+          rooms: Number(listing.rooms || listing.bedrooms) || 0,
+          bathrooms: Number(listing.bathrooms) || 0,
+          size: Number(listing.size) || 0,
+          baseRent: Number(listing.baseRent) || 0,
+          securityDeposit: Number(listing.securityDeposit) || 0,
+          views: Number(listing.views) || 0,
+          inquiries: Number(listing.inquiries) || 0,
+          createdAt: String(listing.createdAt || new Date().toISOString()),
+          updatedAt: String(listing.updatedAt || new Date().toISOString()),
+          photos: Array.isArray(listing.photos) ? listing.photos : [],
+          videos: Array.isArray(listing.videos) ? listing.videos : [],
+          coverPhoto: listing.coverPhoto ? String(listing.coverPhoto) : '',
+          capacity: listing.capacity !== undefined ? Number(listing.capacity) : undefined,
+          occupiedSlots: listing.occupiedSlots !== undefined ? Number(listing.occupiedSlots) : undefined,
+          roomCapacities: Array.isArray(listing.roomCapacities) ? listing.roomCapacities.map((rc: any) => Number(rc)) : undefined,
+          roomAvailability: roomAvailability
+        };
       }));
       
       setListings(sanitizedListings);
@@ -351,15 +386,43 @@ export default function ListingsPage() {
                           {/* Room Capacity Breakdown */}
                           {listing.roomCapacities && listing.roomCapacities.length > 0 && (
                             <View style={styles.roomCapacityBreakdown}>
-                              <Text style={styles.roomCapacityTitle}>Room Capacity:</Text>
+                              <Text style={styles.roomCapacityTitle}>Room Availability:</Text>
                               <View style={styles.roomCapacityList}>
-                                {listing.roomCapacities.map((roomCap, index) => (
-                                  <View key={index} style={styles.roomCapacityItem}>
-                                    <Text style={styles.roomCapacityText}>
-                                      Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
-                                    </Text>
-                                  </View>
-                                ))}
+                                {listing.roomCapacities.map((roomCap, index) => {
+                                  const available = listing.roomAvailability && listing.roomAvailability[index] !== undefined 
+                                    ? listing.roomAvailability[index] 
+                                    : roomCap; // Fallback to full capacity if availability not provided
+                                  const isFullyOccupied = available === 0;
+                                  
+                                  return (
+                                    <View 
+                                      key={index} 
+                                      style={[
+                                        styles.roomCapacityItem,
+                                        isFullyOccupied && { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }
+                                      ]}
+                                    >
+                                      <Text style={[
+                                        styles.roomCapacityText,
+                                        isFullyOccupied && { color: '#DC2626' }
+                                      ]} numberOfLines={2}>
+                                        Room {index + 1}: {available}/{roomCap}
+                                      </Text>
+                                      <Text style={[
+                                        styles.roomCapacityText,
+                                        { fontSize: 9, fontWeight: '400', marginTop: 2 },
+                                        isFullyOccupied && { color: '#DC2626' }
+                                      ]} numberOfLines={1}>
+                                        {available === 1 ? 'slot' : 'slots'} available
+                                      </Text>
+                                      {isFullyOccupied && (
+                                        <Text style={{ fontSize: 9, color: '#DC2626', fontWeight: '600', marginTop: 2, textAlign: 'center' }}>
+                                          Fully Occupied
+                                        </Text>
+                                      )}
+                                    </View>
+                                  );
+                                })}
                               </View>
                             </View>
                           )}
@@ -744,21 +807,26 @@ const styles = StyleSheet.create({
   },
   roomCapacityList: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    flexWrap: 'nowrap',
+    gap: 8,
+    alignItems: 'flex-start',
   },
   roomCapacityItem: {
+    flex: 1,
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: '#D1FAE5',
+    alignItems: 'center',
   },
   roomCapacityText: {
     fontSize: 10,
     color: '#10B981',
     fontWeight: '500',
+    textAlign: 'center',
   },
   priceSection: {
     flexDirection: 'row',

@@ -63,6 +63,7 @@ export default function ChatRoomNew() {
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
     const [imageViewerVisible, setImageViewerVisible] = useState(false);
     const [viewingImageUri, setViewingImageUri] = useState<string | null>(null);
+    const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
     
     // Add try-catch around participantInfo initialization
     let initialParticipantInfo;
@@ -379,12 +380,24 @@ export default function ChatRoomNew() {
             });
 
             if (!result.canceled && result.assets[0]) {
-                await sendImageMessage(result.assets[0]);
+                // Store the selected image for preview instead of sending immediately
+                setSelectedImage(result.assets[0]);
             }
         } catch (error) {
             console.error('❌ Error picking image:', error);
             showAlert('Error', 'Failed to pick image');
         }
+    };
+
+    const confirmSendImage = async () => {
+        if (selectedImage) {
+            await sendImageMessage(selectedImage);
+            setSelectedImage(null);
+        }
+    };
+
+    const cancelImageSelection = () => {
+        setSelectedImage(null);
     };
 
     const sendImageMessage = async (imageAsset: ImagePicker.ImagePickerAsset) => {
@@ -810,6 +823,40 @@ export default function ChatRoomNew() {
                     )}
                 </ScrollView>
 
+                {/* Image Preview */}
+                {selectedImage && (
+                    <View style={styles.imagePreviewContainer}>
+                        <View style={styles.imagePreviewWrapper}>
+                            <Image
+                                source={{ uri: selectedImage.uri }}
+                                style={styles.imagePreview}
+                                resizeMode="cover"
+                            />
+                            <TouchableOpacity
+                                style={styles.imagePreviewCancel}
+                                onPress={cancelImageSelection}
+                            >
+                                <Ionicons name="close-circle" size={24} color="#EF4444" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.imagePreviewActions}>
+                            <TouchableOpacity
+                                style={styles.imagePreviewCancelButton}
+                                onPress={cancelImageSelection}
+                            >
+                                <Text style={styles.imagePreviewCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.imagePreviewSendButton}
+                                onPress={confirmSendImage}
+                                disabled={sending}
+                            >
+                                <Text style={styles.imagePreviewSendText}>Send</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
+
                 {/* Message Input */}
                 <View style={styles.inputContainer}>
                     <View style={styles.inputWrapper}>
@@ -1204,6 +1251,57 @@ const styles = StyleSheet.create({
     imageViewerPlaceholderText: {
         color: '#FFFFFF',
         fontSize: 16,
+    },
+    imagePreviewContainer: {
+        backgroundColor: '#FFFFFF',
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
+        padding: 12,
+    },
+    imagePreviewWrapper: {
+        position: 'relative',
+        marginBottom: 12,
+    },
+    imagePreview: {
+        width: '100%',
+        height: 200,
+        borderRadius: 12,
+        backgroundColor: '#F3F4F6',
+    },
+    imagePreviewCancel: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 12,
+        padding: 4,
+    },
+    imagePreviewActions: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 12,
+    },
+    imagePreviewCancelButton: {
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+    },
+    imagePreviewCancelText: {
+        color: '#6B7280',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    imagePreviewSendButton: {
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 8,
+        backgroundColor: '#3B82F6',
+    },
+    imagePreviewSendText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600',
     },
 });
 

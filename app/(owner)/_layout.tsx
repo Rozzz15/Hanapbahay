@@ -128,6 +128,7 @@ export default function OwnerLayout() {
             <Stack.Screen name="tenants" />
             <Stack.Screen name="messages" />
             <Stack.Screen name="payment-settings" />
+            <Stack.Screen name="ratings" />
             <Stack.Screen name="create-listing" />
             <Stack.Screen name="edit-listing/[id]" />
             <Stack.Screen name="chat-room/[id]" />

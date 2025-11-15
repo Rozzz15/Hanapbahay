@@ -23,7 +23,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
   redirectOwnerBasedOnListings: (ownerId: string) => Promise<void>;
-  redirectTenantToTabs: () => Promise<void>;
+  redirectTenantToTabs: (tenantId?: string) => Promise<void>;
   redirectBrgyOfficial: () => Promise<void>;
 }
 
@@ -201,9 +201,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const redirectTenantToTabs = async () => {
+  const redirectTenantToTabs = async (tenantId?: string) => {
     try {
-      console.log('🏠 Redirecting tenant to tabs layout');
+      console.log('🏠 Redirecting tenant - checking for active booking...');
+      
+      // Get tenant ID from parameter, user state, or directly from auth
+      let userId = tenantId;
+      if (!userId) {
+        userId = user?.id;
+      }
+      if (!userId) {
+        // If still no userId, get it directly from auth storage
+        try {
+          const authUser = await getAuthUser();
+          userId = authUser?.id;
+        } catch (authError) {
+          console.warn('⚠️ Could not get userId from auth storage:', authError);
+        }
+      }
+      
+      // Check if tenant has an active booking (approved and paid)
+      if (userId) {
+        try {
+          const { getBookingsByTenant } = await import('../utils/booking');
+          const bookings = await getBookingsByTenant(userId);
+          const activeBooking = bookings.find(
+            b => b.status === 'approved' && b.paymentStatus === 'paid'
+          );
+          
+          if (activeBooking) {
+            console.log('✅ Tenant has active booking, redirecting to main dashboard');
+            router.replace('/(tabs)/tenant-main-dashboard');
+            return;
+          }
+        } catch (bookingError) {
+          console.error('❌ Error checking for active booking:', bookingError);
+          // Continue to property browsing dashboard on error
+        }
+      }
+      
+      console.log('🏠 Redirecting tenant to property browsing dashboard');
       router.replace('/(tabs)');
     } catch (error) {
       console.error('❌ Error redirecting tenant:', error);
@@ -215,8 +252,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const redirectOwnerBasedOnListings = async (ownerId: string) => {
     try {
       console.log('🔍 Owner redirection - always going to dashboard:', ownerId);
+      // Ensure user state is set before redirecting
+      await refreshUser();
+      
+      // Small delay to ensure state is updated
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
       // Always redirect owners to dashboard regardless of listing status
+      console.log('🔄 Redirecting owner to dashboard...');
       router.replace('/(owner)/dashboard');
+      
+      // Force navigation after a short delay if needed
+      setTimeout(() => {
+        router.replace('/(owner)/dashboard');
+      }, 100);
     } catch (error) {
       console.error('❌ Error redirecting owner:', error);
       // Default to dashboard if there's an error
@@ -360,6 +409,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
           setUser(userWithFallbacks);
           setIsLoading(false);
+
         } else {
           console.log('ℹ️ No auth session found - user needs to login');
           setUser(null);

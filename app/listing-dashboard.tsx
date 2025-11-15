@@ -43,6 +43,7 @@ interface ListingDisplay {
   capacity?: number;
   occupiedSlots?: number;
   roomCapacities?: number[];
+  roomAvailability?: number[];
   rating?: {
     averageRating: number;
     totalReviews: number;
@@ -96,16 +97,18 @@ export default function ListingDashboard() {
       const publishedListings = rawListings.filter(isPublishedListingRecord);
       
       // Filter only available listings and check capacity
-      const { isListingAtCapacity } = await import('../utils/listing-capacity');
+      const { areAllRoomsFullyOccupied } = await import('../utils/listing-capacity');
       
       const availableListings = [];
       for (const listing of publishedListings) {
         if (listing.availabilityStatus === 'available' && listing.status === 'published') {
-          const atCapacity = await isListingAtCapacity(listing);
-          if (!atCapacity) {
+          // Check if all rooms are fully occupied (for listings with room capacities)
+          // or if overall capacity is reached (for listings without room capacities)
+          const allRoomsOccupied = await areAllRoomsFullyOccupied(listing);
+          if (!allRoomsOccupied) {
             availableListings.push(listing);
           } else {
-            console.log(`🚫 Listing ${listing.id} is at capacity, filtering out`);
+            console.log(`🚫 Listing ${listing.id} has all rooms fully occupied, filtering out`);
           }
         }
       }
@@ -175,9 +178,15 @@ export default function ListingDashboard() {
         const rating = ratingsMap.get(listingId);
         
         // Get capacity information
-        const { getOccupiedSlots } = await import('../utils/listing-capacity');
+        const { getOccupiedSlots, getAvailableSlotsPerRoom } = await import('../utils/listing-capacity');
         const occupiedSlots = await getOccupiedSlots(listingId);
         const capacity = listing.capacity || 1;
+        
+        // Get room availability if room capacities are defined
+        let roomAvailability: number[] | undefined = undefined;
+        if (listing.roomCapacities && listing.roomCapacities.length > 0) {
+          roomAvailability = await getAvailableSlotsPerRoom(listingId, listing.roomCapacities);
+        }
         
         return {
           id: listingId,
@@ -195,6 +204,7 @@ export default function ListingDashboard() {
           capacity: capacity,
           occupiedSlots: occupiedSlots,
           roomCapacities: listing.roomCapacities || undefined,
+          roomAvailability: roomAvailability,
           rating: rating,
         };
       }));
@@ -697,53 +707,46 @@ export default function ListingDashboard() {
                         {/* Room Capacity Breakdown */}
                         {listing.roomCapacities && listing.roomCapacities.length > 0 && (
                           <View style={styles.roomCapacityBreakdown}>
-                            <Text style={styles.roomCapacityTitle}>Room Capacity:</Text>
+                            <Text style={styles.roomCapacityTitle}>Room Availability:</Text>
                             <View style={styles.roomCapacityList}>
-                              {listing.roomCapacities.map((roomCap: number, index: number) => (
-                                <View key={index} style={styles.roomCapacityItem}>
-                                  <Text style={styles.roomCapacityText}>
-                                    Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
-                                  </Text>
-                                </View>
-                              ))}
+                              {listing.roomCapacities.map((roomCap: number, index: number) => {
+                                const available = listing.roomAvailability && listing.roomAvailability[index] !== undefined 
+                                  ? listing.roomAvailability[index] 
+                                  : roomCap; // Fallback to full capacity if availability not provided
+                                const isFullyOccupied = available === 0;
+                                
+                                return (
+                                  <View 
+                                    key={index} 
+                                    style={[
+                                      styles.roomCapacityItem,
+                                      isFullyOccupied && { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }
+                                    ]}
+                                  >
+                                    <Text style={[
+                                      styles.roomCapacityText,
+                                      isFullyOccupied && { color: '#DC2626' }
+                                    ]} numberOfLines={2}>
+                                      Room {index + 1}: {available}/{roomCap}
+                                    </Text>
+                                    <Text style={[
+                                      styles.roomCapacityText,
+                                      { fontSize: 9, fontWeight: '400', marginTop: 2 },
+                                      isFullyOccupied && { color: '#DC2626' }
+                                    ]} numberOfLines={1}>
+                                      {available === 1 ? 'slot' : 'slots'} available
+                                    </Text>
+                                    {isFullyOccupied && (
+                                      <Text style={{ fontSize: 9, color: '#DC2626', fontWeight: '600', marginTop: 2, textAlign: 'center' }}>
+                                        Fully Occupied
+                                      </Text>
+                                    )}
+                                  </View>
+                                );
+                              })}
                             </View>
                           </View>
                         )}
-                      </View>
-                    )}
-                    
-                    {/* Property Videos */}
-                    {videos.length > 0 && (
-                      <View style={styles.videosContainer}>
-                        <View style={styles.videosHeader}>
-                          <Ionicons name="videocam" size={16} color="#3B82F6" />
-                          <Text style={styles.videosTitle}>{'Property Videos (' + String(videos.length) + ')'}</Text>
-                        </View>
-                        <ScrollView 
-                          horizontal 
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.videosScroll}
-                          contentContainerStyle={styles.videosScrollContent}
-                        >
-                          {videos.map((video, index) => (
-                            <View key={index} style={styles.videoThumbnailContainer}>
-                              <Image
-                                source={{ uri: video }}
-                                style={styles.videoThumbnail}
-                                resizeMode="cover"
-                                onError={() => {
-                                  console.log('Video thumbnail load error for:', video);
-                                }}
-                              />
-                              <View style={styles.videoPlayOverlay}>
-                                <Ionicons name="play-circle" size={32} color="#FFFFFF" />
-                              </View>
-                              <View style={styles.videoIndexBadge}>
-                                <Text style={styles.videoIndexText}>{index + 1}</Text>
-                              </View>
-                            </View>
-                          ))}
-                        </ScrollView>
                       </View>
                     )}
                     
@@ -1236,21 +1239,26 @@ const styles = StyleSheet.create({
   },
   roomCapacityList: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    flexWrap: 'nowrap',
+    gap: 8,
+    alignItems: 'flex-start',
   },
   roomCapacityItem: {
+    flex: 1,
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: '#D1FAE5',
+    alignItems: 'center',
   },
   roomCapacityText: {
     fontSize: 10,
     color: '#10B981',
     fontWeight: '500',
+    textAlign: 'center',
   },
   propertyActions: {
     flexDirection: 'row',
@@ -1299,64 +1307,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
     letterSpacing: 0.3,
-  },
-  videosContainer: {
-    marginTop: 8,
-  },
-  videosHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 6,
-  },
-  videosTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-  videosScroll: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  videosScrollContent: {
-    gap: 12,
-  },
-  videoThumbnailContainer: {
-    position: 'relative',
-    width: 120,
-    height: 80,
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginRight: 12,
-    backgroundColor: '#F3F4F6',
-  },
-  videoThumbnail: {
-    width: '100%',
-    height: '100%',
-  },
-  videoPlayOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  videoIndexBadge: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  videoIndexText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
   emptyState: {
     alignItems: 'center',

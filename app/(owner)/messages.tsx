@@ -18,7 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
-import ApprovedBookingsPayment from '@/components/ApprovedBookingsPayment';
+import TenantInfoModal from '@/components/TenantInfoModal';
 
 interface Conversation {
     id: string;
@@ -33,7 +33,6 @@ interface Conversation {
     tenantPhone?: string;
     propertyTitle?: string;
     bookingStatus?: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
-    paymentStatus?: 'pending' | 'partial' | 'paid' | 'refunded';
 }
 
 /**
@@ -88,6 +87,14 @@ export default function OwnerMessages() {
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+    const [selectedTenant, setSelectedTenant] = useState<{
+        id: string;
+        name: string;
+        email?: string;
+        phone?: string;
+        avatar?: string;
+    } | null>(null);
+    const [tenantInfoModalVisible, setTenantInfoModalVisible] = useState(false);
 
     const loadConversations = useCallback(async () => {
         if (!user?.id) return;
@@ -134,7 +141,6 @@ export default function OwnerMessages() {
                     let tenantPhone = '';
                     let propertyTitle = '';
                     let bookingStatus: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed' | undefined;
-                    let paymentStatus: 'pending' | 'partial' | 'paid' | 'refunded' | undefined;
 
                     try {
                         if (!tenantId) {
@@ -260,7 +266,7 @@ export default function OwnerMessages() {
                             }
                         }
 
-                        // Get booking and payment status
+                        // Get booking status
                         if (tenantId) {
                             try {
                                 const allBookings = await db.list('bookings');
@@ -271,12 +277,10 @@ export default function OwnerMessages() {
                                 
                                 if (booking) {
                                     bookingStatus = booking.status;
-                                    paymentStatus = booking.paymentStatus;
                                     console.log('📋 Found booking for tenant:', {
                                         tenantId,
                                         tenantName,
-                                        bookingStatus,
-                                        paymentStatus
+                                        bookingStatus
                                     });
                                 } else {
                                     console.log('⚠️ No booking found for tenant:', tenantId, tenantName);
@@ -302,7 +306,6 @@ export default function OwnerMessages() {
                         tenantPhone,
                         propertyTitle,
                         bookingStatus,
-                        paymentStatus,
                         hasMessages: conversationsWithMessages.has(conv.id)
                     };
                 })
@@ -334,15 +337,6 @@ export default function OwnerMessages() {
                 });
             });
             
-            // Debug: Log payment status info
-            conversationsWithActualMessages.forEach(conv => {
-                if (conv.bookingStatus === 'approved') {
-                    console.log(`💳 Payment confirmation for ${conv.tenantName}:`, {
-                        bookingStatus: conv.bookingStatus,
-                        paymentStatus: conv.paymentStatus
-                    });
-                }
-            });
         } catch (error) {
             console.error('❌ Error loading conversations:', error);
             showAlert('Error', 'Failed to load conversations');
@@ -413,6 +407,18 @@ export default function OwnerMessages() {
                 propertyTitle: conversation.propertyTitle || ''
             }
         });
+    };
+
+    const handleAvatarPress = (conversation: Conversation) => {
+        // Open tenant info modal
+        setSelectedTenant({
+            id: conversation.tenantId,
+            name: conversation.tenantName,
+            email: conversation.tenantEmail,
+            phone: conversation.tenantPhone,
+            avatar: conversation.tenantAvatar
+        });
+        setTenantInfoModalVisible(true);
     };
 
     const handleDeleteConversation = (conversation: Conversation) => {
@@ -515,13 +521,6 @@ export default function OwnerMessages() {
                 </View>
             </View>
 
-            {/* Approved Bookings & Payment Status */}
-            {user?.id && (
-                <View style={styles.approvedBookingsContainer}>
-                    <ApprovedBookingsPayment ownerId={user.id} />
-                </View>
-            )}
-
             {/* Conversations List */}
             <ScrollView 
                 style={styles.scrollView}
@@ -555,39 +554,47 @@ export default function OwnerMessages() {
                                     activeOpacity={0.7}
                                 >
                                     <View style={styles.conversationContent}>
-                                        {/* Avatar */}
+                                        {/* Avatar - Clickable to view tenant info */}
                                         <View style={styles.avatarContainer}>
-                                            <View style={styles.avatar}>
-                                                {conversation.tenantAvatar && 
-                                                 conversation.tenantAvatar.trim() !== '' && 
-                                                 conversation.tenantAvatar.length > 10 &&
-                                                 isValidImageUri(conversation.tenantAvatar) && 
-                                                 !imageErrors.has(conversation.id) ? (
-                                                    <Image 
-                                                        source={{ uri: conversation.tenantAvatar }} 
-                                                        style={styles.avatarImage}
-                                                        resizeMode="cover"
-                                                        onError={(error) => {
-                                                            console.error('❌ Avatar image load error for conversation:', conversation.id, error);
-                                                            setImageErrors(prev => new Set(prev).add(conversation.id));
-                                                        }}
-                                                        onLoad={() => {
-                                                            console.log('✅ Avatar image loaded successfully for:', conversation.tenantName);
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <Text style={styles.avatarText}>
-                                                        {conversation.tenantName.charAt(0).toUpperCase()}
-                                                    </Text>
-                                                )}
-                                                {conversation.unreadCount > 0 && (
-                                                    <View style={styles.unreadBadge}>
-                                                        <Text style={styles.unreadText}>
-                                                            {conversation.unreadCount}
+                                            <TouchableOpacity
+                                                onPress={(e) => {
+                                                    e.stopPropagation();
+                                                    handleAvatarPress(conversation);
+                                                }}
+                                                activeOpacity={0.7}
+                                            >
+                                                <View style={styles.avatar}>
+                                                    {conversation.tenantAvatar && 
+                                                     conversation.tenantAvatar.trim() !== '' && 
+                                                     conversation.tenantAvatar.length > 10 &&
+                                                     isValidImageUri(conversation.tenantAvatar) && 
+                                                     !imageErrors.has(conversation.id) ? (
+                                                        <Image 
+                                                            source={{ uri: conversation.tenantAvatar }} 
+                                                            style={styles.avatarImage}
+                                                            resizeMode="cover"
+                                                            onError={(error) => {
+                                                                console.error('❌ Avatar image load error for conversation:', conversation.id, error);
+                                                                setImageErrors(prev => new Set(prev).add(conversation.id));
+                                                            }}
+                                                            onLoad={() => {
+                                                                console.log('✅ Avatar image loaded successfully for:', conversation.tenantName);
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <Text style={styles.avatarText}>
+                                                            {conversation.tenantName.charAt(0).toUpperCase()}
                                                         </Text>
-                                                    </View>
-                                                )}
-                                            </View>
+                                                    )}
+                                                    {conversation.unreadCount > 0 && (
+                                                        <View style={styles.unreadBadge}>
+                                                            <Text style={styles.unreadText}>
+                                                                {conversation.unreadCount}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            </TouchableOpacity>
                                         </View>
                                         
                                         {/* Message Content */}
@@ -595,27 +602,6 @@ export default function OwnerMessages() {
                                             <View style={styles.messageHeader}>
                                                 <View style={styles.tenantNameContainer}>
                                                     <Text style={styles.tenantName}>{conversation.tenantName}</Text>
-                                                    {/* Payment Confirmation Icon */}
-                                                    {conversation.bookingStatus === 'approved' && (
-                                                        <View style={styles.paymentStatusContainer}>
-                                                            {conversation.paymentStatus === 'paid' ? (
-                                                                <View style={styles.paymentBadgePaid}>
-                                                                    <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                                                                    <Text style={styles.paymentStatusText}>Paid</Text>
-                                                                </View>
-                                                            ) : conversation.paymentStatus === 'partial' ? (
-                                                                <View style={styles.paymentBadgePartial}>
-                                                                    <Ionicons name="time-outline" size={18} color="#F59E0B" />
-                                                                    <Text style={styles.paymentStatusText}>Partial</Text>
-                                                                </View>
-                                                            ) : (
-                                                                <View style={styles.paymentBadgePending}>
-                                                                    <Ionicons name="hourglass-outline" size={18} color="#6366F1" />
-                                                                    <Text style={styles.paymentStatusText}>Pending</Text>
-                                                                </View>
-                                                            )}
-                                                        </View>
-                                                    )}
                                                 </View>
                                                 <View style={styles.messageHeaderRight}>
                                                     <Text style={styles.messageTime}>
@@ -645,6 +631,22 @@ export default function OwnerMessages() {
                     )}
                 </View>
             </ScrollView>
+
+            {/* Tenant Info Modal */}
+            {selectedTenant && (
+                <TenantInfoModal
+                    visible={tenantInfoModalVisible}
+                    tenantId={selectedTenant.id}
+                    tenantName={selectedTenant.name}
+                    tenantEmail={selectedTenant.email}
+                    tenantPhone={selectedTenant.phone}
+                    tenantAvatar={selectedTenant.avatar}
+                    onClose={() => {
+                        setTenantInfoModalVisible(false);
+                        setSelectedTenant(null);
+                    }}
+                />
+            )}
         </SafeAreaView>
     );
 }
@@ -837,47 +839,6 @@ const styles = StyleSheet.create({
         gap: 8,
         flex: 1,
     },
-    paymentStatusContainer: {
-        marginLeft: 4,
-    },
-    paymentBadgePaid: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#F0FDF4',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#10B981',
-    },
-    paymentBadgePartial: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#FFFBEB',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#F59E0B',
-    },
-    paymentBadgePending: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#EEF2FF',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#6366F1',
-    },
-    paymentStatusText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: '#111827',
-    },
     messageHeaderRight: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -906,9 +867,5 @@ const styles = StyleSheet.create({
     unreadMessage: {
         fontWeight: '600',
         color: '#111827',
-    },
-    approvedBookingsContainer: {
-        paddingHorizontal: 0,
-        paddingVertical: 0,
     },
 });

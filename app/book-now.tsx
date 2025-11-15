@@ -341,6 +341,8 @@ export default function BookNowScreen() {
   // Booking form data
   const [startDate, setStartDate] = useState('');
   const [specialRequests, setSpecialRequests] = useState('');
+  const [selectedRoom, setSelectedRoom] = useState<number | undefined>(undefined);
+  const [roomAvailability, setRoomAvailability] = useState<number[]>([]); // Available slots per room
   
   // Calendar modal state
   const [showCalendar, setShowCalendar] = useState(false);
@@ -383,13 +385,25 @@ export default function BookNowScreen() {
       
       setPropertyData(listing);
       
-      // Set default start date (today) - fix timezone issue
-        const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      const formattedDate = `${year}-${month}-${day}`;
-      setStartDate(formattedDate);
+      // Don't set default date - require user to explicitly select a date
+      // This ensures users are aware of their move-in date selection
+      setStartDate('');
+      
+      // Load room availability if room capacities are defined
+      if (listing.roomCapacities && listing.roomCapacities.length > 0) {
+        const { getAvailableSlotsPerRoom, getOccupiedSlotsPerRoom } = await import('@/utils/listing-capacity');
+        const available = await getAvailableSlotsPerRoom(listing.id, listing.roomCapacities);
+        const occupied = await getOccupiedSlotsPerRoom(listing.id, listing.roomCapacities);
+        setRoomAvailability(available);
+        console.log('✅ Room availability loaded:', {
+          available,
+          occupied,
+          roomCapacities: listing.roomCapacities
+        });
+      } else {
+        // Clear room availability if no room capacities
+        setRoomAvailability([]);
+      }
       
       console.log('✅ Property data loaded successfully');
       } catch (error) {
@@ -405,14 +419,37 @@ export default function BookNowScreen() {
     loadPropertyData();
   }, [loadPropertyData]);
 
-  // Reset form state when screen comes into focus (for multiple bookings)
+  // Reset form state and refresh room availability when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       // Reset form state when coming back to booking screen
       if (!showSuccessAnimation && !isProcessing) {
         resetFormState();
+        // Refresh room availability to reflect latest capacity
+        if (propertyData?.roomCapacities && propertyData.roomCapacities.length > 0) {
+          const refreshRoomAvailability = async () => {
+            try {
+              const { getAvailableSlotsPerRoom } = await import('@/utils/listing-capacity');
+              const available = await getAvailableSlotsPerRoom(propertyData.id, propertyData.roomCapacities);
+              setRoomAvailability(available);
+              console.log('✅ Refreshed room availability:', available);
+              
+              // Clear selected room if it's now fully occupied
+              if (selectedRoom !== undefined) {
+                const availableSlots = available[selectedRoom] || 0;
+                if (availableSlots <= 0) {
+                  setSelectedRoom(undefined);
+                  console.log(`⚠️ Selected room ${selectedRoom + 1} is now fully occupied, clearing selection`);
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error refreshing room availability:', error);
+            }
+          };
+          refreshRoomAvailability();
+        }
       }
-    }, [showSuccessAnimation, isProcessing])
+    }, [showSuccessAnimation, isProcessing, propertyData, selectedRoom])
   );
 
   // Calculate total amount when property data changes
@@ -555,7 +592,7 @@ export default function BookNowScreen() {
     }, 300); // Small delay to let animation complete
   };
 
-  const validateForm = (): boolean => {
+  const validateForm = async (): Promise<boolean> => {
     if (!isAuthenticated || !user) {
       Alert.alert(
         'Authentication Required',
@@ -568,16 +605,36 @@ export default function BookNowScreen() {
       return false;
     }
 
-    if (!startDate) {
-      Alert.alert('Error', 'Please select your preferred start date');
+    if (!startDate || startDate.trim() === '') {
+      Alert.alert('Date Required', 'Please select your preferred move-in date to continue with your booking.');
       return false;
     }
 
     // Validate that the selected date is not in the past
-    const [year, month, day] = startDate.split('-').map(Number);
+    // First check if the date string is valid
+    const dateParts = startDate.split('-');
+    if (dateParts.length !== 3) {
+      Alert.alert('Invalid Date', 'Please select a valid move-in date.');
+      return false;
+    }
+    
+    const [year, month, day] = dateParts.map(Number);
+    
+    // Validate date components are valid numbers
+    if (isNaN(year) || isNaN(month) || isNaN(day)) {
+      Alert.alert('Invalid Date', 'Please select a valid move-in date.');
+      return false;
+    }
+    
     const selectedDate = new Date(year, month - 1, day);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    
+    // Validate the date is valid
+    if (selectedDate.getFullYear() !== year || selectedDate.getMonth() !== month - 1 || selectedDate.getDate() !== day) {
+      Alert.alert('Invalid Date', 'Please select a valid move-in date.');
+      return false;
+    }
     
     if (selectedDate < today) {
       Alert.alert(
@@ -588,6 +645,52 @@ export default function BookNowScreen() {
       return false;
     }
 
+    // Validate room selection if property has room capacities
+    if (propertyData?.roomCapacities && propertyData.roomCapacities.length > 0) {
+      if (selectedRoom === undefined) {
+        Alert.alert('Room Selection Required', 'Please select a room for your booking.');
+        return false;
+      }
+      
+      // Validate that the selected room index is valid
+      if (selectedRoom < 0 || selectedRoom >= propertyData.roomCapacities.length) {
+        Alert.alert('Invalid Room', 'The selected room is invalid. Please select a valid room.');
+        return false;
+      }
+      
+      // Re-check availability right before booking to ensure it's still available
+      try {
+        const { getAvailableSlotsPerRoom, isRoomAvailable } = await import('@/utils/listing-capacity');
+        const currentAvailability = await getAvailableSlotsPerRoom(propertyData.id, propertyData.roomCapacities);
+        const available = currentAvailability[selectedRoom] || 0;
+        
+        if (available <= 0) {
+          Alert.alert(
+            'Room Unavailable',
+            `Room ${selectedRoom + 1} is now fully occupied. Please select another room or try again later.`
+          );
+          // Refresh availability
+          setRoomAvailability(currentAvailability);
+          return false;
+        }
+        
+        // Double-check using isRoomAvailable function
+        const roomStillAvailable = await isRoomAvailable(propertyData.id, selectedRoom, propertyData.roomCapacities);
+        if (!roomStillAvailable) {
+          Alert.alert(
+            'Room Unavailable',
+            `Room ${selectedRoom + 1} is no longer available. Please select another room.`
+          );
+          // Refresh availability
+          setRoomAvailability(currentAvailability);
+          return false;
+        }
+      } catch (error) {
+        console.error('❌ Error validating room availability:', error);
+        Alert.alert('Error', 'Failed to verify room availability. Please try again.');
+        return false;
+      }
+    }
 
     return true;
   };
@@ -602,7 +705,8 @@ export default function BookNowScreen() {
       startDate 
     });
 
-    if (!validateForm()) {
+    const isValid = await validateForm();
+    if (!isValid) {
       console.log('❌ Form validation failed');
       return;
     }
@@ -617,7 +721,8 @@ export default function BookNowScreen() {
         startDate,
         endDate: startDate, // Same as start date for monthly rental
         duration: 1, // Default to 1 month for monthly rental
-        specialRequests: specialRequests || 'Standard booking request'
+        specialRequests: specialRequests || 'Standard booking request',
+        selectedRoom: propertyData.roomCapacities && propertyData.roomCapacities.length > 0 ? selectedRoom : undefined
       };
 
       console.log('🔄 Creating booking with data:', bookingData);
@@ -734,6 +839,89 @@ export default function BookNowScreen() {
             <Text style={styles.inputHint}>Tap to select your move-in date</Text>
         </View>
 
+        {/* Room Selection - Only show if property has room capacities */}
+        {propertyData.roomCapacities && propertyData.roomCapacities.length > 0 && (() => {
+          // Filter to only show rooms with available slots
+          const availableRooms = propertyData.roomCapacities
+            .map((roomCapacity: number, roomIndex: number) => ({
+              roomIndex,
+              roomCapacity,
+              available: roomAvailability[roomIndex] || 0
+            }))
+            .filter(room => room.available > 0);
+          
+          const allRoomsOccupied = availableRooms.length === 0;
+          
+          return (
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Select Room</Text>
+              <Text style={styles.inputHint}>Choose which room you'd like to book</Text>
+              
+              {allRoomsOccupied ? (
+                <View style={styles.noRoomsAvailableContainer}>
+                  <Text style={styles.noRoomsAvailableText}>
+                    All rooms are currently fully occupied. Please check back later or contact the property owner.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.roomSelectionContainer}>
+                    {availableRooms.map((room) => {
+                      const { roomIndex, roomCapacity, available } = room;
+                      const isSelected = selectedRoom === roomIndex;
+                      
+                      return (
+                        <TouchableOpacity
+                          key={roomIndex}
+                          style={[
+                            styles.roomOption,
+                            isSelected && styles.roomOptionSelected
+                          ]}
+                          onPress={() => {
+                            // Double-check availability before allowing selection
+                            const currentAvailable = roomAvailability[roomIndex] || 0;
+                            if (currentAvailable > 0) {
+                              setSelectedRoom(roomIndex);
+                            } else {
+                              Alert.alert(
+                                'Room Unavailable',
+                                `Room ${roomIndex + 1} is now fully occupied. Please select another room.`
+                              );
+                              // Refresh availability
+                              loadPropertyData();
+                            }
+                          }}
+                        >
+                          <View style={styles.roomOptionContent}>
+                            <Text style={[
+                              styles.roomOptionTitle,
+                              isSelected && styles.roomOptionTitleSelected
+                            ]}>
+                              Room {roomIndex + 1}
+                            </Text>
+                            <Text style={styles.roomOptionSubtitle}>
+                              {available} of {roomCapacity} {available === 1 ? 'slot' : 'slots'} available
+                            </Text>
+                          </View>
+                          {isSelected && (
+                            <View style={styles.roomSelectedIndicator}>
+                              <CheckCircle size={20} color="#10B981" />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {selectedRoom !== undefined && (
+                    <Text style={styles.roomSelectionHint}>
+                      Selected: Room {selectedRoom + 1}
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Special Requests */}
           <View style={styles.inputGroup}>
@@ -1426,5 +1614,79 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
+  },
+  roomSelectionContainer: {
+    gap: 12,
+    marginTop: 8,
+  },
+  roomOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  roomOptionSelected: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#10B981',
+  },
+  roomOptionDisabled: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+    opacity: 0.6,
+  },
+  roomOptionContent: {
+    flex: 1,
+  },
+  roomOptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  roomOptionTitleSelected: {
+    color: '#10B981',
+  },
+  roomOptionTitleDisabled: {
+    color: '#9CA3AF',
+  },
+  roomOptionSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  roomOptionSubtitleDisabled: {
+    color: '#9CA3AF',
+  },
+  roomOptionFull: {
+    fontSize: 12,
+    color: '#EF4444',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  roomSelectedIndicator: {
+    marginLeft: 12,
+  },
+  roomSelectionHint: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '500',
+    marginTop: 8,
+  },
+  noRoomsAvailableContainer: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    marginTop: 8,
+  },
+  noRoomsAvailableText: {
+    fontSize: 14,
+    color: '#DC2626',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

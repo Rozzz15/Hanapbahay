@@ -330,6 +330,7 @@ export interface BookingRecord {
     accountDetails?: string;
   };
   notes?: string;
+  selectedRoom?: number; // Room index (0-based) that the tenant selected
   createdAt: string;
   updatedAt: string;
   approvedAt?: string;
@@ -348,6 +349,7 @@ export interface PaymentAccount {
   accountName: string;
   accountNumber: string;
   accountDetails: string;
+  qrCodeImageUri?: string; // QR code image URI for GCash payments
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -368,6 +370,77 @@ export interface PropertyRatingRecord {
   rating: number; // 1-5 stars
   review?: string; // Optional text review
   isAnonymous?: boolean; // Whether the rating is anonymous
+  ownerReply?: string; // Owner's reply to the rating
+  ownerReplyAt?: string; // When the owner replied
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Rent Payment Models
+export interface RentPaymentRecord {
+  id: string;
+  bookingId: string;
+  tenantId: string;
+  ownerId: string;
+  propertyId: string;
+  amount: number;
+  lateFee: number;
+  totalAmount: number;
+  paymentMonth: string; // YYYY-MM format
+  dueDate: string; // ISO date string
+  paidDate?: string; // ISO date string
+  status: 'pending' | 'paid' | 'overdue' | 'partial' | 'pending_owner_confirmation';
+  paymentMethod?: string;
+  receiptNumber: string;
+  notes?: string;
+  ownerPaymentAccountId?: string; // Link to owner's payment account used for this payment
+  payMongoPaymentIntentId?: string; // PayMongo payment intent ID for verification
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentReminderRecord {
+  id: string;
+  bookingId: string;
+  tenantId: string;
+  type: 'upcoming' | 'overdue' | 'late_fee';
+  message: string;
+  dueDate: string;
+  amount: number;
+  isRead: boolean;
+  createdAt: string;
+}
+
+// Maintenance Request Models
+export interface MaintenanceRequestRecord {
+  id: string;
+  bookingId: string;
+  propertyId: string;
+  tenantId: string;
+  ownerId: string;
+  title: string;
+  description: string;
+  category: 'plumbing' | 'electrical' | 'appliance' | 'heating_cooling' | 'structural' | 'other';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'pending' | 'in_progress' | 'resolved' | 'cancelled';
+  photos: string[]; // Array of photo URIs
+  videos: string[]; // Array of video URIs
+  ownerNotes?: string;
+  resolvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Payment Method Types
+export interface TenantPaymentMethod {
+  id: string;
+  tenantId: string;
+  type: 'gcash' | 'paymaya' | 'bank_transfer';
+  accountName: string;
+  accountNumber: string;
+  bankName?: string; // For bank transfers
+  isDefault: boolean;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }

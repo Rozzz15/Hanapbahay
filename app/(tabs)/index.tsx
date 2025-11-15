@@ -18,22 +18,90 @@ import { trackListingView } from '../../utils/view-tracking';
 import { trackListingInquiry } from '../../utils/inquiry-tracking';
 import { createOrFindConversation } from '../../utils/conversation-utils';
 import { addCustomEventListener } from '../../utils/custom-events';
- 
+import BookingStatusModal from '@/components/BookingStatusModal';
+import { getBookingsByTenant } from '../../utils/booking';
+import { BookingRecord } from '../../types';
+import {
+  loadShownBookingNotifications,
+  markBookingNotificationAsShown,
+  hasBookingNotificationBeenShown,
+} from '../../utils/booking-notifications-storage';
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuth();
   const scrollIndicatorOpacity = useRef(new Animated.Value(1)).current;
   const carouselRef = useRef<{ scrollToNext: () => void } | null>(null);
-  const [filteredListings, setFilteredListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string; capacity?: number; occupiedSlots?: number; roomCapacities?: number[] }[]>([]);
+  const [filteredListings, setFilteredListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string; capacity?: number; occupiedSlots?: number; roomCapacities?: number[]; roomAvailability?: number[] }[]>([]);
   const [owners, setOwners] = useState<(OwnerProfileRecord & { user?: DbUserRecord })[]>([]);
-  const [ownerListings, setOwnerListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string; capacity?: number; occupiedSlots?: number; roomCapacities?: number[] }[]>([]);
+  const [ownerListings, setOwnerListings] = useState<{ id: string; image: string; coverPhoto?: string; title: string; location: string; address?: string; description?: string; rating: number; reviews: number; rooms: number; bathrooms?: number; size: number; price: number; businessName?: string; ownerName?: string; propertyType?: string; ownerUserId?: string; userId?: string; barangay?: string; capacity?: number; occupiedSlots?: number; roomCapacities?: number[]; roomAvailability?: number[] }[]>([]);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [isScrolling, setIsScrolling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
   // Removed favorite state
   const [searchParams, setSearchParams] = useState<SmartSearchParams>({});
+  const [checkingActiveBooking, setCheckingActiveBooking] = useState(true);
+  const [bookingStatusModal, setBookingStatusModal] = useState<{
+    visible: boolean;
+    booking: BookingRecord | null;
+    status: 'approved' | 'rejected';
+  }>({
+    visible: false,
+    booking: null,
+    status: 'approved',
+  });
+  const shownBookingNotificationsRef = useRef<Set<string>>(new Set());
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+
+  // Load shown notifications from persistent storage
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadNotifications = async () => {
+      try {
+        const notifications = await loadShownBookingNotifications(user.id);
+        shownBookingNotificationsRef.current = notifications;
+        setNotificationsLoaded(true);
+        console.log(`✅ Loaded ${notifications.size} shown booking notifications from storage`);
+      } catch (error) {
+        console.error('❌ Error loading booking notifications:', error);
+        setNotificationsLoaded(true);
+      }
+    };
+
+    loadNotifications();
+  }, [user?.id]);
+
+  // Check for active booking and redirect to main dashboard
+  useEffect(() => {
+    const checkActiveBooking = async () => {
+      if (!user?.id) {
+        setCheckingActiveBooking(false);
+        return;
+      }
+
+      try {
+        const { getBookingsByTenant } = await import('../../utils/booking');
+        const bookings = await getBookingsByTenant(user.id);
+        const activeBooking = bookings.find(
+          b => b.status === 'approved' && b.paymentStatus === 'paid'
+        );
+
+        if (activeBooking) {
+          console.log('✅ Tenant has active booking, redirecting to main dashboard');
+          router.replace('/(tabs)/tenant-main-dashboard');
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Error checking for active booking:', error);
+      } finally {
+        setCheckingActiveBooking(false);
+      }
+    };
+
+    checkActiveBooking();
+  }, [user?.id, router]);
   
   
 
@@ -719,12 +787,12 @@ export default function DashboardScreen() {
           capacity: p.capacity
         });
         
-        // Check if listing has reached capacity
-        const { isListingAtCapacity } = await import('../../utils/listing-capacity');
-        const atCapacity = await isListingAtCapacity(p);
+        // Check if all rooms are fully occupied
+        const { areAllRoomsFullyOccupied } = await import('../../utils/listing-capacity');
+        const allRoomsOccupied = await areAllRoomsFullyOccupied(p);
         
-        if (atCapacity) {
-          console.log(`🚫 Listing ${p.id} is at capacity, will be filtered out`);
+        if (allRoomsOccupied) {
+          console.log(`🚫 Listing ${p.id} has all rooms fully occupied, will be filtered out`);
           return null; // Return null to filter out
         }
 
@@ -870,9 +938,15 @@ export default function DashboardScreen() {
         const ratingData = ratingsMap.get(p.id) || { averageRating: 0, totalReviews: 0 };
         
         // Get capacity information
-        const { getOccupiedSlots } = await import('../../utils/listing-capacity');
+        const { getOccupiedSlots, getAvailableSlotsPerRoom } = await import('../../utils/listing-capacity');
         const occupiedSlots = await getOccupiedSlots(p.id);
         const capacity = p.capacity || 1;
+        
+        // Get room availability if room capacities are defined
+        let roomAvailability: number[] | undefined = undefined;
+        if (p.roomCapacities && p.roomCapacities.length > 0) {
+          roomAvailability = await getAvailableSlotsPerRoom(p.id, p.roomCapacities);
+        }
         
         return {
           id: p.id,
@@ -895,7 +969,8 @@ export default function DashboardScreen() {
           barangay: listingBarangay || '',
           capacity: capacity,
           occupiedSlots: occupiedSlots,
-          roomCapacities: p.roomCapacities || undefined
+          roomCapacities: p.roomCapacities || undefined,
+          roomAvailability: roomAvailability
         };
       }));
 
@@ -1199,6 +1274,95 @@ export default function DashboardScreen() {
     }
   }, [loadPublishedListings]);
 
+  // Check for booking status changes and show modal
+  useEffect(() => {
+    if (!user?.id || !isAuthenticated || !notificationsLoaded) return;
+
+    const checkBookingStatusChanges = async () => {
+      try {
+        const bookings = await getBookingsByTenant(user.id);
+        
+        // Check for newly approved or rejected bookings that haven't been shown yet
+        for (const booking of bookings) {
+          // Only show modal for approved or rejected bookings that haven't been shown
+          if ((booking.status === 'approved' || booking.status === 'rejected') && 
+              !hasBookingNotificationBeenShown(
+                booking.id,
+                booking.status as 'approved' | 'rejected',
+                shownBookingNotificationsRef.current
+              )) {
+            
+            // Mark as shown and save to persistent storage
+            shownBookingNotificationsRef.current = await markBookingNotificationAsShown(
+              user.id,
+              booking.id,
+              booking.status as 'approved' | 'rejected',
+              shownBookingNotificationsRef.current
+            );
+            
+            // Show modal after a short delay to ensure UI is ready
+            setTimeout(() => {
+              setBookingStatusModal({
+                visible: true,
+                booking: booking,
+                status: booking.status as 'approved' | 'rejected',
+              });
+            }, 500);
+            
+            break; // Only show one notification at a time
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error checking booking status changes:', error);
+      }
+    };
+
+    // Check on mount and when user changes
+    checkBookingStatusChanges();
+
+    // Also listen for booking status change events
+    const handleBookingStatusChange = async (event?: any) => {
+      const eventDetail = event?.detail || {};
+      console.log('🔄 Booking status changed event received:', eventDetail);
+      
+      if (eventDetail.bookingId && user?.id) {
+        // Reload bookings to get the latest status
+        const bookings = await getBookingsByTenant(user.id);
+        const changedBooking = bookings.find(b => b.id === eventDetail.bookingId);
+        
+        if (changedBooking && (changedBooking.status === 'approved' || changedBooking.status === 'rejected')) {
+          if (!hasBookingNotificationBeenShown(
+            changedBooking.id,
+            changedBooking.status as 'approved' | 'rejected',
+            shownBookingNotificationsRef.current
+          )) {
+            // Mark as shown and save to persistent storage
+            shownBookingNotificationsRef.current = await markBookingNotificationAsShown(
+              user.id,
+              changedBooking.id,
+              changedBooking.status as 'approved' | 'rejected',
+              shownBookingNotificationsRef.current
+            );
+            
+            setTimeout(() => {
+              setBookingStatusModal({
+                visible: true,
+                booking: changedBooking,
+                status: changedBooking.status as 'approved' | 'rejected',
+              });
+            }, 300);
+          }
+        }
+      }
+    };
+
+    const removeListener = addCustomEventListener('bookingStatusChanged', handleBookingStatusChange);
+    
+    return () => {
+      removeListener();
+    };
+  }, [user?.id, isAuthenticated, notificationsLoaded]);
+
   // Listen for listing changes to auto-refresh tenant dashboard
   useEffect(() => {
     const handlePropertyMediaRefreshed = (event: Event | any) => {
@@ -1439,6 +1603,17 @@ export default function DashboardScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  // Show loading while checking for active booking
+  if (checkingActiveBooking) {
+    return (
+      <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ fontSize: 16, color: '#64748B' }}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {/* Notification */}
@@ -1625,91 +1800,91 @@ export default function DashboardScreen() {
                 {/* Capacity/Slots Information */}
                 {(listing.capacity !== undefined || listing.occupiedSlots !== undefined) && (
                   <View style={styles.capacityContainer}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: listing.roomCapacities && listing.roomCapacities.length > 0 ? 8 : 0 }}>
-                      <Ionicons name="people" size={18} color="#10B981" style={{ marginTop: 2, marginRight: 8 }} />
-                      <View style={{ flex: 1 }}>
-                        {listing.occupiedSlots !== undefined && listing.capacity !== undefined
-                          ? (() => {
-                              const available = listing.capacity - listing.occupiedSlots;
-                              const percentage = Math.round((available / listing.capacity) * 100);
-                              
-                              if (available === listing.capacity) {
-                                // All slots available
-                                return (
-                                  <>
-                                    <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', marginBottom: 2 }]}>
-                                      {available} {available === 1 ? 'Space' : 'Spaces'} Available
-                                    </Text>
-                                    <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', opacity: 0.8 }]}>
-                                      All {listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'} are open
-                                    </Text>
-                                  </>
-                                );
-                              } else if (available === 0) {
-                                // No slots available
-                                return (
-                                  <>
-                                    <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', color: '#DC2626', marginBottom: 2 }]}>
-                                      Fully Occupied
-                                    </Text>
-                                    <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', color: '#DC2626', opacity: 0.8 }]}>
-                                      All {listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'} are taken
-                                    </Text>
-                                  </>
-                                );
-                              } else {
-                                // Some slots available
-                                return (
-                                  <>
-                                    <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', marginBottom: 2 }]}>
-                                      {available} {available === 1 ? 'Space' : 'Spaces'} Available
-                                    </Text>
-                                    <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', opacity: 0.8 }]}>
-                                      {percentage}% available • {listing.occupiedSlots} {listing.occupiedSlots === 1 ? 'person' : 'people'} already living here
-                                    </Text>
-                                  </>
-                                );
-                              }
-                            })()
-                          : listing.capacity !== undefined
-                          ? (
-                            <>
-                              <Text style={[styles.capacityText, { fontSize: 15, fontWeight: '700', marginBottom: 2 }]}>
-                                {listing.capacity} {listing.capacity === 1 ? 'Space' : 'Spaces'} Available
-                              </Text>
-                              <Text style={[styles.capacityText, { fontSize: 11, fontWeight: '400', opacity: 0.8 }]}>
-                                Ready for occupancy
-                              </Text>
-                            </>
-                          )
-                          : null
-                        }
-                      </View>
+                    <View style={styles.capacityHeader}>
+                      <Ionicons name="people" size={18} color="#10B981" />
+                      <Text style={styles.capacitySectionTitle}>Capacity</Text>
                     </View>
+                    {listing.occupiedSlots !== undefined && listing.capacity !== undefined
+                      ? (() => {
+                          const available = listing.capacity - listing.occupiedSlots;
+                          const percentage = Math.round((available / listing.capacity) * 100);
+                          
+                          return (
+                            <View style={styles.capacityInfo}>
+                              <View style={styles.capacityRow}>
+                                <Text style={styles.capacityLabel}>Total Capacity:</Text>
+                                <Text style={styles.capacityValue}>{listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'}</Text>
+                              </View>
+                              <View style={styles.capacityRow}>
+                                <Text style={styles.capacityLabel}>Occupied:</Text>
+                                <Text style={[styles.capacityValue, { color: '#EF4444' }]}>
+                                  {listing.occupiedSlots} {listing.occupiedSlots === 1 ? 'slot' : 'slots'}
+                                </Text>
+                              </View>
+                              <View style={styles.capacityRow}>
+                                <Text style={styles.capacityLabel}>Available:</Text>
+                                <Text style={[
+                                  styles.capacityValue, 
+                                  available === 0 ? { color: '#EF4444' } : { color: '#10B981' }
+                                ]}>
+                                  {available} {available === 1 ? 'slot' : 'slots'} ({percentage}%)
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        })()
+                      : listing.capacity !== undefined
+                      ? (
+                        <View style={styles.capacityInfo}>
+                          <View style={styles.capacityRow}>
+                            <Text style={styles.capacityLabel}>Total Capacity:</Text>
+                            <Text style={styles.capacityValue}>{listing.capacity} {listing.capacity === 1 ? 'slot' : 'slots'}</Text>
+                          </View>
+                          <Text style={styles.capacityNote}>Ready for occupancy</Text>
+                        </View>
+                      )
+                      : null
+                    }
                     {/* Room Capacity Breakdown */}
                     {listing.roomCapacities && listing.roomCapacities.length > 0 && (
-                      <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#D1FAE5' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#059669', marginBottom: 6 }}>
-                          Room Capacity:
-                        </Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                          {listing.roomCapacities.map((roomCap: number, index: number) => (
-                            <View 
-                              key={index}
-                              style={{
-                                backgroundColor: '#FFFFFF',
-                                paddingHorizontal: 8,
-                                paddingVertical: 4,
-                                borderRadius: 6,
-                                borderWidth: 1,
-                                borderColor: '#A7F3D0'
-                              }}
-                            >
-                              <Text style={{ fontSize: 11, color: '#059669' }}>
-                                Room {index + 1}: {roomCap} {roomCap === 1 ? 'slot' : 'slots'}
-                              </Text>
-                            </View>
-                          ))}
+                      <View style={styles.roomCapacityBreakdown}>
+                        <Text style={styles.roomCapacityTitle}>Room Availability:</Text>
+                        <View style={styles.roomCapacityList}>
+                          {listing.roomCapacities.map((roomCap: number, index: number) => {
+                            const available = listing.roomAvailability && listing.roomAvailability[index] !== undefined 
+                              ? listing.roomAvailability[index] 
+                              : roomCap; // Fallback to full capacity if availability not provided
+                            const isFullyOccupied = available === 0;
+                            
+                            return (
+                              <View 
+                                key={index} 
+                                style={[
+                                  styles.roomCapacityItem,
+                                  isFullyOccupied && { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }
+                                ]}
+                              >
+                                <Text style={[
+                                  styles.roomCapacityText,
+                                  isFullyOccupied && { color: '#DC2626' }
+                                ]} numberOfLines={2}>
+                                  Room {index + 1}: {available}/{roomCap}
+                                </Text>
+                                <Text style={[
+                                  styles.roomCapacityText,
+                                  { fontSize: 9, fontWeight: '400', marginTop: 2 },
+                                  isFullyOccupied && { color: '#DC2626' }
+                                ]} numberOfLines={1}>
+                                  {available === 1 ? 'slot' : 'slots'} available
+                                </Text>
+                                {isFullyOccupied && (
+                                  <Text style={{ fontSize: 9, color: '#DC2626', fontWeight: '600', marginTop: 2, textAlign: 'center' }}>
+                                    Fully Occupied
+                                  </Text>
+                                )}
+                              </View>
+                            );
+                          })}
                         </View>
                       </View>
                     )}
@@ -1778,6 +1953,20 @@ export default function DashboardScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Booking Status Modal */}
+      <BookingStatusModal
+        visible={bookingStatusModal.visible}
+        booking={bookingStatusModal.booking}
+        status={bookingStatusModal.status}
+        onClose={() => {
+          setBookingStatusModal(prev => ({ ...prev, visible: false }));
+        }}
+        onViewBooking={() => {
+          setBookingStatusModal(prev => ({ ...prev, visible: false }));
+          router.push('/(tabs)/bookings');
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -2124,20 +2313,83 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   capacityContainer: {
+    backgroundColor: '#F0FDF4',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  capacityHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginBottom: 16,
     gap: 8,
+    marginBottom: 10,
   },
-  capacityText: {
+  capacitySectionTitle: {
     fontSize: 14,
+    fontWeight: '700',
     color: '#10B981',
+  },
+  capacityInfo: {
+    gap: 6,
+  },
+  capacityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  capacityLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  capacityValue: {
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '700',
+  },
+  capacityNote: {
+    fontSize: 11,
+    color: '#10B981',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  roomCapacityBreakdown: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#D1FAE5',
+  },
+  roomCapacityTitle: {
+    fontSize: 11,
     fontWeight: '600',
+    color: '#10B981',
+    marginBottom: 6,
+  },
+  roomCapacityList: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  roomCapacityItem: {
     flex: 1,
+    minWidth: 0,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    alignItems: 'center',
+  },
+  roomCapacityText: {
+    fontSize: 10,
+    color: '#10B981',
+    fontWeight: '500',
+    textAlign: 'center',
   },
   propertyDetails: {
     flexDirection: 'row',

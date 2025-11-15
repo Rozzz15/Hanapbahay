@@ -331,10 +331,11 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                 toast.show('Account Created! Welcome to HanapBahay! Your account has been created successfully. 🎉');
 
                 const roles = (result as any).roles || (result as any).user?.roles || [];
+                const userId = (result as any).user?.id || (result as any).id;
                 
                 setTimeout(async () => {
                     if (Array.isArray(roles) && roles.includes('owner')) {
-                        let ownerId = (result as any).user?.id || (result as any).id;
+                        let ownerId = userId;
                         
                         try {
                             const { getAuthUser } = await import('@/utils/auth-user');
@@ -350,7 +351,8 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                             redirectOwnerBasedOnListings(ownerId);
                         }
                     } else {
-                        redirectTenantToTabs();
+                        // Pass userId to redirectTenantToTabs to ensure it has the user ID even if state hasn't updated
+                        redirectTenantToTabs(userId);
                     }
                     
                     onClose();

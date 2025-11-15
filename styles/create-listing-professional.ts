@@ -536,6 +536,50 @@ export const professionalStyles = StyleSheet.create({
     borderRadius: 4,
   },
 
+  // Payment Warning Banner
+  paymentWarningBanner: {
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FCD34D',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  paymentWarningContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  paymentWarningTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 4,
+  },
+  paymentWarningText: {
+    fontSize: 13,
+    color: '#78350F',
+    lineHeight: 18,
+  },
+  paymentWarningButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  paymentWarningButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
   // Professional Footer
   professionalFooter: {
     backgroundColor: '#FFFFFF',

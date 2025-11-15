@@ -249,6 +249,14 @@ export default function PaymentMethods() {
               </View>
 
               <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: 12, marginTop: 12 }}>
+                {booking.selectedRoom !== undefined && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Selected Room:</Text>
+                    <Text style={[sharedStyles.statLabel, { color: '#10B981', fontSize: designTokens.typography.sm, fontWeight: '600' }]}>
+                      Room {booking.selectedRoom + 1}
+                    </Text>
+                  </View>
+                )}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                   <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Monthly Rent:</Text>
                   <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.sm, fontWeight: '600' }]}>

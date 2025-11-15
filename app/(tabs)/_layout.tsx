@@ -2,7 +2,7 @@ import { Tabs, Redirect } from 'expo-router';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ActivityIndicator, View, Text } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Home, MessageCircle, User, Calendar } from 'lucide-react-native';
+import { Home, MessageCircle, User, Calendar, Building2 } from 'lucide-react-native';
 import { usePermissions } from '@context/PermissionContext';
 import { useAuth } from '@context/AuthContext';
 import { useToast } from '@/components/ui/toast';
@@ -10,7 +10,7 @@ import { notifications } from '@/utils';
 import { db } from '@/utils/db';
 import { ConversationRecord, BookingRecord } from '@/types';
 import { useFocusEffect } from '@react-navigation/native';
-import { getUnviewedBookingNotificationsCount, markBookingNotificationsAsViewed } from '@/utils/booking';
+import { getUnviewedBookingNotificationsCount, markBookingNotificationsAsViewed, getBookingsByTenant } from '@/utils/booking';
 
 export default function TabLayout() {
     const { permissions, setPermissions } = usePermissions();
@@ -19,6 +19,8 @@ export default function TabLayout() {
     const previousUserRef = useRef(user);
     const [unreadCount, setUnreadCount] = useState(0);
     const [bookingUpdatesCount, setBookingUpdatesCount] = useState(0);
+    const [hasActiveRental, setHasActiveRental] = useState(false);
+    const [checkedActiveRental, setCheckedActiveRental] = useState(false); // Track if we've checked
 
     // Optimized unread message count loading
     const loadUnreadCount = useCallback(async () => {
@@ -50,6 +52,49 @@ export default function TabLayout() {
         }
     }, [user?.id]);
 
+    // Check if tenant has active rental (only approved AND paid bookings)
+    const checkActiveRental = useCallback(async () => {
+        // Reset to false if no user
+        if (!user?.id) {
+            setHasActiveRental(false);
+            setCheckedActiveRental(true);
+            return;
+        }
+        
+        // Only check for tenants, not owners
+        const isTenant = !user.roles?.includes('owner') && !user.roles?.includes('brgy_official');
+        if (!isTenant) {
+            setHasActiveRental(false);
+            setCheckedActiveRental(true);
+            return;
+        }
+        
+        try {
+            const bookings = await getBookingsByTenant(user.id);
+            
+            // Only show active rental dashboard for bookings that are:
+            // 1. Status = 'approved' (not pending, rejected, cancelled, or completed)
+            // 2. PaymentStatus = 'paid' (not pending, partial, or refunded)
+            const active = bookings.find(
+                b => b.status === 'approved' && b.paymentStatus === 'paid'
+            );
+            
+            const hasActive = !!active;
+            setHasActiveRental(hasActive);
+            setCheckedActiveRental(true);
+            
+            if (hasActive) {
+                console.log(`✅ Tab Layout: Tenant has active rental - showing dashboard icon`);
+            } else {
+                console.log(`❌ Tab Layout: No active rental found. Bookings: ${bookings.length}, Statuses: ${bookings.map(b => `${b.status}/${b.paymentStatus}`).join(', ')}`);
+            }
+        } catch (error) {
+            console.error('❌ Error checking active rental:', error);
+            setHasActiveRental(false);
+            setCheckedActiveRental(true);
+        }
+    }, [user?.id, user?.roles]);
+
     // Sync permissions when auth user changes
     useEffect(() => {
         if (user?.permissions) {
@@ -66,10 +111,34 @@ export default function TabLayout() {
 
     // Load booking updates count when user changes
     useEffect(() => {
+        // Reset checked state when user changes
+        setCheckedActiveRental(false);
+        
         if (user?.id) {
             loadBookingUpdatesCount();
+            checkActiveRental();
+        } else {
+            // Reset when user logs out
+            setHasActiveRental(false);
+            setCheckedActiveRental(true);
         }
-    }, [user?.id]); // Remove loadBookingUpdatesCount dependency
+    }, [user?.id, checkActiveRental]); // Include checkActiveRental to ensure it runs
+    
+    // Check immediately on mount
+    useEffect(() => {
+        if (user?.id && !checkedActiveRental) {
+            checkActiveRental();
+        }
+    }, [user?.id, checkedActiveRental, checkActiveRental]);
+
+    // Check active rental when tab layout comes into focus
+    useFocusEffect(
+        useCallback(() => {
+            if (user?.id) {
+                checkActiveRental();
+            }
+        }, [user?.id, checkActiveRental])
+    );
 
     // Handle booking notifications when bookings tab is focused
     const handleBookingsTabFocus = useCallback(async () => {
@@ -90,6 +159,7 @@ export default function TabLayout() {
             if (user?.id) {
                 loadUnreadCount();
                 loadBookingUpdatesCount();
+                checkActiveRental();
             }
         }, [user?.id]) // Remove function dependencies
     );
@@ -194,6 +264,22 @@ export default function TabLayout() {
                     tabBarActiveTintColor: '#10B981',
                 }}
             />
+            {/* Only show active rental dashboard tab for tenants with approved AND paid bookings */}
+            {/* Hide completely when not needed to prevent blank space */}
+            <Tabs.Screen
+                name="tenant-main-dashboard"
+                options={{
+                    href: checkedActiveRental && hasActiveRental && user?.id && !user?.roles?.includes('owner') && !user?.roles?.includes('brgy_official') 
+                        ? '/(tabs)/tenant-main-dashboard' 
+                        : null, // Hide tab completely when condition is false
+                    tabBarIcon: ({ color, focused }) => (
+                        <View style={{ width: 22, height: 22, justifyContent: 'center', alignItems: 'center' }}>
+                            <Building2 size={22} color={focused ? '#10B981' : '#9ca3af'} />
+                        </View>
+                    ),
+                    tabBarActiveTintColor: '#10B981',
+                }}
+            />
             <Tabs.Screen
                 name="bookings"
                 options={{
@@ -235,7 +321,9 @@ export default function TabLayout() {
                 name="profile"
                 options={{
                     tabBarIcon: ({ color, focused }) => (
-                        <User size={22} color={focused ? '#10B981' : '#9ca3af'} />
+                        <View style={{ width: 22, height: 22, justifyContent: 'center', alignItems: 'center' }}>
+                            <User size={22} color={focused ? '#10B981' : '#9ca3af'} />
+                        </View>
                     ),
                     tabBarActiveTintColor: '#10B981',
                 }}
@@ -245,3 +333,4 @@ export default function TabLayout() {
         </SafeAreaProvider>
     );
 }
+
