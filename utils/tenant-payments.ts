@@ -13,12 +13,21 @@ export interface RentPayment {
   paymentMonth: string; // YYYY-MM format
   dueDate: string; // ISO date string
   paidDate?: string; // ISO date string
-  status: 'pending' | 'paid' | 'overdue' | 'partial' | 'pending_owner_confirmation';
+  status: 'pending' | 'paid' | 'overdue' | 'partial' | 'pending_owner_confirmation' | 'rejected';
   paymentMethod?: string;
   receiptNumber: string;
   notes?: string;
   ownerPaymentAccountId?: string; // Link to owner's payment account used for this payment
-  payMongoPaymentIntentId?: string; // PayMongo payment intent ID for verification
+  // Paymongo integration fields
+  paymongoPaymentIntentId?: string; // Paymongo payment intent ID
+  paymongoPaymentId?: string; // Paymongo payment ID after successful payment
+  paymongoStatus?: 'awaiting_payment_method' | 'awaiting_next_action' | 'processing' | 'succeeded' | 'awaiting_payment' | 'canceled' | 'failed';
+  // Backup fields for restoring rejected payments
+  rejectedAt?: string; // When payment was rejected
+  rejectedBy?: string; // Owner ID who rejected
+  originalPaidDate?: string; // Original paid date before rejection
+  originalPaymentMethod?: string; // Original payment method before rejection
+  originalStatus?: string; // Original status before rejection (pending_owner_confirmation or paid)
   createdAt: string;
   updatedAt: string;
 }
@@ -922,8 +931,16 @@ export async function getFuturePaymentMonths(bookingId: string, maxMonths: numbe
     const moveInDay = startDate.getDate();
     const now = new Date();
     
-    // Start from next due date
+    // Start from 1 month AFTER next due date (for advanced payment)
+    // The current next due date payment should be paid via regular "Pay Now" button
     let currentDate = new Date(nextDueDate);
+    currentDate.setMonth(currentDate.getMonth() + 1); // Start from month after next due date
+    
+    // Ensure the day is set correctly for the first month
+    const lastDayOfFirstMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+    const targetDay = Math.min(moveInDay, lastDayOfFirstMonth);
+    currentDate.setDate(targetDay);
+    
     const futurePayments: RentPayment[] = [];
     
     // Generate future payment months (up to maxMonths)
@@ -945,7 +962,9 @@ export async function getFuturePaymentMonths(bookingId: string, maxMonths: numbe
           futurePayments.push(existing);
         }
       } else {
-        // Create a pending payment record for this future month
+        // Create a payment record for this future month (advance payment)
+        // Note: Advance payments are created but won't show as "pending" in owner's view
+        // They will only appear when tenant pays them (status becomes pending_owner_confirmation)
         const monthlyRent = booking.monthlyRent || 0;
         const payment: RentPayment = {
           id: generateId('rent_payment'),
@@ -958,7 +977,7 @@ export async function getFuturePaymentMonths(bookingId: string, maxMonths: numbe
           totalAmount: monthlyRent,
           paymentMonth,
           dueDate: dueDate.toISOString().split('T')[0],
-          status: 'pending',
+          status: 'pending', // Status is pending until tenant pays, then becomes pending_owner_confirmation
           receiptNumber: `RENT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),

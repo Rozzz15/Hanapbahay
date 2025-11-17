@@ -20,20 +20,35 @@ const createMockClient = () => ({
   }),
 });
 
-// Conditional import for Supabase to avoid web build issues
+// Lazy-load Supabase client to avoid Metro bundling issues
+// Use dynamic import instead of require to prevent Metro dependency resolution errors
 let createClient: any = createMockClient;
+let supabaseModuleLoaded = false;
 
-if (Platform.OS !== 'web') {
-  // For mobile, try to use the real Supabase client
+const loadSupabaseModule = async () => {
+  if (supabaseModuleLoaded || Platform.OS === 'web') {
+    return createClient;
+  }
+  
   try {
-    const supabaseModule = require('@supabase/supabase-js');
+    const supabaseModule = await import('@supabase/supabase-js');
     if (supabaseModule && supabaseModule.createClient) {
       createClient = supabaseModule.createClient;
+      supabaseModuleLoaded = true;
     }
   } catch (error) {
     console.warn('⚠️ Supabase module not available, using mock client. Error:', error);
     // Keep using mock client
   }
+  
+  return createClient;
+};
+
+// Pre-load for non-web platforms (but don't block module initialization)
+if (Platform.OS !== 'web') {
+  loadSupabaseModule().catch(() => {
+    // Silently fail - we'll use mock client
+  });
 }
 
 // Platform-specific storage

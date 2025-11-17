@@ -534,7 +534,7 @@ export default function CreateListing() {
           await db.upsert('published_listings', listingId, listingData);
           
           // Verify the save was successful
-          const verification = await db.get('published_listings', listingId);
+          const verification = await db.get('published_listings', listingId) as any;
           if (verification && verification.id === listingId) {
             saveSuccess = true;
             console.log('✅ Listing saved and verified successfully');
@@ -880,7 +880,7 @@ export default function CreateListing() {
         >
           <Text style={{
             fontSize: 16,
-            color: formData.barangay ? designTokens.colors.text : designTokens.colors.textMuted,
+            color: formData.barangay ? designTokens.colors.textPrimary : designTokens.colors.textMuted,
             fontWeight: formData.barangay ? '500' : '400',
           }}>
             {formData.barangay || 'Select Barangay'}
@@ -928,7 +928,7 @@ export default function CreateListing() {
                 <Text style={{
                   fontSize: 18,
                   fontWeight: 'bold',
-                  color: designTokens.colors.text,
+                  color: designTokens.colors.textPrimary,
                 }}>
                   Select Barangay
                 </Text>
@@ -961,7 +961,7 @@ export default function CreateListing() {
                   >
                     <Text style={{
                       fontSize: 16,
-                      color: formData.barangay === brgy ? designTokens.colors.primary : designTokens.colors.text,
+                      color: formData.barangay === brgy ? designTokens.colors.primary : designTokens.colors.textPrimary,
                       fontWeight: formData.barangay === brgy ? '600' : '400',
                     }}>
                       {brgy}
@@ -1102,7 +1102,7 @@ export default function CreateListing() {
                   <Text style={{
                     flex: 1,
                     fontSize: isMobile ? 16 : 15,
-                    color: designTokens.colors.text,
+                    color: designTokens.colors.textPrimary,
                     fontWeight: '600',
                   }}>
                     Room {index + 1}
@@ -1213,11 +1213,11 @@ export default function CreateListing() {
             multiline={false}
           />
           <TouchableOpacity
-            style={[professionalStyles.primaryButton, { marginTop: 12 }]}
+            style={[sharedStyles.primaryButton, { marginTop: 12 }]}
             onPress={addCustomRule}
             disabled={!customRule.trim()}
           >
-            <Text style={professionalStyles.primaryButtonText}>Add Rule</Text>
+            <Text style={sharedStyles.primaryButtonText}>Add Rule</Text>
           </TouchableOpacity>
         </View>
 
@@ -1801,7 +1801,7 @@ export default function CreateListing() {
               <Text style={{
                 fontSize: 18,
                 fontWeight: 'bold',
-                color: designTokens.colors.text,
+                    color: designTokens.colors.textPrimary,
               }}>
                 Select Photo Source
               </Text>
@@ -1836,7 +1836,7 @@ export default function CreateListing() {
                 <Text style={{
                   fontSize: 16,
                   fontWeight: '600',
-                  color: designTokens.colors.text,
+                  color: designTokens.colors.textPrimary,
                   marginBottom: 4,
                 }}>
                   Take Photo
@@ -1874,7 +1874,7 @@ export default function CreateListing() {
                 <Text style={{
                   fontSize: 16,
                   fontWeight: '600',
-                  color: designTokens.colors.text,
+                  color: designTokens.colors.textPrimary,
                   marginBottom: 4,
                 }}>
                   Choose from Gallery

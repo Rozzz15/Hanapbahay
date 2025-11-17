@@ -1,130 +1,258 @@
 /**
- * Backend API Endpoint: PayMongo Webhook Handler
+ * Paymongo Webhook Handler
+ * This would typically be a server-side endpoint that receives webhook events from Paymongo
+ * For now, this is a client-side utility that can be called to verify payments
  * 
- * This endpoint receives webhook events from PayMongo when payments are processed.
- * 
- * Example implementation (Node.js/Express):
- * 
- * ```typescript
- * import express from 'express';
- * import crypto from 'crypto';
- * 
- * const router = express.Router();
- * 
- * // Middleware to verify webhook signature (optional but recommended)
- * function verifyWebhookSignature(req: express.Request, res: express.Response, next: express.NextFunction) {
- *   const signature = req.headers['paymongo-signature'] as string;
- *   const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
- *   
- *   if (!signature || !webhookSecret) {
- *     return res.status(401).json({ error: 'Missing signature or webhook secret' });
- *   }
- *   
- *   // Verify signature (PayMongo uses HMAC SHA256)
- *   const hmac = crypto.createHmac('sha256', webhookSecret);
- *   const payload = JSON.stringify(req.body);
- *   const calculatedSignature = hmac.update(payload).digest('hex');
- *   
- *   if (signature !== calculatedSignature) {
- *     return res.status(401).json({ error: 'Invalid signature' });
- *   }
- *   
- *   next();
- * }
- * 
- * router.post('/api/paymongo/webhook', verifyWebhookSignature, async (req, res) => {
- *   try {
- *     const { data, type } = req.body;
- *     
- *     console.log('📥 PayMongo webhook received:', type);
- *     
- *     // Handle different webhook event types
- *     switch (type) {
- *       case 'payment_intent.succeeded':
- *         await handlePaymentSuccess(data);
- *         break;
- *       case 'payment_intent.failed':
- *         await handlePaymentFailure(data);
- *         break;
- *       case 'payment_intent.processing':
- *         await handlePaymentProcessing(data);
- *         break;
- *       default:
- *         console.log('Unhandled webhook event type:', type);
- *     }
- *     
- *     // Always return 200 to acknowledge receipt
- *     res.status(200).json({ received: true });
- *   } catch (error: any) {
- *     console.error('Error processing webhook:', error);
- *     // Still return 200 to prevent PayMongo from retrying
- *     res.status(200).json({ received: true, error: error.message });
- *   }
- * });
- * 
- * async function handlePaymentSuccess(data: any) {
- *   const paymentIntent = data.attributes;
- *   const bookingId = paymentIntent.metadata?.bookingId;
- *   const reference = paymentIntent.metadata?.reference;
- *   
- *   if (!bookingId) {
- *     console.error('No booking ID in payment metadata');
- *     return;
- *   }
- *   
- *   // Update your database - mark payment as paid
- *   // Example:
- *   // await markRentPaymentAsPaid(bookingId, `PayMongo - ${paymentIntent.id}`);
- *   
- *   console.log(`✅ Payment succeeded for booking ${bookingId}`);
- * }
- * 
- * async function handlePaymentFailure(data: any) {
- *   const paymentIntent = data.attributes;
- *   const bookingId = paymentIntent.metadata?.bookingId;
- *   
- *   console.log(`❌ Payment failed for booking ${bookingId}`);
- *   // Handle payment failure (notify user, etc.)
- * }
- * 
- * async function handlePaymentProcessing(data: any) {
- *   const paymentIntent = data.attributes;
- *   const bookingId = paymentIntent.metadata?.bookingId;
- *   
- *   console.log(`⏳ Payment processing for booking ${bookingId}`);
- *   // Update payment status to processing
- * }
- * ```
- * 
- * Webhook Configuration in PayMongo Dashboard:
- * 1. Go to PayMongo Dashboard → Webhooks
- * 2. Click "Add Webhook"
- * 3. Enter your webhook URL: https://your-backend.com/api/paymongo/webhook
- * 4. Select events to listen for:
- *    - payment_intent.succeeded
- *    - payment_intent.failed
- *    - payment_intent.processing
- * 5. Save webhook
- * 6. Copy the webhook secret and add it to your environment variables as PAYMONGO_WEBHOOK_SECRET
+ * Note: In production, this should be a secure server-side endpoint that:
+ * 1. Verifies the webhook signature from Paymongo
+ * 2. Processes payment events (payment.succeeded, payment.failed, etc.)
+ * 3. Updates payment records in the database
+ * 4. Sends notifications to owners and tenants
  */
 
-export interface PayMongoWebhookEvent {
+import { verifyPayment } from '../../utils/paymongo-api';
+import { db } from '../../utils/db';
+import { RentPaymentRecord } from '../../types';
+import { markRentPaymentAsPaid } from '../../utils/tenant-payments';
+
+export interface PaymongoWebhookEvent {
+  type: string;
   data: {
     id: string;
     type: string;
     attributes: {
-      type: string;
-      livemode: boolean;
-      data: {
-        id: string;
-        type: string;
-        attributes: any;
-      };
+      amount: number;
+      currency: string;
+      status: string;
+      metadata?: Record<string, any>;
+      [key: string]: any;
     };
   };
-  type: 'payment_intent.succeeded' | 'payment_intent.failed' | 'payment_intent.processing';
 }
 
-// This file is a template - implement the actual webhook handler on your backend server
-// Configure the webhook URL in PayMongo Dashboard: https://your-backend.com/api/paymongo/webhook
+/**
+ * Handle Paymongo webhook event
+ * This should be called by a server-side webhook endpoint
+ */
+export async function handlePaymongoWebhook(
+  event: PaymongoWebhookEvent
+): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const { type, data } = event;
+
+    // Handle different event types
+    switch (type) {
+      case 'payment.succeeded':
+        return await handlePaymentSucceeded(data);
+      
+      case 'payment.failed':
+        return await handlePaymentFailed(data);
+      
+      case 'payment.pending':
+        return await handlePaymentPending(data);
+      
+      default:
+        console.log(`Unhandled webhook event type: ${type}`);
+        return {
+          success: true,
+          message: `Event type ${type} received but not processed`,
+        };
+    }
+  } catch (error) {
+    console.error('❌ Error handling Paymongo webhook:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to handle webhook',
+    };
+  }
+}
+
+/**
+ * Handle successful payment
+ */
+async function handlePaymentSucceeded(paymentData: PaymongoWebhookEvent['data']): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const { id: paymentId, attributes } = paymentData;
+    const { metadata } = attributes;
+
+    if (!metadata?.paymentId) {
+      return {
+        success: false,
+        error: 'Payment ID not found in metadata',
+      };
+    }
+
+    // Get the payment record
+    const payment = await db.get<RentPaymentRecord>('rent_payments', metadata.paymentId);
+    if (!payment) {
+      return {
+        success: false,
+        error: 'Payment record not found',
+      };
+    }
+
+    // Update payment record with Paymongo details
+    const updatedPayment: RentPaymentRecord = {
+      ...payment,
+      status: 'pending_owner_confirmation', // Owner still needs to confirm
+      paymentMethod: 'Paymongo',
+      paymongoPaymentId: paymentId,
+      paymongoPaymentIntentId: metadata.paymentIntentId,
+      paymongoStatus: 'succeeded',
+      paidDate: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await db.upsert('rent_payments', payment.id, updatedPayment);
+
+    // Mark payment as paid (this will notify the owner)
+    await markRentPaymentAsPaid(payment.id, 'Paymongo');
+
+    console.log('✅ Payment succeeded and recorded:', payment.id);
+
+    return {
+      success: true,
+      message: 'Payment processed successfully',
+    };
+  } catch (error) {
+    console.error('❌ Error handling payment succeeded:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to process payment',
+    };
+  }
+}
+
+/**
+ * Handle failed payment
+ */
+async function handlePaymentFailed(paymentData: PaymongoWebhookEvent['data']): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const { id: paymentId, attributes } = paymentData;
+    const { metadata } = attributes;
+
+    if (!metadata?.paymentId) {
+      return {
+        success: false,
+        error: 'Payment ID not found in metadata',
+      };
+    }
+
+    // Get the payment record
+    const payment = await db.get<RentPaymentRecord>('rent_payments', metadata.paymentId);
+    if (!payment) {
+      return {
+        success: false,
+        error: 'Payment record not found',
+      };
+    }
+
+    // Update payment record with failed status
+    const updatedPayment: RentPaymentRecord = {
+      ...payment,
+      paymongoPaymentId: paymentId,
+      paymongoPaymentIntentId: metadata.paymentIntentId,
+      paymongoStatus: 'failed',
+      notes: `Payment failed via Paymongo: ${attributes.status}`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await db.upsert('rent_payments', payment.id, updatedPayment);
+
+    console.log('❌ Payment failed:', payment.id);
+
+    return {
+      success: true,
+      message: 'Payment failure recorded',
+    };
+  } catch (error) {
+    console.error('❌ Error handling payment failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to process payment failure',
+    };
+  }
+}
+
+/**
+ * Handle pending payment
+ */
+async function handlePaymentPending(paymentData: PaymongoWebhookEvent['data']): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const { id: paymentId, attributes } = paymentData;
+    const { metadata } = attributes;
+
+    if (!metadata?.paymentId) {
+      return {
+        success: false,
+        error: 'Payment ID not found in metadata',
+      };
+    }
+
+    // Get the payment record
+    const payment = await db.get<RentPaymentRecord>('rent_payments', metadata.paymentId);
+    if (!payment) {
+      return {
+        success: false,
+        error: 'Payment record not found',
+      };
+    }
+
+    // Update payment record with pending status
+    const updatedPayment: RentPaymentRecord = {
+      ...payment,
+      paymongoPaymentId: paymentId,
+      paymongoPaymentIntentId: metadata.paymentIntentId,
+      paymongoStatus: 'awaiting_payment',
+      updatedAt: new Date().toISOString(),
+    };
+
+    await db.upsert('rent_payments', payment.id, updatedPayment);
+
+    console.log('⏳ Payment pending:', payment.id);
+
+    return {
+      success: true,
+      message: 'Payment pending status recorded',
+    };
+  } catch (error) {
+    console.error('❌ Error handling payment pending:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to process payment pending',
+    };
+  }
+}
+
+/**
+ * Verify webhook signature (server-side only)
+ * This should be implemented on the backend to verify Paymongo webhook signatures
+ */
+export function verifyWebhookSignature(
+  payload: string,
+  signature: string,
+  secret: string
+): boolean {
+  // This should use Paymongo's webhook signature verification
+  // For now, this is a placeholder
+  // In production, use Paymongo's webhook signature verification method
+  console.warn('⚠️ Webhook signature verification should be implemented server-side');
+  return true; // Placeholder - always return true for now
+}
 

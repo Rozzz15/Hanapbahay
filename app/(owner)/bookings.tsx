@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Pressable } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { getBookingsByOwner, updateBookingStatus, getStatusColor, getStatusIcon, deleteBookingByOwner } from '@/utils/booking';
@@ -11,6 +10,26 @@ import { showAlert } from '../../utils/alert';
 import TenantInfoModal from '../../components/TenantInfoModal';
 import { createOrFindConversation } from '@/utils/conversation-utils';
 import { db } from '@/utils/db';
+import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
+import { 
+  Calendar, 
+  Clock, 
+  CheckCircle, 
+  XCircle, 
+  User, 
+  MapPin, 
+  Phone, 
+  Mail, 
+  Home, 
+  DollarSign, 
+  Wallet,
+  MessageSquare,
+  ArrowLeft,
+  Trash2,
+  LayoutGrid,
+  List,
+  LayoutList
+} from 'lucide-react-native';
 
 export default function BookingsPage() {
   const { user, signOut } = useAuth();
@@ -18,7 +37,9 @@ export default function BookingsPage() {
   const router = useRouter();
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [viewMode, setViewMode] = useState<'large' | 'compact' | 'list'>('large');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<{
     id: string;
@@ -41,7 +62,13 @@ export default function BookingsPage() {
       console.warn('Failed to load bookings');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadBookings();
   };
 
   useEffect(() => {
@@ -210,14 +237,14 @@ export default function BookingsPage() {
 
   if (!user) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.authRequiredContainer}>
-          <Text style={styles.authRequiredTitle}>Authentication Required</Text>
+      <SafeAreaView style={sharedStyles.container}>
+        <View style={[sharedStyles.emptyState, { justifyContent: 'center', minHeight: 400 }]}>
+          <Text style={sharedStyles.emptyStateTitle}>Authentication Required</Text>
           <TouchableOpacity 
             onPress={() => router.replace('/login')}
-            style={styles.loginButton}
+            style={sharedStyles.primaryButton}
           >
-            <Text style={styles.loginButtonText}>Go to Login</Text>
+            <Text style={sharedStyles.primaryButtonText}>Go to Login</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -225,78 +252,147 @@ export default function BookingsPage() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Booking Management</Text>
-        <Text style={styles.headerSubtitle}>{stats.total} booking requests</Text>
-      </View>
-
-      {/* Stats Cards */}
-      <View style={styles.statsContainer}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={styles.statContent}>
-              <Text style={styles.statNumber}>{stats.total}</Text>
-              <Text style={styles.statLabel}>Total</Text>
+    <SafeAreaView style={sharedStyles.container}>
+      <ScrollView 
+        style={sharedStyles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <View style={sharedStyles.pageContainer}>
+          {/* Header */}
+          <View style={sharedStyles.pageHeader}>
+            <View style={sharedStyles.headerLeft}>
+              <Text style={sharedStyles.pageTitle}>Booking Management</Text>
+              <Text style={sharedStyles.pageSubtitle}>{stats.total} booking request{stats.total !== 1 ? 's' : ''}</Text>
             </View>
-            <Ionicons name="calendar" size={20} color="#6B7280" />
-          </View>
-          
-          <View style={styles.statCard}>
-            <View style={styles.statContent}>
-              <Text style={[styles.statNumber, styles.pendingNumber]}>{stats.pending}</Text>
-              <Text style={styles.statLabel}>Pending</Text>
+            <View style={sharedStyles.headerRight}>
+              {/* View Mode Selector */}
+              <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, backgroundColor: designTokens.colors.white, padding: designTokens.spacing.xs, borderRadius: designTokens.borderRadius.md, borderWidth: 1, borderColor: designTokens.colors.border }}>
+                <TouchableOpacity
+                  onPress={() => setViewMode('large')}
+                  style={[
+                    { padding: designTokens.spacing.sm, borderRadius: designTokens.borderRadius.sm },
+                    viewMode === 'large' && { backgroundColor: designTokens.colors.primary }
+                  ]}
+                >
+                  <LayoutGrid size={18} color={viewMode === 'large' ? designTokens.colors.white : designTokens.colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setViewMode('compact')}
+                  style={[
+                    { padding: designTokens.spacing.sm, borderRadius: designTokens.borderRadius.sm },
+                    viewMode === 'compact' && { backgroundColor: designTokens.colors.primary }
+                  ]}
+                >
+                  <List size={18} color={viewMode === 'compact' ? designTokens.colors.white : designTokens.colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setViewMode('list')}
+                  style={[
+                    { padding: designTokens.spacing.sm, borderRadius: designTokens.borderRadius.sm },
+                    viewMode === 'list' && { backgroundColor: designTokens.colors.primary }
+                  ]}
+                >
+                  <LayoutList size={18} color={viewMode === 'list' ? designTokens.colors.white : designTokens.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
             </View>
-            <Ionicons name="time" size={20} color="#F59E0B" />
           </View>
-          
-          <View style={styles.statCard}>
-            <View style={styles.statContent}>
-              <Text style={[styles.statNumber, styles.approvedNumber]}>{stats.approved}</Text>
-              <Text style={styles.statLabel}>Approved</Text>
+
+          {/* Stats Cards */}
+          <View style={sharedStyles.section}>
+            <View style={sharedStyles.grid}>
+              <View style={sharedStyles.gridItem}>
+                <View style={[sharedStyles.statCard, { position: 'relative', overflow: 'hidden' }]}>
+                  <View style={[sharedStyles.statCardGradient, { backgroundColor: designTokens.colors.primary }]} />
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+                      <Calendar size={20} color={designTokens.colors.primary} />
+                    </View>
+                  </View>
+                  <Text style={sharedStyles.statValue}>{stats.total}</Text>
+                  <Text style={sharedStyles.statLabel}>Total Bookings</Text>
+                </View>
+              </View>
+              
+              <View style={sharedStyles.gridItem}>
+                <View style={[sharedStyles.statCard, { position: 'relative', overflow: 'hidden' }]}>
+                  <View style={[sharedStyles.statCardGradient, { backgroundColor: designTokens.colors.warning }]} />
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
+                      <Clock size={20} color={designTokens.colors.warning} />
+                    </View>
+                  </View>
+                  <Text style={[sharedStyles.statValue, { color: designTokens.colors.warning }]}>{stats.pending}</Text>
+                  <Text style={sharedStyles.statLabel}>Pending</Text>
+                </View>
+              </View>
+              
+              <View style={sharedStyles.gridItem}>
+                <View style={[sharedStyles.statCard, { position: 'relative', overflow: 'hidden' }]}>
+                  <View style={[sharedStyles.statCardGradient, { backgroundColor: designTokens.colors.success }]} />
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
+                      <CheckCircle size={20} color={designTokens.colors.success} />
+                    </View>
+                  </View>
+                  <Text style={[sharedStyles.statValue, { color: designTokens.colors.success }]}>{stats.approved}</Text>
+                  <Text style={sharedStyles.statLabel}>Approved</Text>
+                </View>
+              </View>
+              
+              <View style={sharedStyles.gridItem}>
+                <View style={[sharedStyles.statCard, { position: 'relative', overflow: 'hidden' }]}>
+                  <View style={[sharedStyles.statCardGradient, { backgroundColor: designTokens.colors.error }]} />
+                  <View style={sharedStyles.statIconContainer}>
+                    <View style={[sharedStyles.statIcon, iconBackgrounds.red]}>
+                      <XCircle size={20} color={designTokens.colors.error} />
+                    </View>
+                  </View>
+                  <Text style={[sharedStyles.statValue, { color: designTokens.colors.error }]}>{stats.rejected}</Text>
+                  <Text style={sharedStyles.statLabel}>Rejected</Text>
+                </View>
+              </View>
             </View>
-            <Ionicons name="checkmark-circle" size={20} color="#10B981" />
           </View>
-        </View>
-      </View>
 
-      {/* Filter Buttons */}
-      <View style={styles.filtersContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.filtersRow}>
-            {(['all', 'pending', 'approved', 'rejected'] as const).map((filterType) => (
-              <TouchableOpacity
-                key={filterType}
-                onPress={() => setFilter(filterType)}
-                style={[
-                  styles.filterButton,
-                  filter === filterType && styles.filterButtonActive
-                ]}
-              >
-                <Text style={[
-                  styles.filterButtonText,
-                  filter === filterType && styles.filterButtonTextActive
-                ]}>
-                  {filterType.charAt(0).toUpperCase() + filterType.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* Filter Buttons */}
+          <View style={[sharedStyles.section, { marginBottom: designTokens.spacing.lg }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: designTokens.spacing.sm }}>
+              {(['all', 'pending', 'approved', 'rejected'] as const).map((filterType) => (
+                <TouchableOpacity
+                  key={filterType}
+                  onPress={() => setFilter(filterType)}
+                  style={[
+                    sharedStyles.secondaryButton,
+                    filter === filterType && {
+                      backgroundColor: designTokens.colors.primary,
+                      borderColor: designTokens.colors.primary,
+                    }
+                  ]}
+                >
+                  <Text style={[
+                    sharedStyles.secondaryButtonText,
+                    filter === filterType && { color: designTokens.colors.white }
+                  ]}>
+                    {filterType.charAt(0).toUpperCase() + filterType.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
-        </ScrollView>
-      </View>
 
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.content}>
+          {/* Bookings List */}
           {loading ? (
-            <View style={styles.loadingContainer}>
-              <Text style={styles.loadingText}>Loading bookings...</Text>
+            <View style={sharedStyles.loadingContainer}>
+              <Text style={sharedStyles.loadingText}>Loading bookings...</Text>
             </View>
           ) : filteredBookings.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="calendar-outline" size={48} color="#9CA3AF" />
-              <Text style={styles.emptyStateTitle}>No bookings found</Text>
-              <Text style={styles.emptyStateText}>
+            <View style={sharedStyles.emptyState}>
+              <Calendar size={48} color={designTokens.colors.textMuted} />
+              <Text style={sharedStyles.emptyStateTitle}>No bookings found</Text>
+              <Text style={sharedStyles.emptyStateText}>
                 {filter === 'all' 
                   ? 'Booking requests from tenants will appear here'
                   : `No ${filter} bookings found`
@@ -304,144 +400,169 @@ export default function BookingsPage() {
               </Text>
             </View>
           ) : (
-            <View style={styles.bookingsList}>
-              {filteredBookings.map((booking) => (
-                <Pressable
-                  key={booking.id}
-                  onLongPress={() => handleDeleteBooking(booking)}
-                >
-                  <View style={styles.bookingCard}>
-                  {/* Header */}
-                  <View style={styles.bookingHeader}>
-                    <View style={styles.bookingTitleContainer}>
-                      <Text style={styles.bookingTitle}>
-                        {booking.propertyTitle}
-                      </Text>
-                      <View style={styles.tenantRow}>
-                        <Ionicons name="person" size={14} color="#6B7280" />
-                        <Text style={styles.tenantText}>{booking.tenantName}</Text>
-                      </View>
-                    </View>
-                    
-                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status) }]}>
-                      <Text style={styles.statusText}>
-                        {getStatusIcon(booking.status)} {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Booking Details */}
-                  <TouchableOpacity 
-                    style={styles.bookingDetails}
-                    onPress={() => handleViewTenantInfo(booking)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.tenantInfoHeader}>
-                      <Text style={styles.detailsTitle}>Tenant Information</Text>
-                      <View style={styles.viewProfileButton}>
-                        <Ionicons name="person-circle-outline" size={16} color="#3B82F6" />
-                        <Text style={styles.viewProfileText}>View Profile</Text>
-                      </View>
-                    </View>
-                    {booking.tenantAddress && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="location" size={14} color="#6B7280" />
-                        <Text style={styles.detailText}>{booking.tenantAddress}</Text>
-                      </View>
-                    )}
-                    <View style={styles.detailRow}>
-                      <Ionicons name="call" size={14} color="#6B7280" />
-                      <Text style={styles.detailText}>{booking.tenantPhone}</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="mail" size={14} color="#6B7280" />
-                      <Text style={styles.detailText}>{booking.tenantEmail}</Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Payment Details */}
-                  <View style={styles.bookingDetails}>
-                    <Text style={styles.detailsTitle}>Payment Details</Text>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="calendar" size={14} color="#6B7280" />
-                      <Text style={styles.detailText}>
-                        Move-in: {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
-                      </Text>
-                    </View>
-                    {booking.selectedRoom !== undefined && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="home" size={14} color="#10B981" />
-                        <Text style={[styles.detailText, { color: '#10B981', fontWeight: '600' }]}>
-                          Selected Room: Room {booking.selectedRoom + 1}
+            <View style={sharedStyles.list}>
+              {filteredBookings.map((booking) => {
+                // Large View (Default - Full Details)
+                if (viewMode === 'large') {
+                  return (
+                    <Pressable
+                      key={booking.id}
+                      onLongPress={() => handleDeleteBooking(booking)}
+                      style={({ pressed }) => [
+                        sharedStyles.card,
+                        pressed && { opacity: 0.7 }
+                      ]}
+                    >
+                      <View>
+                    {/* Header */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.lg }}>
+                      <View style={{ flex: 1, marginRight: designTokens.spacing.md }}>
+                        <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: designTokens.spacing.xs }]}>
+                          {booking.propertyTitle}
                         </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: designTokens.spacing.xs }}>
+                          <User size={14} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs }]}>
+                            {booking.tenantName}
+                          </Text>
+                        </View>
                       </View>
-                    )}
-                    <View style={styles.detailRow}>
-                      <Ionicons name="cash" size={14} color="#6B7280" />
-                      <Text style={styles.detailText}>
-                        Monthly: ₱{booking.monthlyRent ? String(booking.monthlyRent.toLocaleString()) : '0'}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="wallet" size={14} color="#6B7280" />
-                      <Text style={[styles.detailText, { fontWeight: '600', color: '#10B981' }]}>
-                        Total: ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
-                      </Text>
-                    </View>
-                    {booking.status === 'approved' && (
-                      <View style={styles.detailRow}>
-                        <Ionicons 
-                          name={booking.paymentStatus === 'paid' ? "checkmark-circle" : "time"} 
-                          size={14} 
-                          color={booking.paymentStatus === 'paid' ? '#10B981' : '#F59E0B'} 
-                        />
-                        <Text style={[
-                          styles.detailText, 
-                          { 
-                            fontWeight: '600',
-                            color: booking.paymentStatus === 'paid' ? '#10B981' : '#F59E0B'
-                          }
-                        ]}>
-                          Payment: {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Special Requests */}
-                  {booking.specialRequests && (
-                    <View style={styles.specialRequests}>
-                      <Text style={styles.detailsTitle}>Special Requests</Text>
-                      <Text style={styles.specialRequestsText}>{booking.specialRequests}</Text>
-                    </View>
-                  )}
-
-                  {/* Action Buttons */}
-                  {booking.status === 'pending' && (
-                    <View style={styles.actionButtons}>
-                      <TouchableOpacity
-                        onPress={() => handleBookingAction(booking.id, 'approve')}
-                        style={styles.approveButton}
-                      >
-                        <Ionicons name="checkmark-circle" size={16} color="white" />
-                        <Text style={styles.approveButtonText}>Approve</Text>
-                      </TouchableOpacity>
                       
-                      <TouchableOpacity
-                        onPress={() => handleBookingAction(booking.id, 'reject')}
-                        style={styles.rejectButton}
-                      >
-                        <Ionicons name="close-circle" size={16} color="white" />
-                        <Text style={styles.rejectButtonText}>Reject</Text>
-                      </TouchableOpacity>
+                      <View style={[
+                        sharedStyles.statusBadge,
+                        { 
+                          backgroundColor: getStatusColor(booking.status),
+                          paddingHorizontal: designTokens.spacing.md,
+                          paddingVertical: designTokens.spacing.xs,
+                        }
+                      ]}>
+                        <Text style={[sharedStyles.statusText, { color: designTokens.colors.white }]}>
+                          {getStatusIcon(booking.status)} {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                        </Text>
+                      </View>
                     </View>
-                  )}
 
-                  {/* Mark as Paid - For approved bookings not yet paid */}
-                  {booking.status === 'approved' && booking.paymentStatus !== 'paid' && (
-                    <View style={styles.actionButtons}>
-                      <TouchableOpacity
-                        onPress={async () => {
+                    {/* Tenant Information */}
+                    <TouchableOpacity 
+                      onPress={() => handleViewTenantInfo(booking)}
+                      activeOpacity={0.7}
+                      style={{ marginBottom: designTokens.spacing.lg }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
+                        <Text style={[sharedStyles.formLabel, { marginBottom: 0 }]}>Tenant Information</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: designTokens.colors.infoLight, paddingHorizontal: designTokens.spacing.sm, paddingVertical: designTokens.spacing.xs, borderRadius: designTokens.borderRadius.md }}>
+                          <User size={14} color={designTokens.colors.info} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, color: designTokens.colors.info, fontWeight: '500' as const }]}>
+                            View Profile
+                          </Text>
+                        </View>
+                      </View>
+                      {booking.tenantAddress && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                          <MapPin size={14} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm, flex: 1 }]}>
+                            {booking.tenantAddress}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                        <Phone size={14} color={designTokens.colors.textSecondary} />
+                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
+                          {booking.tenantPhone}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Mail size={14} color={designTokens.colors.textSecondary} />
+                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
+                          {booking.tenantEmail}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Payment Details */}
+                    <View style={{ marginBottom: designTokens.spacing.lg, paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                      <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.md }]}>Payment Details</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                        <Calendar size={14} color={designTokens.colors.textSecondary} />
+                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
+                          Move-in: {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
+                        </Text>
+                      </View>
+                      {booking.selectedRoom !== undefined && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                          <Home size={14} color={designTokens.colors.success} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm, color: designTokens.colors.success, fontWeight: '600' as const }]}>
+                            Selected Room: Room {booking.selectedRoom + 1}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                        <DollarSign size={14} color={designTokens.colors.textSecondary} />
+                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
+                          Monthly: ₱{booking.monthlyRent ? String(booking.monthlyRent.toLocaleString()) : '0'}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                        <Wallet size={14} color={designTokens.colors.success} />
+                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm, fontWeight: '600' as const, color: designTokens.colors.success }]}>
+                          Total: ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
+                        </Text>
+                      </View>
+                      {booking.status === 'approved' && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          {booking.paymentStatus === 'paid' ? (
+                            <CheckCircle size={14} color={designTokens.colors.success} />
+                          ) : (
+                            <Clock size={14} color={designTokens.colors.warning} />
+                          )}
+                          <Text style={[
+                            sharedStyles.statLabel, 
+                            { 
+                              marginLeft: designTokens.spacing.sm,
+                              fontWeight: '600' as const,
+                              color: booking.paymentStatus === 'paid' ? designTokens.colors.success : designTokens.colors.warning
+                            }
+                          ]}>
+                            Payment: {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Special Requests */}
+                    {booking.specialRequests && (
+                      <View style={{ marginBottom: designTokens.spacing.lg, paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                        <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.sm }]}>Special Requests</Text>
+                        <Text style={[sharedStyles.statLabel, { lineHeight: 20 }]}>{booking.specialRequests}</Text>
+                      </View>
+                    )}
+
+                    {/* Action Buttons */}
+                    {booking.status === 'pending' && (
+                      <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm, paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                        <TouchableOpacity
+                          onPress={() => handleBookingAction(booking.id, 'approve')}
+                          style={[sharedStyles.primaryButton, { flex: 1 }]}
+                        >
+                          <CheckCircle size={16} color={designTokens.colors.white} />
+                          <Text style={sharedStyles.primaryButtonText}>Approve</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={() => handleBookingAction(booking.id, 'reject')}
+                          style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error }]}
+                        >
+                          <XCircle size={16} color={designTokens.colors.white} />
+                          <Text style={sharedStyles.primaryButtonText}>Reject</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Mark as Paid - For approved bookings not yet paid */}
+                    {booking.status === 'approved' && booking.paymentStatus !== 'paid' && (
+                      <View style={{ paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                        <TouchableOpacity
+                          onPress={async () => {
                           if (!user?.id) return;
 
                           Alert.alert(
@@ -541,19 +662,19 @@ export default function BookingsPage() {
                             ]
                           );
                         }}
-                        style={styles.markPaidButton}
+                        style={sharedStyles.primaryButton}
                       >
-                        <Ionicons name="checkmark-circle" size={16} color="white" />
-                        <Text style={styles.markPaidButtonText}>Mark as Paid</Text>
+                        <CheckCircle size={16} color={designTokens.colors.white} />
+                        <Text style={sharedStyles.primaryButtonText}>Mark as Paid</Text>
                       </TouchableOpacity>
-                    </View>
-                  )}
+                      </View>
+                    )}
 
-                  {/* Contact Tenant - For approved/rejected */}
-                  {(booking.status === 'approved' || booking.status === 'rejected') && (
-                    <View style={styles.actionButtons}>
-                      <TouchableOpacity
-                        onPress={async () => {
+                    {/* Contact Tenant - For approved/rejected */}
+                    {(booking.status === 'approved' || booking.status === 'rejected') && (
+                      <View style={{ paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                        <TouchableOpacity
+                          onPress={async () => {
                           if (!user?.id) {
                             showAlert('Error', 'Please log in to message the tenant.');
                             return;
@@ -609,16 +730,291 @@ export default function BookingsPage() {
                             ]
                           );
                         }}
-                        style={styles.messageButton}
+                        style={[sharedStyles.secondaryButton, { width: '100%', justifyContent: 'center' }]}
                       >
-                        <Ionicons name="chatbubble" size={16} color="#3B82F6" />
-                        <Text style={styles.messageButtonText}>Message Tenant</Text>
+                        <MessageSquare size={16} color={designTokens.colors.info} />
+                        <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info }]}>
+                          Message Tenant
+                        </Text>
                       </TouchableOpacity>
+                      </View>
+                    )}
+
+                        {/* Delete hint */}
+                        <View style={{ marginTop: designTokens.spacing.md, paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                          <Text style={[sharedStyles.statSubtitle, { fontSize: 11, textAlign: 'center', fontStyle: 'italic' }]}>
+                            💡 Tap and hold to delete
+                          </Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                }
+
+                // Compact View (Medium Cards - Essential Info)
+                if (viewMode === 'compact') {
+                  return (
+                    <Pressable
+                      key={booking.id}
+                      onLongPress={() => handleDeleteBooking(booking)}
+                      style={({ pressed }) => [
+                        sharedStyles.card,
+                        { padding: designTokens.spacing.md },
+                        pressed && { opacity: 0.7 }
+                      ]}
+                    >
+                      <View>
+                        {/* Header Row */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.md }}>
+                          <View style={{ flex: 1, marginRight: designTokens.spacing.sm }}>
+                            <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base, marginBottom: designTokens.spacing.xs }]} numberOfLines={1}>
+                              {booking.propertyTitle}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: designTokens.spacing.xs }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <User size={12} color={designTokens.colors.textSecondary} />
+                                <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs }]} numberOfLines={1}>
+                                  {booking.tenantName}
+                                </Text>
+                              </View>
+                              <Text style={{ color: designTokens.colors.textMuted }}>•</Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Wallet size={12} color={designTokens.colors.success} />
+                                <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, fontWeight: '600' as const, color: designTokens.colors.success }]}>
+                                  ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                          <View style={[
+                            sharedStyles.statusBadge,
+                            { 
+                              backgroundColor: getStatusColor(booking.status),
+                              paddingHorizontal: designTokens.spacing.sm,
+                              paddingVertical: 4,
+                            }
+                          ]}>
+                            <Text style={[sharedStyles.statusText, { color: designTokens.colors.white, fontSize: designTokens.typography.xs }]}>
+                              {getStatusIcon(booking.status)} {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Quick Info Row */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.sm, marginBottom: designTokens.spacing.md }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Calendar size={12} color={designTokens.colors.textSecondary} />
+                            <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs }]}>
+                              {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
+                            </Text>
+                          </View>
+                          {booking.status === 'approved' && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {booking.paymentStatus === 'paid' ? (
+                                <CheckCircle size={12} color={designTokens.colors.success} />
+                              ) : (
+                                <Clock size={12} color={designTokens.colors.warning} />
+                              )}
+                              <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, fontWeight: '600' as const, color: booking.paymentStatus === 'paid' ? designTokens.colors.success : designTokens.colors.warning }]}>
+                                {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Action Buttons - Compact */}
+                        {booking.status === 'pending' && (
+                          <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, paddingTop: designTokens.spacing.sm, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                            <TouchableOpacity
+                              onPress={() => handleBookingAction(booking.id, 'approve')}
+                              style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: designTokens.spacing.sm }]}
+                            >
+                              <CheckCircle size={14} color={designTokens.colors.white} />
+                              <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.xs }]}>Approve</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleBookingAction(booking.id, 'reject')}
+                              style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.sm }]}
+                            >
+                              <XCircle size={14} color={designTokens.colors.white} />
+                              <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.xs }]}>Reject</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+
+                        {booking.status === 'approved' && booking.paymentStatus !== 'paid' && (
+                          <View style={{ paddingTop: designTokens.spacing.sm, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                if (!user?.id) return;
+                                Alert.alert(
+                                  'Mark as Paid',
+                                  `Have you received the payment from ${booking.tenantName}?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Yes, Mark as Paid',
+                                      onPress: async () => {
+                                        try {
+                                          const updatedBooking: BookingRecord = {
+                                            ...booking,
+                                            paymentStatus: 'paid',
+                                            updatedAt: new Date().toISOString()
+                                          };
+                                          await db.upsert('bookings', booking.id, updatedBooking);
+                                          showAlert('Success', 'Booking marked as paid.');
+                                          loadBookings();
+                                        } catch (error) {
+                                          showAlert('Error', 'Failed to mark booking as paid');
+                                        }
+                                      }
+                                    }
+                                  ]
+                                );
+                              }}
+                              style={[sharedStyles.primaryButton, { paddingVertical: designTokens.spacing.sm }]}
+                            >
+                              <CheckCircle size={14} color={designTokens.colors.white} />
+                              <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.xs }]}>Mark as Paid</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+
+                        {(booking.status === 'approved' || booking.status === 'rejected') && (
+                          <View style={{ paddingTop: designTokens.spacing.sm, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                if (!user?.id) return;
+                                showAlert(
+                                  'Start Conversation',
+                                  `Do you want to start a conversation with ${booking.tenantName}?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Start',
+                                      onPress: async () => {
+                                        try {
+                                          let ownerDisplayName = 'Property Owner';
+                                          try {
+                                            const ownerProfile = await db.get('owner_profiles', user.id);
+                                            ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+                                          } catch (error) {
+                                            ownerDisplayName = user.name || 'Property Owner';
+                                          }
+                                          const conversationId = await createOrFindConversation({
+                                            ownerId: user.id,
+                                            tenantId: booking.tenantId,
+                                            ownerName: ownerDisplayName,
+                                            tenantName: booking.tenantName,
+                                            propertyId: booking.propertyId,
+                                            propertyTitle: booking.propertyTitle
+                                          });
+                                          router.push({
+                                            pathname: '/chat-room',
+                                            params: { conversationId: conversationId }
+                                          });
+                                        } catch (error) {
+                                          showAlert('Error', 'Failed to start conversation.');
+                                        }
+                                      }
+                                    }
+                                  ]
+                                );
+                              }}
+                              style={[sharedStyles.secondaryButton, { paddingVertical: designTokens.spacing.sm }]}
+                            >
+                              <MessageSquare size={14} color={designTokens.colors.info} />
+                              <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: designTokens.typography.xs }]}>
+                                Message
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                }
+
+                // List View (Minimal - Key Info Only)
+                return (
+                  <Pressable
+                    key={booking.id}
+                    onLongPress={() => handleDeleteBooking(booking)}
+                    style={({ pressed }) => [
+                      sharedStyles.listItem,
+                      pressed && { opacity: 0.7 }
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
+                        <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]} numberOfLines={1}>
+                          {booking.propertyTitle}
+                        </Text>
+                        <View style={[
+                          sharedStyles.statusBadge,
+                          { 
+                            backgroundColor: getStatusColor(booking.status),
+                            paddingHorizontal: designTokens.spacing.sm,
+                            paddingVertical: 4,
+                          }
+                        ]}>
+                          <Text style={[sharedStyles.statusText, { color: designTokens.colors.white, fontSize: designTokens.typography.xs }]}>
+                            {getStatusIcon(booking.status)}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <User size={12} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs }]} numberOfLines={1}>
+                            {booking.tenantName}
+                          </Text>
+                        </View>
+                        <Text style={{ color: designTokens.colors.textMuted }}>•</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Wallet size={12} color={designTokens.colors.success} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, fontWeight: '600' as const, color: designTokens.colors.success }]}>
+                            ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
+                          </Text>
+                        </View>
+                        {booking.status === 'approved' && (
+                          <>
+                            <Text style={{ color: designTokens.colors.textMuted }}>•</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {booking.paymentStatus === 'paid' ? (
+                                <CheckCircle size={12} color={designTokens.colors.success} />
+                              ) : (
+                                <Clock size={12} color={designTokens.colors.warning} />
+                              )}
+                              <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, fontWeight: '600' as const, color: booking.paymentStatus === 'paid' ? designTokens.colors.success : designTokens.colors.warning }]}>
+                                {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                              </Text>
+                            </View>
+                          </>
+                        )}
+                      </View>
+                      {booking.status === 'pending' && (
+                        <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                          <TouchableOpacity
+                            onPress={() => handleBookingAction(booking.id, 'approve')}
+                            style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: designTokens.spacing.xs }]}
+                          >
+                            <CheckCircle size={12} color={designTokens.colors.white} />
+                            <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.xs }]}>Approve</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleBookingAction(booking.id, 'reject')}
+                            style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.xs }]}
+                          >
+                            <XCircle size={12} color={designTokens.colors.white} />
+                            <Text style={[sharedStyles.primaryButtonText, { fontSize: designTokens.typography.xs }]}>Reject</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
-                  )}
-                  </View>
-                </Pressable>
-              ))}
+                  </Pressable>
+                );
+              })}
             </View>
           )}
         </View>
@@ -638,314 +1034,3 @@ export default function BookingsPage() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  authRequiredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  authRequiredTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 16,
-  },
-  loginButton: {
-    backgroundColor: '#10B981',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  loginButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  statsContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  statContent: {
-    marginBottom: 8,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  pendingNumber: {
-    color: '#F59E0B',
-  },
-  approvedNumber: {
-    color: '#10B981',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  filtersContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  filtersRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  filterButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-  },
-  filterButtonActive: {
-    backgroundColor: '#10B981',
-    borderColor: '#10B981',
-  },
-  filterButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  filterButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyStateTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  bookingsList: {
-    gap: 16,
-  },
-  bookingCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  bookingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  bookingTitleContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  bookingTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  tenantRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tenantText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#FFFFFF',
-  },
-  bookingDetails: {
-    marginBottom: 16,
-  },
-  tenantInfoHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  viewProfileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  viewProfileText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#3B82F6',
-  },
-  detailsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  detailText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 8,
-  },
-  specialRequests: {
-    marginBottom: 16,
-  },
-  specialRequestsText: {
-    fontSize: 14,
-    color: '#6B7280',
-    lineHeight: 20,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  approveButton: {
-    flex: 1,
-    backgroundColor: '#10B981',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  approveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  rejectButton: {
-    flex: 1,
-    backgroundColor: '#EF4444',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  rejectButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  messageButton: {
-    flex: 1,
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  messageButtonText: {
-    color: '#3B82F6',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  markPaidButton: {
-    flex: 1,
-    backgroundColor: '#10B981',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  markPaidButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-});

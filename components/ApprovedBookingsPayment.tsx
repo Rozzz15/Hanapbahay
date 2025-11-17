@@ -188,7 +188,6 @@ export default function ApprovedBookingsPayment({ ownerId }: ApprovedBookingsPay
           
           // Only create if it doesn't exist
           if (!existingInitialPayment) {
-            const { RentPaymentRecord } = await import('../types');
             const now = new Date();
             const paidDate = now.toISOString();
             
@@ -531,7 +530,7 @@ export default function ApprovedBookingsPayment({ ownerId }: ApprovedBookingsPay
                           )}
                         </View>
                         <Text style={styles.pendingPaymentMethod}>
-                          {payment.paymentMethod || 'PayMongo GCash'}
+                          {payment.paymentMethod || 'GCash'}
                         </Text>
                         <Text style={styles.pendingPaymentDate}>
                           {payment.paidDate ? new Date(payment.paidDate).toLocaleDateString() : 'N/A'}

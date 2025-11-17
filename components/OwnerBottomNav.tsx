@@ -55,7 +55,7 @@ export default function OwnerBottomNav() {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { unreadCount, pendingBookingsCount } = useNotifications();
+  const { unreadCount, pendingBookingsCount, pendingPaymentsCount } = useNotifications();
 
   const isActive = (path: string) => {
     return pathname === path;
@@ -72,8 +72,11 @@ export default function OwnerBottomNav() {
         const active = isActive(item.path);
         const showMessagesBadge = item.id === 'messages' && unreadCount > 0;
         const showBookingsBadge = item.id === 'bookings' && pendingBookingsCount > 0;
-        const showBadge = showMessagesBadge || showBookingsBadge;
-        const badgeCount = item.id === 'messages' ? unreadCount : pendingBookingsCount;
+        const showTenantsBadge = item.id === 'tenants' && pendingPaymentsCount > 0;
+        const showBadge = showMessagesBadge || showBookingsBadge || showTenantsBadge;
+        const badgeCount = item.id === 'messages' ? unreadCount : 
+                          item.id === 'bookings' ? pendingBookingsCount :
+                          item.id === 'tenants' ? pendingPaymentsCount : 0;
         
         return (
           <TouchableOpacity

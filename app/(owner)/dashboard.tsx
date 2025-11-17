@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Modal, Platform, Alert, TextInput, KeyboardAvoidingView, Dimensions, FlatList } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -57,7 +57,9 @@ import { isOwnerApproved, hasPendingOwnerApplication } from '../../utils/owner-a
 import { addCustomEventListener } from '../../utils/custom-events';
 import { getMonthlyRevenueOverview, type MonthlyRevenueOverview } from '../../utils/owner-revenue';
 import { getTotalActiveTenants } from '../../utils/tenant-management';
-import { exportOwnerAnalytics, type TimePeriod } from '../../utils/owner-analytics-export';
+import { exportOwnerAnalytics } from '../../utils/owner-analytics-export';
+import type { TimePeriod } from '../../utils/owner-analytics';
+import { autoDeleteOldRejectedPayments } from '../../utils/owner-payment-confirmation';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
@@ -128,13 +130,13 @@ const SimpleDatePicker = ({
         marginBottom: designTokens.spacing.md,
       }}>
         <TouchableOpacity onPress={goToPreviousMonth} activeOpacity={0.7}>
-          <ChevronRight size={24} color={designTokens.colors.text} style={{ transform: [{ rotate: '180deg' }] }} />
+          <ChevronRight size={24} color={designTokens.colors.textPrimary} style={{ transform: [{ rotate: '180deg' }] }} />
         </TouchableOpacity>
         <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.lg }]}>
           {months[viewMonth]} {viewYear}
         </Text>
         <TouchableOpacity onPress={goToNextMonth} activeOpacity={0.7}>
-          <ChevronRight size={24} color={designTokens.colors.text} />
+          <ChevronRight size={24} color={designTokens.colors.textPrimary} />
         </TouchableOpacity>
       </View>
       
@@ -185,7 +187,7 @@ const SimpleDatePicker = ({
             >
               <Text style={{
                 fontSize: designTokens.typography.sm,
-                color: selected ? '#FFFFFF' : designTokens.colors.text,
+                color: selected ? '#FFFFFF' : designTokens.colors.textPrimary,
                 fontWeight: selected ? '600' : '400',
               }}>
                 {date.getDate()}
@@ -243,6 +245,24 @@ export default function OwnerDashboard() {
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isPhotoModalClosing, setIsPhotoModalClosing] = useState(false);
+
+  // Define loadProfilePhoto before it's used
+  const loadProfilePhoto = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      const photoUri = await loadUserProfilePhoto(user.id);
+      if (photoUri && photoUri.trim() && photoUri.length > 10) {
+        setProfilePhoto(photoUri.trim());
+        setProfilePhotoError(false);
+      } else {
+        setProfilePhoto(null);
+      }
+    } catch (error) {
+      console.error('❌ Error loading profile photo:', error);
+      setProfilePhoto(null);
+    }
+  }, [user?.id]);
 
   // Load profile photo on mount and when user changes
   useEffect(() => {
@@ -357,9 +377,13 @@ export default function OwnerDashboard() {
       const eventDetail = event?.detail || {};
       console.log('🔄 Owner Dashboard: Maintenance request created event received:', eventDetail);
       
-      if (eventDetail.ownerId === user?.id) {
+      if (eventDetail.ownerId === user?.id && user?.id) {
         // Reload maintenance requests
-        await loadMaintenanceRequests();
+        const requests = await getMaintenanceRequestsByOwner(user.id);
+        requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setMaintenanceRequests(requests);
+        const pendingCount = await getPendingMaintenanceRequestsCountForOwner(user.id);
+        setPendingMaintenanceCount(pendingCount);
         showAlert('New Maintenance Request', `You have a new maintenance request: ${eventDetail.title || 'Untitled'}`);
       }
     };
@@ -371,7 +395,7 @@ export default function OwnerDashboard() {
       removeBookingCreated();
       removeMaintenanceRequestCreated();
     };
-  }, [user?.id, loadMaintenanceRequests]); // Only depend on user.id to prevent infinite loops
+  }, [user?.id]); // Only depend on user.id to prevent infinite loops
 
 
   const loadDashboardData = useCallback(async () => {
@@ -388,6 +412,15 @@ export default function OwnerDashboard() {
         });
       } catch (err) {
         // Silently fail - notifications are not critical
+      }
+      
+      // Auto-delete rejected payments older than 2 days (runs in background)
+      try {
+        autoDeleteOldRejectedPayments().catch((err: any) => {
+          console.log('Auto-delete old rejected payments check completed (background)');
+        });
+      } catch (err) {
+        // Silently fail - auto-deletion is not critical
       }
       
       await Promise.all([
@@ -442,21 +475,24 @@ export default function OwnerDashboard() {
       // First, verify database storage
       const { db, generateId } = await import('../../utils/db');
       const allPublishedListings = await db.list('published_listings');
-      const ownerListings = allPublishedListings.filter(listing => listing.userId === user.id);
+      const ownerListings = allPublishedListings.filter((listing: any) => listing.userId === user.id);
       
       console.log('📊 Owner Listings Database Test:', {
         totalPublishedListings: allPublishedListings.length,
         ownerListingsCount: ownerListings.length,
         ownerId: user.id,
-        listingsData: ownerListings.map(listing => ({
-          id: listing.id,
-          propertyType: listing.propertyType,
-          address: listing.address?.substring(0, 30) + '...',
-          status: listing.status,
-          hasCoverPhoto: !!listing.coverPhoto,
-          photosCount: listing.photos?.length || 0,
-          videosCount: listing.videos?.length || 0
-        }))
+        listingsData: ownerListings.map((listing: any) => {
+          const l = listing as any;
+          return {
+            id: l.id,
+            propertyType: l.propertyType,
+            address: l.address?.substring(0, 30) + '...',
+            status: l.status,
+            hasCoverPhoto: !!l.coverPhoto,
+            photosCount: l.photos?.length || 0,
+            videosCount: l.videos?.length || 0
+          };
+        })
       });
       
       // Do not auto-create sample listings for owners
@@ -795,23 +831,6 @@ export default function OwnerDashboard() {
     return 'Good Evening';
   };
 
-  const loadProfilePhoto = useCallback(async () => {
-    if (!user?.id) return;
-    
-    try {
-      const photoUri = await loadUserProfilePhoto(user.id);
-      if (photoUri && photoUri.trim() && photoUri.length > 10) {
-        setProfilePhoto(photoUri.trim());
-        setProfilePhotoError(false);
-      } else {
-        setProfilePhoto(null);
-      }
-    } catch (error) {
-      console.error('❌ Error loading profile photo:', error);
-      setProfilePhoto(null);
-    }
-  }, [user?.id]);
-
   const handlePhotoAction = async (action: 'gallery' | 'remove') => {
     if (action === 'remove') {
       Alert.alert(
@@ -828,9 +847,9 @@ export default function OwnerDashboard() {
                 // Delete from database
                 const { db } = await import('../../utils/db');
                 const allPhotos = await db.list('user_profile_photos');
-                const userPhoto = allPhotos.find((p: any) => (p.userId || p.userid) === user.id);
-                if (userPhoto) {
-                  await db.delete('user_profile_photos', userPhoto.id);
+                const userPhoto = allPhotos.find((p: any) => (p.userId || p.userid) === user.id) as any;
+                if (userPhoto && userPhoto.id) {
+                  await db.remove('user_profile_photos', userPhoto.id);
                 }
                 // Reload to ensure it's removed
                 await loadProfilePhoto();
@@ -947,7 +966,7 @@ export default function OwnerDashboard() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, flexWrap: 'wrap' }}>
                 <Text style={{
                   fontSize: designTokens.typography.xs,
-                  fontWeight: designTokens.typography.medium,
+                  fontWeight: designTokens.typography.medium as any,
                   color: designTokens.colors.textSecondary,
                   textTransform: 'uppercase',
                   letterSpacing: 1,
@@ -956,7 +975,7 @@ export default function OwnerDashboard() {
                 </Text>
                 <Text style={{
                   fontSize: designTokens.typography['2xl'],
-                  fontWeight: designTokens.typography.bold,
+                  fontWeight: designTokens.typography.bold as any,
                   color: designTokens.colors.textPrimary,
                   flexShrink: 1,
                 }} numberOfLines={1}>
@@ -1070,7 +1089,7 @@ export default function OwnerDashboard() {
               activeOpacity={0.7}
             >
               <LinearGradient
-                colors={designTokens.gradients.primary}
+                colors={designTokens.gradients.primary as any}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={{
@@ -1405,7 +1424,7 @@ export default function OwnerDashboard() {
           <View style={sharedStyles.gridItem}>
             <View style={sharedStyles.statCard}>
               <LinearGradient
-                colors={designTokens.gradients.info}
+                colors={designTokens.gradients.info as any}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1426,7 +1445,7 @@ export default function OwnerDashboard() {
           <View style={sharedStyles.gridItem}>
             <View style={sharedStyles.statCard}>
               <LinearGradient
-                colors={designTokens.gradients.teal}
+                colors={designTokens.gradients.teal as any}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1447,7 +1466,7 @@ export default function OwnerDashboard() {
           <View style={sharedStyles.gridItem}>
             <View style={sharedStyles.statCard}>
               <LinearGradient
-                colors={designTokens.gradients.warning}
+                colors={designTokens.gradients.warning as any}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1484,7 +1503,7 @@ export default function OwnerDashboard() {
           <View style={sharedStyles.gridItem}>
             <View style={sharedStyles.statCard}>
               <LinearGradient
-                colors={designTokens.gradients.purple}
+                colors={designTokens.gradients.purple as any}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1546,7 +1565,7 @@ export default function OwnerDashboard() {
             <View style={sharedStyles.gridItem}>
               <View style={sharedStyles.statCard}>
                 <LinearGradient
-                  colors={designTokens.gradients.success}
+                  colors={designTokens.gradients.success as any}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1567,7 +1586,7 @@ export default function OwnerDashboard() {
             <View style={sharedStyles.gridItem}>
               <View style={sharedStyles.statCard}>
                 <LinearGradient
-                  colors={designTokens.gradients.warning}
+                  colors={designTokens.gradients.warning as any}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1588,7 +1607,7 @@ export default function OwnerDashboard() {
             <View style={sharedStyles.gridItem}>
               <View style={sharedStyles.statCard}>
                 <LinearGradient
-                  colors={designTokens.gradients.info}
+                  colors={designTokens.gradients.info as any}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={[sharedStyles.statCardGradient, { height: 4 }]}
@@ -1672,7 +1691,7 @@ export default function OwnerDashboard() {
                   paddingVertical: 4,
                 }}
               >
-                <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.primary, fontWeight: designTokens.typography.semibold }}>
+                <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.primary, fontWeight: designTokens.typography.semibold as any }}>
                   View All →
                 </Text>
               </TouchableOpacity>
@@ -1710,7 +1729,7 @@ export default function OwnerDashboard() {
                         }}>
                           <Text style={{
                             fontSize: designTokens.typography.xs,
-                            fontWeight: designTokens.typography.bold,
+                            fontWeight: designTokens.typography.bold as any,
                             color: '#FFFFFF',
                           }}>
                             {index + 1}
@@ -1905,7 +1924,7 @@ export default function OwnerDashboard() {
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.primary, fontWeight: designTokens.typography.semibold }}>
+                <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.primary, fontWeight: designTokens.typography.semibold as any }}>
                   View All {maintenanceRequests.length} Request{maintenanceRequests.length > 1 ? 's' : ''} →
                 </Text>
               </TouchableOpacity>
@@ -1947,7 +1966,7 @@ export default function OwnerDashboard() {
                 backgroundColor: designTokens.colors.primary + '15',
               }}
             >
-              <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.primary, fontWeight: designTokens.typography.semibold }}>
+              <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.primary, fontWeight: designTokens.typography.semibold as any }}>
                 View All
               </Text>
             </TouchableOpacity>
@@ -2425,7 +2444,7 @@ export default function OwnerDashboard() {
                           borderRadius: 12,
                           backgroundColor: selectedPeriod === period 
                             ? designTokens.colors.primary + '15' 
-                            : designTokens.colors.cardBackground,
+                            : designTokens.colors.white,
                           borderWidth: 2,
                           borderColor: selectedPeriod === period 
                             ? designTokens.colors.primary 
@@ -2450,7 +2469,7 @@ export default function OwnerDashboard() {
                           textTransform: 'capitalize',
                           color: selectedPeriod === period 
                             ? designTokens.colors.primary 
-                            : designTokens.colors.text,
+                            : designTokens.colors.textPrimary,
                         }]}>
                           {period === 'weekly' ? 'Last 7 Days' : period === 'monthly' ? 'This Month' : period === 'yearly' ? 'This Year' : 'Custom Date Range'}
                         </Text>
@@ -2475,7 +2494,7 @@ export default function OwnerDashboard() {
                           style={{
                             padding: designTokens.spacing.md,
                             borderRadius: 8,
-                            backgroundColor: designTokens.colors.cardBackground,
+                            backgroundColor: designTokens.colors.white,
                             borderWidth: 1,
                             borderColor: designTokens.colors.borderLight,
                             flexDirection: 'row',
@@ -2486,7 +2505,7 @@ export default function OwnerDashboard() {
                         >
                           <Text style={{
                             fontSize: designTokens.typography.base,
-                            color: customStartDate ? designTokens.colors.text : designTokens.colors.textMuted,
+                            color: customStartDate ? designTokens.colors.textPrimary : designTokens.colors.textMuted,
                           }}>
                             {customStartDate 
                               ? customStartDate.toLocaleDateString('en-US', { 
@@ -2508,7 +2527,7 @@ export default function OwnerDashboard() {
                           style={{
                             padding: designTokens.spacing.md,
                             borderRadius: 8,
-                            backgroundColor: designTokens.colors.cardBackground,
+                            backgroundColor: designTokens.colors.white,
                             borderWidth: 1,
                             borderColor: designTokens.colors.borderLight,
                             flexDirection: 'row',
@@ -2519,7 +2538,7 @@ export default function OwnerDashboard() {
                         >
                           <Text style={{
                             fontSize: designTokens.typography.base,
-                            color: customEndDate ? designTokens.colors.text : designTokens.colors.textMuted,
+                            color: customEndDate ? designTokens.colors.textPrimary : designTokens.colors.textMuted,
                           }}>
                             {customEndDate 
                               ? customEndDate.toLocaleDateString('en-US', { 
@@ -2707,13 +2726,13 @@ export default function OwnerDashboard() {
               alignItems: 'center',
               marginBottom: designTokens.spacing.md,
             }}>
-              <Text style={{
-                fontSize: designTokens.typography.base,
-                fontWeight: designTokens.typography.bold,
-                color: designTokens.colors.textPrimary,
-              }}>
-                Profile Photo
-              </Text>
+            <Text style={{
+              fontSize: designTokens.typography.base,
+              fontWeight: designTokens.typography.bold as any,
+              color: designTokens.colors.textPrimary,
+            }}>
+              Profile Photo
+            </Text>
               <TouchableOpacity
                 onPress={() => {
                   setShowProfilePhotoModal(false);
@@ -2873,7 +2892,7 @@ export default function OwnerDashboard() {
                   <View style={{ flex: 1 }}>
                     <Text style={{
                       fontSize: designTokens.typography['2xl'],
-                      fontWeight: designTokens.typography.bold,
+                      fontWeight: designTokens.typography.bold as any,
                       color: designTokens.colors.textPrimary,
                       marginBottom: designTokens.spacing.xs,
                     }}>
@@ -2937,7 +2956,7 @@ export default function OwnerDashboard() {
                     <View>
                       <Text style={{
                         fontSize: designTokens.typography.sm,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                         color: designTokens.colors.textSecondary,
                         marginBottom: designTokens.spacing.sm,
                         textTransform: 'uppercase',
@@ -2959,7 +2978,7 @@ export default function OwnerDashboard() {
                       <View>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textSecondary,
                           marginBottom: designTokens.spacing.md,
                           textTransform: 'uppercase',
@@ -3068,7 +3087,7 @@ export default function OwnerDashboard() {
                       <View>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textSecondary,
                           marginBottom: designTokens.spacing.md,
                           textTransform: 'uppercase',
@@ -3106,7 +3125,7 @@ export default function OwnerDashboard() {
                               <View style={{ flex: 1 }}>
                                 <Text style={{
                                   fontSize: designTokens.typography.base,
-                                  fontWeight: designTokens.typography.semibold,
+                                  fontWeight: designTokens.typography.semibold as any,
                                   color: designTokens.colors.textPrimary,
                                   marginBottom: 2,
                                 }}>
@@ -3131,7 +3150,7 @@ export default function OwnerDashboard() {
                       <View>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textSecondary,
                           marginBottom: designTokens.spacing.sm,
                           textTransform: 'uppercase',
@@ -3254,7 +3273,7 @@ export default function OwnerDashboard() {
                       <CheckCircle size={24} color={designTokens.colors.success} />
                       <Text style={{
                         fontSize: designTokens.typography.base,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                         color: designTokens.colors.success,
                         marginTop: designTokens.spacing.sm,
                       }}>
@@ -3287,7 +3306,7 @@ export default function OwnerDashboard() {
                 }}>
                   <Text style={{
                     fontSize: designTokens.typography['2xl'],
-                    fontWeight: designTokens.typography.bold,
+                    fontWeight: designTokens.typography.bold as any,
                     color: designTokens.colors.textPrimary,
                   }}>
                     Maintenance Requests

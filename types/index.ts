@@ -389,12 +389,21 @@ export interface RentPaymentRecord {
   paymentMonth: string; // YYYY-MM format
   dueDate: string; // ISO date string
   paidDate?: string; // ISO date string
-  status: 'pending' | 'paid' | 'overdue' | 'partial' | 'pending_owner_confirmation';
+  status: 'pending' | 'paid' | 'overdue' | 'partial' | 'pending_owner_confirmation' | 'rejected';
   paymentMethod?: string;
   receiptNumber: string;
   notes?: string;
   ownerPaymentAccountId?: string; // Link to owner's payment account used for this payment
-  payMongoPaymentIntentId?: string; // PayMongo payment intent ID for verification
+  // Paymongo integration fields
+  paymongoPaymentIntentId?: string; // Paymongo payment intent ID
+  paymongoPaymentId?: string; // Paymongo payment ID after successful payment
+  paymongoStatus?: 'awaiting_payment_method' | 'awaiting_next_action' | 'processing' | 'succeeded' | 'awaiting_payment' | 'canceled' | 'failed';
+  // Backup fields for restoring rejected payments
+  rejectedAt?: string; // When payment was rejected
+  rejectedBy?: string; // Owner ID who rejected
+  originalPaidDate?: string; // Original paid date before rejection
+  originalPaymentMethod?: string; // Original payment method before rejection
+  originalStatus?: string; // Original status before rejection (pending_owner_confirmation or paid)
   createdAt: string;
   updatedAt: string;
 }

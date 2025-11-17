@@ -1,12 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '@/utils/db';
 import { useAuth } from './AuthContext';
+import { getPaymentsPendingConfirmation } from '@/utils/owner-payment-confirmation';
 
 interface NotificationContextType {
   unreadCount: number;
   pendingBookingsCount: number;
+  pendingPaymentsCount: number;
   refreshUnreadCount: () => Promise<void>;
   refreshPendingBookings: () => Promise<void>;
+  refreshPendingPayments: () => Promise<void>;
   markAsRead: (conversationId: string) => Promise<void>;
 }
 
@@ -23,6 +26,7 @@ export const useNotifications = () => {
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingBookingsCount, setPendingBookingsCount] = useState(0);
+  const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0);
   const { user } = useAuth();
 
   const refreshUnreadCount = useCallback(async () => {
@@ -114,11 +118,34 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const refreshPendingBookingsRef = useRef(refreshPendingBookings);
   refreshPendingBookingsRef.current = refreshPendingBookings;
 
+  const refreshPendingPayments = useCallback(async () => {
+    if (!user?.id || !user?.roles?.includes('owner')) {
+      setPendingPaymentsCount(0);
+      return;
+    }
+
+    try {
+      console.log('💳 Refreshing pending payments count for owner:', user.id);
+      
+      const pendingPayments = await getPaymentsPendingConfirmation(user.id);
+      console.log('📊 Pending payments count:', pendingPayments.length);
+      setPendingPaymentsCount(pendingPayments.length);
+    } catch (error) {
+      console.error('❌ Error refreshing pending payments count:', error);
+      setPendingPaymentsCount(0);
+    }
+  }, [user?.id, user?.roles]);
+
+  // Create a stable reference to avoid infinite loops
+  const refreshPendingPaymentsRef = useRef(refreshPendingPayments);
+  refreshPendingPaymentsRef.current = refreshPendingPayments;
+
   // Refresh unread count when user changes
   useEffect(() => {
     if (user?.id) {
       refreshUnreadCountRef.current();
       refreshPendingBookingsRef.current();
+      refreshPendingPaymentsRef.current();
     }
   }, [user?.id]);
 
@@ -129,6 +156,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const interval = setInterval(() => {
       refreshUnreadCountRef.current();
       refreshPendingBookingsRef.current();
+      refreshPendingPaymentsRef.current();
     }, 15000); // Check every 15 seconds (reduced frequency)
 
     return () => clearInterval(interval);
@@ -138,8 +166,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     <NotificationContext.Provider value={{
       unreadCount,
       pendingBookingsCount,
+      pendingPaymentsCount,
       refreshUnreadCount,
       refreshPendingBookings,
+      refreshPendingPayments,
       markAsRead
     }}>
       {children}

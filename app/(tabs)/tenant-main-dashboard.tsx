@@ -65,7 +65,6 @@ import { createOrFindConversation } from '../../utils/conversation-utils';
 import { db } from '../../utils/db';
 import { PublishedListingRecord, PaymentAccount } from '../../types';
 import BookingStatusModal from '@/components/BookingStatusModal';
-import PayMongoPayment from '@/components/PayMongoPayment';
 import { Platform } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { getQRCodeProps, generatePaymentQRCodeString } from '../../utils/qr-code-generator';
@@ -85,6 +84,7 @@ import {
 import { MaintenanceRequestRecord } from '../../types';
 import { Wrench, Camera, Video, Plus, Trash2 } from 'lucide-react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import PayMongoPayment from '../../components/PayMongoPayment';
 
 export default function TenantMainDashboard() {
   const { user } = useAuth();
@@ -100,14 +100,10 @@ export default function TenantMainDashboard() {
   const [selectedPayment, setSelectedPayment] = useState<RentPayment | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<string>('');
   const [futurePayments, setFuturePayments] = useState<RentPayment[]>([]);
-  const [showAdvancedPayment, setShowAdvancedPayment] = useState(false);
-  const [selectedAdvancedPayments, setSelectedAdvancedPayments] = useState<Set<string>>(new Set());
+  const [selectedPayments, setSelectedPayments] = useState<Set<string>>(new Set()); // Unified selection for all payments
   const [ownerPaymentAccounts, setOwnerPaymentAccounts] = useState<any[]>([]);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [showPaymentMethodSelection, setShowPaymentMethodSelection] = useState(false);
-  const [showPayMongoModal, setShowPayMongoModal] = useState(false);
-  const [payMongoUrl, setPayMongoUrl] = useState<string | null>(null);
-  const [processingPayMongo, setProcessingPayMongo] = useState(false);
   const [showQRCodeModal, setShowQRCodeModal] = useState(false);
   const [selectedQRCodeAccount, setSelectedQRCodeAccount] = useState<PaymentAccount | null>(null);
   const [bookingStatusModal, setBookingStatusModal] = useState<{
@@ -143,6 +139,25 @@ export default function TenantMainDashboard() {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [showPaymongoModal, setShowPaymongoModal] = useState(false);
+
+  const loadProfilePhoto = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      const { loadUserProfilePhoto } = await import('../../utils/user-profile-photos');
+      const photoUri = await loadUserProfilePhoto(user.id);
+      if (photoUri && photoUri.trim() && photoUri.length > 10) {
+        setProfilePhoto(photoUri.trim());
+        setProfilePhotoError(false);
+      } else {
+        setProfilePhoto(null);
+      }
+    } catch (error) {
+      console.error('❌ Error loading profile photo:', error);
+      setProfilePhoto(null);
+    }
+  }, [user?.id]);
 
   // Reload profile photo when modal opens
   useEffect(() => {
@@ -168,31 +183,6 @@ export default function TenantMainDashboard() {
     };
 
     loadNotifications();
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (user?.id) {
-      loadDashboardData();
-      loadProfilePhoto();
-    }
-  }, [user?.id]);
-
-  const loadProfilePhoto = useCallback(async () => {
-    if (!user?.id) return;
-    
-    try {
-      const { loadUserProfilePhoto } = await import('../../utils/user-profile-photos');
-      const photoUri = await loadUserProfilePhoto(user.id);
-      if (photoUri && photoUri.trim() && photoUri.length > 10) {
-        setProfilePhoto(photoUri.trim());
-        setProfilePhotoError(false);
-      } else {
-        setProfilePhoto(null);
-      }
-    } catch (error) {
-      console.error('❌ Error loading profile photo:', error);
-      setProfilePhoto(null);
-    }
   }, [user?.id]);
 
   const loadDashboardData = useCallback(async () => {
@@ -284,6 +274,13 @@ export default function TenantMainDashboard() {
       setRefreshing(false);
     }
   }, [user?.id, router]);
+
+  useEffect(() => {
+    if (user?.id) {
+      loadDashboardData();
+      loadProfilePhoto();
+    }
+  }, [user?.id, loadDashboardData, loadProfilePhoto]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -603,130 +600,21 @@ export default function TenantMainDashboard() {
 
     // Find the pending payment for next due date
     const pendingPayment = rentHistory.payments.find(
-      p => p.dueDate === rentHistory.nextDueDate && p.status === 'pending'
+      p => p.dueDate === rentHistory.nextDueDate && (p.status === 'pending' || p.status === 'overdue')
     );
 
-    if (!pendingPayment) {
-      Alert.alert('Error', 'No pending payment found. Please refresh and try again.');
-      return;
+    // Pre-select the current due payment if it exists
+    if (pendingPayment) {
+      setSelectedPayments(new Set([pendingPayment.id]));
+    } else {
+      setSelectedPayments(new Set());
     }
 
-    setSelectedPayment(pendingPayment);
     setShowPaymentModal(true);
   }, [rentHistory, activeBooking]);
 
-  const handlePayWithPayMongo = useCallback(async () => {
-    console.log('🔄 handlePayWithPayMongo called', {
-      hasRentHistory: !!rentHistory,
-      nextDueAmount: rentHistory?.nextDueAmount,
-      hasActiveBooking: !!activeBooking,
-      hasUser: !!user,
-    });
-
-    if (!rentHistory?.nextDueAmount || !activeBooking || !user?.id) {
-      console.error('❌ Missing prerequisites:', {
-        rentHistory: !!rentHistory,
-        nextDueAmount: rentHistory?.nextDueAmount,
-        activeBooking: !!activeBooking,
-        userId: user?.id,
-      });
-      Alert.alert('Error', 'Payment information incomplete. Please refresh and try again.');
-      return;
-    }
-
-    // Find the pending payment for next due date
-    const pendingPayment = rentHistory.payments.find(
-      p => p.dueDate === rentHistory.nextDueDate && p.status === 'pending'
-    );
-
-    if (!pendingPayment) {
-      console.error('❌ No pending payment found');
-      Alert.alert('Error', 'No pending payment found. Please refresh and try again.');
-      return;
-    }
-
-    try {
-      setProcessingPayMongo(true);
-      const reference = activeBooking.id.slice(-8).toUpperCase();
-      
-      console.log('📝 Creating PayMongo payment URL:', {
-        bookingId: activeBooking.id,
-        amount: rentHistory.nextDueAmount,
-        reference,
-      });
-      
-      // Create PayMongo payment URL
-      const { createPayMongoPaymentUrl } = await import('../../utils/paymongo-webview-handler');
-      const url = await createPayMongoPaymentUrl(
-        rentHistory.nextDueAmount,
-        `Rent payment for ${activeBooking.propertyTitle}`,
-        reference,
-        undefined,
-        undefined,
-        activeBooking.id
-      );
-      
-      console.log('✅ PayMongo payment URL created:', url);
-      
-      setPayMongoUrl(url);
-      setShowPayMongoModal(true);
-    } catch (error) {
-      console.error('❌ Error creating PayMongo payment:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      Alert.alert(
-        'Payment Error', 
-        `Failed to create payment: ${errorMessage}\n\nPlease check:\n1. PayMongo API key is set in .env\n2. You have an active internet connection\n3. Your PayMongo account is active`
-      );
-    } finally {
-      setProcessingPayMongo(false);
-    }
-  }, [rentHistory, activeBooking, user]);
-
-  const handlePayMongoSuccess = useCallback(async (paymentIntentId: string) => {
-    if (!selectedPayment || !user?.id) return;
-
-    try {
-      setProcessingPayMongo(true);
-      
-      // Verify payment status
-      const { verifyPaymentStatus } = await import('../../utils/paymongo-api');
-      const result = await verifyPaymentStatus(paymentIntentId);
-      
-      if (result.success && result.status === 'succeeded') {
-        // Mark payment as paid
-        try {
-          await markRentPaymentAsPaid(selectedPayment.id, user.id, 'paymongo', paymentIntentId);
-          
-          setShowPayMongoModal(false);
-          setPayMongoUrl(null);
-          
-          // Refresh rent history
-          if (activeBooking?.id) {
-            const summary = await getRentHistorySummary(activeBooking.id);
-            setRentHistory(summary);
-          }
-          
-          Alert.alert(
-            'Payment Submitted', 
-            'Your payment has been verified and is waiting for owner confirmation. You will be notified once the owner confirms receipt.'
-          );
-        } catch (error) {
-          console.error('Error marking payment as paid:', error);
-          Alert.alert('Error', 'Payment verified but failed to update record. Please contact support.');
-        }
-      } else {
-        Alert.alert('Error', result.error || 'Payment verification failed');
-      }
-    } catch (error) {
-      console.error('Error verifying payment:', error);
-      Alert.alert('Error', 'Payment completed but verification failed. Please contact support.');
-    } finally {
-      setProcessingPayMongo(false);
-    }
-  }, [selectedPayment, user, activeBooking]);
-
   const handlePaymentMethodAction = useCallback(async (account: PaymentAccount) => {
-    if (!selectedPayment && selectedAdvancedPayments.size === 0) return;
+    if (selectedPayments.size === 0) return;
     if (!activeBooking?.id) {
       Alert.alert('Error', 'Booking information not found. Please try again.');
       return;
@@ -735,10 +623,13 @@ export default function TenantMainDashboard() {
     try {
       const cleanPhone = account.accountNumber.replace(/[^0-9]/g, '');
       const reference = activeBooking.id.slice(-8).toUpperCase();
-      const amount = selectedPayment?.totalAmount || 
-                    futurePayments
-                      .filter(p => selectedAdvancedPayments.has(p.id))
-                      .reduce((sum, p) => sum + p.totalAmount, 0);
+      
+      // Calculate total amount from all selected payments
+      const allPayments = [
+        ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+        ...futurePayments.filter(p => selectedPayments.has(p.id))
+      ];
+      const amount = allPayments.reduce((sum, p) => sum + p.totalAmount, 0);
 
       if (!amount || amount <= 0) {
         Alert.alert('Error', 'Invalid payment amount. Please try again.');
@@ -786,22 +677,10 @@ export default function TenantMainDashboard() {
                     const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
                     setSelectedPaymentMethod(paymentMethodName);
                     
-                    if (selectedPayment && !showAdvancedPayment) {
-                      setTimeout(async () => {
-                        try {
-                          const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-                          if (success) {
-                            Alert.alert('Success', 'Payment recorded successfully!');
-                            setShowPaymentModal(false);
-                            setSelectedPayment(null);
-                            setSelectedPaymentMethod(null);
-                            await loadDashboardData();
-                          }
-                        } catch (error) {
-                          console.error('Error confirming payment:', error);
-                        }
-                      }, 300);
-                    }
+                    // Use unified payment handler
+                    setTimeout(() => {
+                      handleConfirmPayment();
+                    }, 300);
                   }
                 },
                 { text: 'OK', style: 'cancel' },
@@ -827,7 +706,12 @@ export default function TenantMainDashboard() {
         }
 
         // Fallback: If deep link failed, show QR code modal (if available)
-        if (!appOpened && account.qrCodeImageUri && selectedPayment) {
+        const allPayments = [
+          ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+          ...futurePayments.filter(p => selectedPayments.has(p.id))
+        ];
+        const firstPayment = allPayments[0];
+        if (!appOpened && account.qrCodeImageUri && firstPayment) {
           Alert.alert(
             'GCash Not Available',
             'Could not open GCash app automatically.\n\nWould you like to scan a QR code instead?',
@@ -867,7 +751,7 @@ export default function TenantMainDashboard() {
                           const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
                           setSelectedPaymentMethod(paymentMethodName);
                           
-                          if (selectedPayment && !showAdvancedPayment) {
+                          if (selectedPayments.size === 1) {
                             setTimeout(async () => {
                               try {
                                 const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
@@ -944,7 +828,7 @@ export default function TenantMainDashboard() {
                 const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
                 setSelectedPaymentMethod(paymentMethodName);
                 
-                if (selectedPayment && !showAdvancedPayment) {
+                          if (selectedPayments.size === 1) {
                   setTimeout(async () => {
                     try {
                       const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
@@ -1001,31 +885,98 @@ export default function TenantMainDashboard() {
         }
 
         if (!appOpened) {
-          // App failed to open - show instructions
+          // App failed to open - show instructions with QR code option if available
+          const alertButtons: any[] = [];
+          
+          // Add QR code option if available
+          const allPayments = [
+            ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+            ...futurePayments.filter(p => selectedPayments.has(p.id))
+          ];
+          const firstPayment = allPayments[0];
+          if (account.qrCodeImageUri && firstPayment) {
+            alertButtons.push({
+              text: 'View QR Code',
+              onPress: () => {
+                setSelectedQRCodeAccount(account);
+                setShowQRCodeModal(true);
+              }
+            });
+          }
+          
+          alertButtons.push(
+            { 
+              text: 'Copy Account Number', 
+              onPress: async () => {
+                try {
+                  if (Platform.OS === 'web' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(cleanPhone);
+                  } else {
+                    try {
+                      const Clipboard = await import('expo-clipboard');
+                      await Clipboard.setStringAsync(cleanPhone);
+                    } catch (e) {
+                      Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                    }
+                  }
+                } catch (e) {
+                  Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                }
+              }
+            },
+            { text: 'OK' }
+          );
+          
           Alert.alert(
             `${methodName} Not Available`,
-            `${methodName} app is not installed or could not be opened.\n\n${accountCopied ? '📋 Account number is copied to your clipboard.\n\n' : ''}Please install ${methodName} from the App Store or Google Play, or use the account number manually.\n\n📋 Account: ${account.accountNumber}\n💰 Amount: ₱${amount.toLocaleString()}\n📝 Reference: ${reference}`,
+            `${methodName} app is not installed or could not be opened.\n\n${accountCopied ? '📋 Account number is copied to your clipboard.\n\n' : ''}${account.qrCodeImageUri ? 'You can scan a QR code instead, or ' : ''}Please install ${methodName} from the App Store or Google Play, or use the account number manually.\n\n📋 Account: ${account.accountNumber}\n💰 Amount: ₱${amount.toLocaleString()}\n📝 Reference: ${reference}`,
+            alertButtons
+          );
+        } else {
+          // App opened successfully - show confirmation with QR code option
+          Alert.alert(
+            `${methodName} Opened`,
+            `${methodName} app has been opened with your payment details:\n\n💰 Amount: ₱${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n📋 Account: ${account.accountNumber}\n📝 Reference: ${reference}\n\nComplete the payment in ${methodName}, then tap "I Paid" below.`,
             [
+              ...(() => {
+                const allPayments = [
+                  ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                  ...futurePayments.filter(p => selectedPayments.has(p.id))
+                ];
+                const firstPayment = allPayments[0];
+                return account.qrCodeImageUri && firstPayment ? [{
+                text: 'View QR Code Instead',
+                onPress: () => {
+                  setSelectedQRCodeAccount(account);
+                  setShowQRCodeModal(true);
+                }
+              }] : [];
+              })(),
               { 
-                text: 'Copy Account Number', 
-                onPress: async () => {
-                  try {
-                    if (Platform.OS === 'web' && navigator.clipboard) {
-                      await navigator.clipboard.writeText(cleanPhone);
-                    } else {
+                text: 'I Paid', 
+                onPress: () => {
+                  const paymentMethodName = `${methodName} - ${account.accountNumber.slice(-4)}`;
+                  setSelectedPaymentMethod(paymentMethodName);
+                  
+                          if (selectedPayments.size === 1) {
+                    setTimeout(async () => {
                       try {
-                        const Clipboard = await import('expo-clipboard');
-                        await Clipboard.setStringAsync(cleanPhone);
-                      } catch (e) {
-                        Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                        const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
+                        if (success) {
+                          Alert.alert('Success', 'Payment recorded successfully!');
+                          setShowPaymentModal(false);
+                          setSelectedPayment(null);
+                          setSelectedPaymentMethod(null);
+                          await loadDashboardData();
+                        }
+                      } catch (error) {
+                        console.error('Error confirming payment:', error);
                       }
-                    }
-                  } catch (e) {
-                    Alert.alert('Account Number', cleanPhone, [{ text: 'OK' }]);
+                    }, 300);
                   }
                 }
               },
-              { text: 'OK' },
+              { text: 'OK', style: 'cancel' },
             ]
           );
         }
@@ -1077,7 +1028,7 @@ export default function TenantMainDashboard() {
               setSelectedPaymentMethod(paymentMethodName);
               
               // If this is for a single payment (not advanced), automatically confirm
-              if (selectedPayment && !showAdvancedPayment) {
+                          if (selectedPayments.size === 1) {
                 setTimeout(async () => {
                   try {
                     const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
@@ -1107,98 +1058,71 @@ export default function TenantMainDashboard() {
         [{ text: 'OK' }]
       );
     }
-  }, [selectedPayment, selectedAdvancedPayments, futurePayments, activeBooking, loadDashboardData]);
+  }, [selectedPayments, rentHistory, futurePayments, activeBooking, loadDashboardData]);
 
   const handleConfirmPayment = useCallback(async () => {
-    if (!selectedPayment) return;
+    if (selectedPayments.size === 0) {
+      Alert.alert('No Selection', 'Please select at least one payment to pay.');
+      return;
+    }
 
-    // If no payment method selected, show payment method selection
+    // If no payment method selected and owner has payment accounts, show selection
     if (!selectedPaymentMethod && ownerPaymentAccounts.length > 0) {
       Alert.alert('Select Payment Method', 'Please select a payment method first.');
       return;
     }
 
     try {
-      const paymentMethodName = selectedPaymentMethod || 'Manual Payment';
-      
-      const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-      
-      if (success) {
-        Alert.alert('Success', 'Payment recorded successfully!');
-        setShowPaymentModal(false);
-        setSelectedPayment(null);
-        setSelectedPaymentMethod(null);
-        
-        // Reload data
-        await loadDashboardData();
-      } else {
-        Alert.alert('Error', 'Failed to record payment. Please try again.');
-      }
-    } catch (error) {
-      console.error('❌ Error confirming payment:', error);
-      Alert.alert('Error', 'Failed to record payment. Please try again.');
-    }
-  }, [selectedPayment, selectedPaymentMethod, ownerPaymentAccounts, loadDashboardData]);
-
-  const handleAdvancedPayment = useCallback(async () => {
-    if (selectedAdvancedPayments.size === 0) {
-      Alert.alert('No Selection', 'Please select at least one month to pay in advance.');
-      return;
-    }
-
-    // If no payment method selected and owner has payment accounts, show selection
-    if (!selectedPaymentMethod && ownerPaymentAccounts.length > 0) {
-      setShowPaymentMethodSelection(true);
-      return;
-    }
-
-    try {
       let successCount = 0;
       let failCount = 0;
-      const paymentMethodName = selectedPaymentMethod || 'Advanced Payment';
+      const paymentMethodName = selectedPaymentMethod || 'Manual Payment';
 
-      for (const paymentId of selectedAdvancedPayments) {
-        const payment = futurePayments.find(p => p.id === paymentId);
-        if (payment) {
-          // Save payment to database if it doesn't exist yet (check if it's already in DB)
-          try {
-            const existing = await db.get('rent_payments', payment.id);
-            if (!existing) {
-              await db.upsert('rent_payments', payment.id, payment);
-            }
-          } catch (dbError) {
-            // Payment doesn't exist, create it
+      // Get all payments (current + future) that are selected
+      const allPayments = [
+        ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+        ...futurePayments.filter(p => selectedPayments.has(p.id))
+      ];
+
+      for (const payment of allPayments) {
+        // Save payment to database if it doesn't exist yet (for future payments)
+        try {
+          const existing = await db.get('rent_payments', payment.id);
+          if (!existing) {
             await db.upsert('rent_payments', payment.id, payment);
           }
-          
-          const success = await markRentPaymentAsPaid(payment.id, paymentMethodName);
-          if (success) {
-            successCount++;
-          } else {
-            failCount++;
-          }
+        } catch (dbError) {
+          // Payment doesn't exist, create it
+          await db.upsert('rent_payments', payment.id, payment);
+        }
+        
+        const success = await markRentPaymentAsPaid(payment.id, paymentMethodName);
+        if (success) {
+          successCount++;
+        } else {
+          failCount++;
         }
       }
 
       if (successCount > 0) {
+        const paymentCount = successCount;
         Alert.alert(
           'Success',
-          `Successfully paid for ${successCount} month${successCount > 1 ? 's' : ''} in advance!${failCount > 0 ? `\n\n${failCount} payment${failCount > 1 ? 's' : ''} failed.` : ''}`
+          `Successfully paid for ${paymentCount} payment${paymentCount > 1 ? 's' : ''}!${failCount > 0 ? `\n\n${failCount} payment${failCount > 1 ? 's' : ''} failed.` : ''}`
         );
-        setShowAdvancedPayment(false);
-        setSelectedAdvancedPayments(new Set());
+        setShowPaymentModal(false);
+        setSelectedPayments(new Set());
         setSelectedPaymentMethod(null);
         
         // Reload data
         await loadDashboardData();
       } else {
-        Alert.alert('Error', 'Failed to process advanced payments. Please try again.');
+        Alert.alert('Error', 'Failed to process payments. Please try again.');
       }
     } catch (error) {
-      console.error('❌ Error processing advanced payments:', error);
-      Alert.alert('Error', 'Failed to process advanced payments. Please try again.');
+      console.error('❌ Error confirming payment:', error);
+      Alert.alert('Error', 'Failed to process payments. Please try again.');
     }
-  }, [selectedAdvancedPayments, futurePayments, selectedPaymentMethod, ownerPaymentAccounts, loadDashboardData]);
+  }, [selectedPayments, rentHistory, futurePayments, selectedPaymentMethod, ownerPaymentAccounts, loadDashboardData]);
 
   const handleViewReceipt = useCallback((payment: RentPayment) => {
     if (!activeBooking) return;
@@ -1376,7 +1300,7 @@ export default function TenantMainDashboard() {
             <View style={{ flex: 1, flexShrink: 1 }}>
               <Text style={{
                 fontSize: designTokens.typography.xs,
-                fontWeight: designTokens.typography.medium,
+                fontWeight: designTokens.typography.medium as any,
                 color: designTokens.colors.textSecondary,
                 textTransform: 'uppercase',
                 letterSpacing: 0.5,
@@ -1386,7 +1310,7 @@ export default function TenantMainDashboard() {
               </Text>
               <Text style={{
                 fontSize: designTokens.typography.lg,
-                fontWeight: designTokens.typography.bold,
+                fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
                 flexShrink: 1,
               }} numberOfLines={1}>
@@ -1400,7 +1324,7 @@ export default function TenantMainDashboard() {
         {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
             <LinearGradient
-              colors={isNextDueOverdue ? designTokens.gradients.error || ['#DC2626', '#EF4444'] : designTokens.gradients.primary}
+              colors={isNextDueOverdue ? ['#DC2626', '#EF4444'] as const : designTokens.gradients.primary as any}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[sharedStyles.cardModern, { marginBottom: designTokens.spacing.md, padding: designTokens.spacing.md }]}
@@ -1413,7 +1337,7 @@ export default function TenantMainDashboard() {
                   <View style={{ flex: 1 }}>
                     <Text style={{
                       fontSize: designTokens.typography.xs,
-                      fontWeight: designTokens.typography.medium,
+                      fontWeight: designTokens.typography.medium as any,
                       color: '#FFFFFF',
                       marginBottom: 2,
                     }}>
@@ -1425,7 +1349,7 @@ export default function TenantMainDashboard() {
                     </Text>
                     <Text style={{
                       fontSize: designTokens.typography.xl,
-                      fontWeight: designTokens.typography.bold,
+                      fontWeight: designTokens.typography.bold as any,
                       color: '#FFFFFF',
                       marginBottom: 2,
                     }}>
@@ -1464,7 +1388,7 @@ export default function TenantMainDashboard() {
             <View>
               <Text style={{
                 fontSize: designTokens.typography.base,
-                fontWeight: designTokens.typography.bold,
+                fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
                 marginBottom: 4,
               }}>{activeBooking.propertyTitle}</Text>
@@ -1518,7 +1442,7 @@ export default function TenantMainDashboard() {
                 }}>
                   <Text style={{
                     fontSize: designTokens.typography.xs,
-                    fontWeight: designTokens.typography.bold,
+                    fontWeight: designTokens.typography.bold as any,
                     color: '#FFFFFF',
                   }}>
                     {pendingMaintenanceCount}
@@ -1561,7 +1485,7 @@ export default function TenantMainDashboard() {
                       <View style={{ flex: 1 }}>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textPrimary,
                           marginBottom: 2,
                         }} numberOfLines={1}>
@@ -1581,7 +1505,7 @@ export default function TenantMainDashboard() {
                                  request.status === 'cancelled' ? designTokens.colors.error :
                                  request.status === 'in_progress' ? designTokens.colors.info :
                                  designTokens.colors.warning,
-                          fontWeight: designTokens.typography.medium,
+                          fontWeight: designTokens.typography.medium as any,
                           textTransform: 'capitalize',
                         }}>
                           {request.status.replace('_', ' ')}
@@ -1607,7 +1531,7 @@ export default function TenantMainDashboard() {
                               <Text style={{
                                 fontSize: designTokens.typography.xs,
                                 color: designTokens.colors.error,
-                                fontWeight: designTokens.typography.semibold,
+                                fontWeight: designTokens.typography.semibold as any,
                               }}>
                                 Cancel
                               </Text>
@@ -1629,7 +1553,7 @@ export default function TenantMainDashboard() {
                       <Text style={{
                         fontSize: designTokens.typography.xs,
                         color: designTokens.colors.primary,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                       }}>
                         View All {maintenanceRequests.length} Request{maintenanceRequests.length > 1 ? 's' : ''} →
                       </Text>
@@ -1700,7 +1624,7 @@ export default function TenantMainDashboard() {
                     <View style={{ flex: 1 }}>
                       <Text style={{
                         fontSize: designTokens.typography.sm,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                         color: designTokens.colors.textPrimary,
                         marginBottom: 2,
                       }}>{reminder.message}</Text>
@@ -1788,64 +1712,8 @@ export default function TenantMainDashboard() {
                     <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Pay Now</Text>
                   </TouchableOpacity>
 
-                  {/* PayMongo Payment Button */}
-                  <TouchableOpacity
-                    style={[sharedStyles.secondaryButton, { flex: 1, paddingVertical: 10 }]}
-                    onPress={async () => {
-                      try {
-                        console.log('💳 PayMongo button clicked');
-                        
-                        if (!rentHistory?.nextDueDate || !rentHistory?.nextDueAmount) {
-                          Alert.alert('Error', 'Payment information not available. Please refresh and try again.');
-                          return;
-                        }
-                        
-                        if (!activeBooking) {
-                          Alert.alert('Error', 'Booking information not found.');
-                          return;
-                        }
-                        
-                        const pendingPayment = rentHistory.payments.find(
-                          p => p.dueDate === rentHistory.nextDueDate && p.status === 'pending'
-                        );
-                        
-                        if (!pendingPayment) {
-                          Alert.alert('Error', 'No pending payment found. Please refresh and try again.');
-                          return;
-                        }
-                        
-                        setSelectedPayment(pendingPayment);
-                        await handlePayWithPayMongo();
-                      } catch (error) {
-                        console.error('Error in PayMongo button handler:', error);
-                        Alert.alert('Error', 'Failed to process payment. Please try again.');
-                      }
-                    }}
-                    disabled={processingPayMongo}
-                    activeOpacity={0.8}
-                  >
-                    {processingPayMongo ? (
-                      <ActivityIndicator size="small" color={designTokens.colors.primary} />
-                    ) : (
-                      <>
-                        <CreditCard size={16} color={designTokens.colors.info} />
-                        <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 12 }]}>PayMongo</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
                 </View>
 
-                {/* Advanced Payment Button */}
-                {futurePayments.length > 0 && (
-                  <TouchableOpacity
-                    style={[sharedStyles.secondaryButton, { marginTop: designTokens.spacing.xs, paddingVertical: 10 }]}
-                    onPress={() => setShowAdvancedPayment(true)}
-                    activeOpacity={0.8}
-                  >
-                    <Calendar size={16} color={designTokens.colors.info} />
-                    <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>Pay in Advance</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             </View>
           </View>
@@ -1922,7 +1790,7 @@ export default function TenantMainDashboard() {
                       <View style={{ flex: 1 }}>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textPrimary,
                           marginBottom: 2,
                         }}>
@@ -1951,7 +1819,7 @@ export default function TenantMainDashboard() {
                       <View style={{ alignItems: 'flex-end', gap: 2 }}>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.bold,
+                          fontWeight: designTokens.typography.bold as any,
                           color: payment.status === 'paid' ? designTokens.colors.success :
                                  payment.status === 'overdue' ? designTokens.colors.error :
                                  designTokens.colors.textPrimary,
@@ -1971,213 +1839,24 @@ export default function TenantMainDashboard() {
         )}
       </ScrollView>
 
-      {/* Payment Confirmation Modal */}
+      {/* Unified Payment Modal */}
       <Modal
         visible={showPaymentModal}
         transparent
         animationType="slide"
         onRequestClose={() => {
           setShowPaymentModal(false);
-          setSelectedPaymentMethod(null);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Confirm Payment</Text>
-              <TouchableOpacity onPress={() => {
-                setShowPaymentModal(false);
-                setSelectedPaymentMethod(null);
-              }}>
-                <XCircle size={24} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-            
-            {selectedPayment && (
-              <ScrollView style={styles.modalBody}>
-                <Text style={styles.modalText}>
-                  Select payment method and confirm your payment
-                </Text>
-                <View style={styles.modalPaymentDetails}>
-                  <Text style={styles.modalPaymentLabel}>Amount:</Text>
-                  <Text style={styles.modalPaymentValue}>
-                    ₱{selectedPayment.totalAmount.toLocaleString()}
-                  </Text>
-                </View>
-                {selectedPayment.lateFee > 0 && (
-                  <View style={styles.modalPaymentDetails}>
-                    <Text style={styles.modalPaymentLabel}>Late Fee:</Text>
-                    <Text style={styles.modalPaymentValue}>
-                      ₱{selectedPayment.lateFee.toLocaleString()}
-                    </Text>
-                  </View>
-                )}
-                <View style={styles.modalPaymentDetails}>
-                  <Text style={styles.modalPaymentLabel}>Due Date:</Text>
-                  <Text style={styles.modalPaymentValue}>
-                    {formatDate(selectedPayment.dueDate)}
-                  </Text>
-                </View>
-
-                {/* Owner Payment Methods */}
-                {ownerPaymentAccounts.length > 0 && (
-                  <View style={styles.paymentMethodsSection}>
-                    <Text style={styles.paymentMethodsTitle}>Payment Method</Text>
-                    <View style={styles.paymentMethodsList}>
-                      {ownerPaymentAccounts.map((account) => {
-                        const isSelected = selectedPaymentMethod === `${account.type} - ${account.accountNumber.slice(-4)}`;
-                        const methodName = account.type === 'gcash' ? 'GCash' : 
-                                          account.type === 'paymaya' ? 'Maya' :
-                                          account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
-                        const methodIcon = account.type === 'gcash' ? '📱' : 
-                                          account.type === 'paymaya' ? '💳' :
-                                          account.type === 'bank_transfer' ? '🏦' : '💵';
-                        
-                        return (
-                          <View key={account.id}>
-                            <TouchableOpacity
-                              style={[
-                                styles.paymentMethodOption,
-                                isSelected && styles.paymentMethodOptionSelected
-                              ]}
-                              onPress={() => handlePaymentMethodAction(account)}
-                              activeOpacity={0.7}
-                            >
-                              <View style={styles.paymentMethodLeft}>
-                                <Text style={styles.paymentMethodIcon}>{methodIcon}</Text>
-                                <View style={styles.paymentMethodInfo}>
-                                  <Text style={styles.paymentMethodName}>{methodName}</Text>
-                                  <Text style={styles.paymentMethodAccount}>
-                                    {account.accountName} • {account.accountNumber}
-                                  </Text>
-                                </View>
-                              </View>
-                              {(account.type === 'gcash' || account.type === 'paymaya') && (
-                                <View style={styles.paymentMethodAction}>
-                                  <Text style={styles.paymentMethodActionText}>Pay</Text>
-                                </View>
-                              )}
-                            </TouchableOpacity>
-                            {isSelected && (
-                              <View style={styles.paymentMethodSelectedIndicator}>
-                                <CheckCircle size={16} color="#10B981" />
-                                <Text style={styles.paymentMethodSelectedText}>
-                                  Selected - Tap "Confirm Payment" to record
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        );
-                      })}
-                      
-                      {/* PayMongo Payment Option */}
-                      <TouchableOpacity
-                        style={[
-                          styles.paymentMethodOption,
-                          selectedPaymentMethod === 'paymongo' && styles.paymentMethodOptionSelected
-                        ]}
-                        onPress={async () => {
-                          try {
-                            if (!activeBooking || !rentHistory?.nextDueAmount) {
-                              Alert.alert('Error', 'Payment information not available.');
-                              return;
-                            }
-                            
-                            setSelectedPaymentMethod('paymongo');
-                            setProcessingPayMongo(true);
-                            const reference = activeBooking.id.slice(-8).toUpperCase();
-                            const { createPayMongoPaymentUrl } = await import('../../utils/paymongo-webview-handler');
-                            const url = await createPayMongoPaymentUrl(
-                              rentHistory.nextDueAmount,
-                              `Rent payment for ${activeBooking.propertyTitle}`,
-                              reference,
-                              undefined,
-                              undefined,
-                              activeBooking.id
-                            );
-                            setPayMongoUrl(url);
-                            setShowPayMongoModal(true);
-                            setShowPaymentModal(false);
-                          } catch (error) {
-                            console.error('Error creating PayMongo payment:', error);
-                            Alert.alert('Error', 'Failed to create payment. Please try again.');
-                          } finally {
-                            setProcessingPayMongo(false);
-                          }
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.paymentMethodLeft}>
-                          <Text style={styles.paymentMethodIcon}>💳</Text>
-                          <View style={styles.paymentMethodInfo}>
-                            <Text style={styles.paymentMethodName}>PayMongo GCash</Text>
-                            <Text style={styles.paymentMethodAccount}>
-                              Secure payment via PayMongo
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={styles.paymentMethodAction}>
-                          <Text style={styles.paymentMethodActionText}>Pay</Text>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-
-                {ownerPaymentAccounts.length === 0 && (
-                  <View style={styles.noPaymentMethods}>
-                    <Text style={styles.noPaymentMethodsText}>
-                      Owner has not set up payment methods. Please contact the owner for payment instructions.
-                    </Text>
-                  </View>
-                )}
-              </ScrollView>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => {
-                  setShowPaymentModal(false);
-                  setSelectedPaymentMethod(null);
-                }}
-              >
-                <Text style={styles.modalButtonCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalButton, 
-                  styles.modalButtonConfirm,
-                  ownerPaymentAccounts.length > 0 && !selectedPaymentMethod && styles.modalButtonDisabled
-                ]}
-                onPress={handleConfirmPayment}
-                disabled={ownerPaymentAccounts.length > 0 && !selectedPaymentMethod}
-              >
-                <Text style={styles.modalButtonConfirmText}>Confirm Payment</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Advanced Payment Modal */}
-      <Modal
-        visible={showAdvancedPayment}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          setShowAdvancedPayment(false);
-          setSelectedAdvancedPayments(new Set());
+          setSelectedPayments(new Set());
           setSelectedPaymentMethod(null);
         }}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.advancedPaymentModalContent]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Pay in Advance</Text>
+              <Text style={styles.modalTitle}>Make Payment</Text>
               <TouchableOpacity onPress={() => {
-                setShowAdvancedPayment(false);
-                setSelectedAdvancedPayments(new Set());
+                setShowPaymentModal(false);
+                setSelectedPayments(new Set());
                 setSelectedPaymentMethod(null);
               }}>
                 <XCircle size={24} color="#6B7280" />
@@ -2186,86 +1865,222 @@ export default function TenantMainDashboard() {
             
             <ScrollView style={styles.advancedPaymentScrollView}>
               <Text style={styles.advancedPaymentModalDescription}>
-                Select the months you want to pay in advance. You can pay up to 6 months ahead.
+                Select the payment(s) you want to pay. You can pay the current due payment and future months together.
               </Text>
               
-              <View style={styles.advancedPaymentList}>
-                {futurePayments.map((payment) => {
-                  const isSelected = selectedAdvancedPayments.has(payment.id);
-                  const monthName = new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                  });
-                  
-                  return (
+              {/* Current Due Payment */}
+              {rentHistory?.nextDueDate && (() => {
+                const currentPayment = rentHistory.payments.find(
+                  p => p.dueDate === rentHistory.nextDueDate && (p.status === 'pending' || p.status === 'overdue')
+                );
+                if (!currentPayment) return null;
+                
+                const isSelected = selectedPayments.has(currentPayment.id);
+                const isOverdue = currentPayment.status === 'overdue';
+                
+                return (
+                  <View style={styles.paymentSection}>
+                    <Text style={styles.paymentSectionTitle}>Current Payment</Text>
                     <TouchableOpacity
-                      key={payment.id}
                       style={[
                         styles.advancedPaymentModalItem,
-                        isSelected && styles.advancedPaymentModalItemSelected
+                        isSelected && styles.advancedPaymentModalItemSelected,
+                        isOverdue && styles.advancedPaymentModalItemOverdue
                       ]}
                       onPress={() => {
-                        const newSet = new Set(selectedAdvancedPayments);
+                        const newSet = new Set(selectedPayments);
                         if (isSelected) {
-                          newSet.delete(payment.id);
+                          newSet.delete(currentPayment.id);
                         } else {
-                          newSet.add(payment.id);
+                          newSet.add(currentPayment.id);
                         }
-                        setSelectedAdvancedPayments(newSet);
+                        setSelectedPayments(newSet);
                       }}
                       activeOpacity={0.7}
                     >
                       <View style={styles.advancedPaymentModalLeft}>
                         <View style={[
                           styles.advancedPaymentModalCheckbox,
-                          isSelected && styles.advancedPaymentModalCheckboxSelected
+                          isSelected && styles.advancedPaymentModalCheckboxSelected,
+                          isOverdue && styles.advancedPaymentModalCheckboxOverdue
                         ]}>
                           {isSelected && <CheckCircle size={18} color="#FFFFFF" />}
                         </View>
                         <View style={styles.advancedPaymentModalInfo}>
-                          <Text style={styles.advancedPaymentModalMonth}>{monthName}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={styles.advancedPaymentModalMonth}>
+                              {isOverdue ? '⚠️ Overdue Payment' : 'Current Due Payment'}
+                            </Text>
+                            {isOverdue && (
+                              <View style={{
+                                backgroundColor: '#EF4444',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                              }}>
+                                <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '600' }}>
+                                  OVERDUE
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                           <Text style={styles.advancedPaymentModalDate}>
-                            Due: {formatDate(payment.dueDate)}
+                            Due: {formatDate(currentPayment.dueDate)}
                           </Text>
+                          {currentPayment.lateFee > 0 && (
+                            <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 2 }}>
+                              Late Fee: ₱{currentPayment.lateFee.toLocaleString()}
+                            </Text>
+                          )}
                         </View>
                       </View>
                       <Text style={styles.advancedPaymentModalAmount}>
-                        ₱{payment.totalAmount.toLocaleString()}
+                        ₱{currentPayment.totalAmount.toLocaleString()}
                       </Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </View>
+                  </View>
+                );
+              })()}
 
-              {selectedAdvancedPayments.size > 0 && (
-                <View style={styles.advancedPaymentModalSummary}>
-                  <View style={styles.advancedPaymentModalSummaryRow}>
-                    <Text style={styles.advancedPaymentModalSummaryLabel}>
-                      Selected: {selectedAdvancedPayments.size} month{selectedAdvancedPayments.size > 1 ? 's' : ''}
-                    </Text>
-                    <Text style={styles.advancedPaymentModalSummaryAmount}>
-                      ₱{futurePayments
-                        .filter(p => selectedAdvancedPayments.has(p.id))
-                        .reduce((sum, p) => sum + p.totalAmount, 0)
-                        .toLocaleString()}
-                    </Text>
+              {/* Future Payments */}
+              {futurePayments.length > 0 && (
+                <View style={styles.paymentSection}>
+                  <Text style={styles.paymentSectionTitle}>Future Payments</Text>
+                  <View style={styles.advancedPaymentList}>
+                    {futurePayments.map((payment) => {
+                      const isSelected = selectedPayments.has(payment.id);
+                      const monthName = new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                      });
+                      
+                      return (
+                        <TouchableOpacity
+                          key={payment.id}
+                          style={[
+                            styles.advancedPaymentModalItem,
+                            isSelected && styles.advancedPaymentModalItemSelected
+                          ]}
+                          onPress={() => {
+                            const newSet = new Set(selectedPayments);
+                            if (isSelected) {
+                              newSet.delete(payment.id);
+                            } else {
+                              newSet.add(payment.id);
+                            }
+                            setSelectedPayments(newSet);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.advancedPaymentModalLeft}>
+                            <View style={[
+                              styles.advancedPaymentModalCheckbox,
+                              isSelected && styles.advancedPaymentModalCheckboxSelected
+                            ]}>
+                              {isSelected && <CheckCircle size={18} color="#FFFFFF" />}
+                            </View>
+                            <View style={styles.advancedPaymentModalInfo}>
+                              <Text style={styles.advancedPaymentModalMonth}>{monthName}</Text>
+                              <Text style={styles.advancedPaymentModalDate}>
+                                Due: {formatDate(payment.dueDate)}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.advancedPaymentModalAmount}>
+                            ₱{payment.totalAmount.toLocaleString()}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
               )}
+
+              {/* Payment Summary */}
+              {selectedPayments.size > 0 && (() => {
+                const allPayments = [
+                  ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                  ...futurePayments.filter(p => selectedPayments.has(p.id))
+                ];
+                const totalAmount = allPayments.reduce((sum, p) => sum + p.totalAmount, 0);
+                
+                return (
+                  <View style={styles.advancedPaymentModalSummary}>
+                    <View style={styles.advancedPaymentModalSummaryRow}>
+                      <Text style={styles.advancedPaymentModalSummaryLabel}>
+                        Selected: {selectedPayments.size} payment{selectedPayments.size > 1 ? 's' : ''}
+                      </Text>
+                      <Text style={styles.advancedPaymentModalSummaryAmount}>
+                        ₱{totalAmount.toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })()}
 
               {/* Owner Payment Methods */}
               {ownerPaymentAccounts.length > 0 && (
                 <View style={styles.paymentMethodsSection}>
                   <Text style={styles.paymentMethodsTitle}>Payment Method</Text>
                   <View style={styles.paymentMethodsList}>
+                    {/* Paymongo Payment Option */}
+                    <TouchableOpacity
+                      style={[
+                        styles.paymentMethodOption,
+                        selectedPaymentMethod === 'Paymongo' && styles.paymentMethodOptionSelected
+                      ]}
+                      onPress={() => {
+                        setSelectedPaymentMethod('Paymongo');
+                        if (selectedPayments.size > 1) {
+                          Alert.alert(
+                            'Paymongo Payment',
+                            'Paymongo payment is currently available for single payments only. Please select one payment at a time.',
+                            [{ text: 'OK' }]
+                          );
+                          return;
+                        }
+                        const allPayments = [
+                          ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                          ...futurePayments.filter(p => selectedPayments.has(p.id))
+                        ];
+                        const paymentToUse = allPayments[0];
+                        if (paymentToUse) {
+                          setSelectedPayment(paymentToUse);
+                          setShowPaymongoModal(true);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.paymentMethodLeft}>
+                        <Text style={styles.paymentMethodIcon}>💳</Text>
+                        <View style={styles.paymentMethodInfo}>
+                          <Text style={styles.paymentMethodName}>Paymongo (Online Payment)</Text>
+                          <Text style={styles.paymentMethodAccount}>
+                            Secure online payment via GCash, PayMaya, or Card
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.paymentMethodAction}>
+                        <Text style={styles.paymentMethodActionText}>Pay</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {selectedPaymentMethod === 'Paymongo' && (
+                      <View style={styles.paymentMethodSelectedIndicator}>
+                        <CheckCircle size={16} color="#10B981" />
+                        <Text style={styles.paymentMethodSelectedText}>
+                          Selected - Tap "Pay" to proceed
+                        </Text>
+                      </View>
+                    )}
+                    
                     {ownerPaymentAccounts.map((account) => {
-                      const isSelected = selectedPaymentMethod === `${account.type === 'gcash' ? 'GCash' : account.type === 'paymaya' ? 'Maya' : account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash'} - ${account.accountNumber.slice(-4)}`;
                       const methodName = account.type === 'gcash' ? 'GCash' : 
                                         account.type === 'paymaya' ? 'Maya' :
                                         account.type === 'bank_transfer' ? 'Bank Transfer' : 'Cash';
                       const methodIcon = account.type === 'gcash' ? '📱' : 
                                         account.type === 'paymaya' ? '💳' :
                                         account.type === 'bank_transfer' ? '🏦' : '💵';
+                      const isSelected = selectedPaymentMethod === `${methodName} - ${account.accountNumber.slice(-4)}`;
                       
                       return (
                         <View key={account.id}>
@@ -2296,7 +2111,7 @@ export default function TenantMainDashboard() {
                             <View style={styles.paymentMethodSelectedIndicator}>
                               <CheckCircle size={16} color="#10B981" />
                               <Text style={styles.paymentMethodSelectedText}>
-                                Selected - Tap "Pay X Months" to confirm
+                                Selected - Tap "Confirm Payment" to record
                               </Text>
                             </View>
                           )}
@@ -2320,8 +2135,9 @@ export default function TenantMainDashboard() {
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonCancel]}
                 onPress={() => {
-                  setShowAdvancedPayment(false);
-                  setSelectedAdvancedPayments(new Set());
+                  setShowPaymentModal(false);
+                  setSelectedPayments(new Set());
+                  setSelectedPaymentMethod(null);
                 }}
               >
                 <Text style={styles.modalButtonCancelText}>Cancel</Text>
@@ -2330,13 +2146,15 @@ export default function TenantMainDashboard() {
                 style={[
                   styles.modalButton,
                   styles.modalButtonConfirm,
-                  (selectedAdvancedPayments.size === 0 || (ownerPaymentAccounts.length > 0 && !selectedPaymentMethod)) && styles.modalButtonDisabled
+                  (selectedPayments.size === 0 || (ownerPaymentAccounts.length > 0 && !selectedPaymentMethod)) && styles.modalButtonDisabled
                 ]}
-                onPress={handleAdvancedPayment}
-                disabled={selectedAdvancedPayments.size === 0 || (ownerPaymentAccounts.length > 0 && !selectedPaymentMethod)}
+                onPress={handleConfirmPayment}
+                disabled={selectedPayments.size === 0 || (ownerPaymentAccounts.length > 0 && !selectedPaymentMethod)}
               >
                 <Text style={styles.modalButtonConfirmText}>
-                  Pay {selectedAdvancedPayments.size} Month{selectedAdvancedPayments.size !== 1 ? 's' : ''}
+                  {selectedPayments.size > 0 
+                    ? `Pay ${selectedPayments.size} Payment${selectedPayments.size > 1 ? 's' : ''}`
+                    : 'Confirm Payment'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2419,7 +2237,7 @@ export default function TenantMainDashboard() {
             }}>
               <Text style={{
                 fontSize: designTokens.typography['2xl'],
-                fontWeight: designTokens.typography.bold,
+                fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
                 flex: 1,
               }}>My Profile</Text>
@@ -2483,7 +2301,7 @@ export default function TenantMainDashboard() {
                   }}>
                     <Text style={{
                       fontSize: 40,
-                      fontWeight: designTokens.typography.bold,
+                      fontWeight: designTokens.typography.bold as any,
                       color: designTokens.colors.white,
                     }}>
                       {user?.name?.charAt(0).toUpperCase() || 'U'}
@@ -2492,14 +2310,14 @@ export default function TenantMainDashboard() {
                 )}
                 <Text style={{
                   fontSize: designTokens.typography['2xl'],
-                  fontWeight: designTokens.typography.bold,
+                  fontWeight: designTokens.typography.bold as any,
                   color: designTokens.colors.textPrimary,
                   marginBottom: designTokens.spacing.xs,
                 }}>{user?.name || 'Tenant'}</Text>
                 <Text style={{
                   fontSize: designTokens.typography.sm,
                   color: designTokens.colors.textSecondary,
-                  fontWeight: designTokens.typography.medium,
+                  fontWeight: designTokens.typography.medium as any,
                 }}>Tenant</Text>
               </View>
 
@@ -2521,7 +2339,7 @@ export default function TenantMainDashboard() {
                       <Text style={{
                         fontSize: designTokens.typography.xs,
                         color: designTokens.colors.textSecondary,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                         marginBottom: designTokens.spacing.xs,
                         textTransform: 'uppercase',
                         letterSpacing: 0.5,
@@ -2529,38 +2347,12 @@ export default function TenantMainDashboard() {
                       <Text style={{
                         fontSize: designTokens.typography.base,
                         color: designTokens.colors.textPrimary,
-                        fontWeight: designTokens.typography.medium,
+                        fontWeight: designTokens.typography.medium as any,
                       }}>{user.email}</Text>
                     </View>
                   </View>
                 )}
 
-                {user?.phone && (
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    gap: designTokens.spacing.lg,
-                  }}>
-                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-                      <Phone size={20} color="#3B82F6" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{
-                        fontSize: designTokens.typography.xs,
-                        color: designTokens.colors.textSecondary,
-                        fontWeight: designTokens.typography.semibold,
-                        marginBottom: designTokens.spacing.xs,
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                      }}>Phone</Text>
-                      <Text style={{
-                        fontSize: designTokens.typography.base,
-                        color: designTokens.colors.textPrimary,
-                        fontWeight: designTokens.typography.medium,
-                      }}>{user.phone}</Text>
-                    </View>
-                  </View>
-                )}
 
                 {activeBooking?.propertyAddress && (
                   <View style={{
@@ -2575,7 +2367,7 @@ export default function TenantMainDashboard() {
                       <Text style={{
                         fontSize: designTokens.typography.xs,
                         color: designTokens.colors.textSecondary,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                         marginBottom: designTokens.spacing.xs,
                         textTransform: 'uppercase',
                         letterSpacing: 0.5,
@@ -2583,7 +2375,7 @@ export default function TenantMainDashboard() {
                       <Text style={{
                         fontSize: designTokens.typography.base,
                         color: designTokens.colors.textPrimary,
-                        fontWeight: designTokens.typography.medium,
+                        fontWeight: designTokens.typography.medium as any,
                       }} numberOfLines={2}>
                         {activeBooking.propertyAddress}
                       </Text>
@@ -2623,50 +2415,14 @@ export default function TenantMainDashboard() {
         }}
       />
 
-      {/* PayMongo Payment Modal */}
-      {showPayMongoModal && payMongoUrl && (
-        <Modal
-          visible={showPayMongoModal}
-          animationType="slide"
-          onRequestClose={() => {
-            setShowPayMongoModal(false);
-            setPayMongoUrl(null);
-          }}
-        >
-          <View style={styles.payMongoModalContainer}>
-            <View style={styles.payMongoModalHeader}>
-              <Text style={styles.payMongoModalTitle}>Pay with PayMongo</Text>
-              <TouchableOpacity
-                style={styles.payMongoModalCloseButton}
-                onPress={() => {
-                  setShowPayMongoModal(false);
-                  setPayMongoUrl(null);
-                }}
-              >
-                <X size={24} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-            <PayMongoPayment
-              paymentUrl={payMongoUrl}
-              onPaymentSuccess={(paymentIntentId) => {
-                handlePayMongoSuccess(paymentIntentId);
-              }}
-              onPaymentError={(error) => {
-                Alert.alert('Payment Error', error);
-                setShowPayMongoModal(false);
-                setPayMongoUrl(null);
-              }}
-              onPaymentCancel={() => {
-                setShowPayMongoModal(false);
-                setPayMongoUrl(null);
-              }}
-            />
-          </View>
-        </Modal>
-      )}
-
-      {/* Dynamic QR Code Modal for GCash Payment */}
-      {showQRCodeModal && selectedQRCodeAccount && selectedPayment && (
+      {/* Dynamic QR Code Modal for GCash and Maya Payment */}
+      {showQRCodeModal && selectedQRCodeAccount && (() => {
+        const allPayments = [
+          ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+          ...futurePayments.filter(p => selectedPayments.has(p.id))
+        ];
+        const firstPayment = allPayments[0];
+        return firstPayment ? (
         <Modal
           visible={showQRCodeModal}
           animationType="slide"
@@ -2679,15 +2435,18 @@ export default function TenantMainDashboard() {
           <View style={styles.qrCodeModalOverlay}>
             <View style={styles.qrCodeModalContainer}>
               <View style={styles.qrCodeModalHeader}>
-                <Text style={styles.qrCodeModalTitle}>Scan to Pay with GCash</Text>
+                <Text style={styles.qrCodeModalTitle}>
+                  Scan to Pay with {selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya'}
+                </Text>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                   <TouchableOpacity
                     style={styles.qrCodeModalShareButton}
                     onPress={async () => {
                       try {
                         const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
-                        const qrData = generatePaymentQRCodeString(selectedPayment, selectedQRCodeAccount);
-                        const paymentDetails = `GCash Payment QR Code\n\nAmount: ₱${selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${selectedPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${selectedPayment.paymentMonth}\nDue Date: ${new Date(selectedPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
+                        const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount);
+                        const paymentMethodName = selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya';
+                        const paymentDetails = `${paymentMethodName} Payment QR Code\n\nAmount: ₱${firstPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${firstPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${firstPayment.paymentMonth}\nDue Date: ${new Date(firstPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
                         
                         if (Platform.OS === 'web') {
                           // For web, copy to clipboard
@@ -2700,7 +2459,7 @@ export default function TenantMainDashboard() {
                           try {
                             await Share.share({
                               message: `${paymentDetails}\n\nQR Code Data:\n${qrData}`,
-                              title: 'GCash Payment QR Code',
+                              title: `${paymentMethodName} Payment QR Code`,
                             });
                           } catch (shareError) {
                             // Fallback to clipboard if share fails
@@ -2733,14 +2492,14 @@ export default function TenantMainDashboard() {
                 <View style={styles.qrCodeSection}>
                   <Text style={styles.qrCodeLabel}>Payment QR Code</Text>
                   <Text style={styles.qrCodeSubtitle}>
-                    Scan this QR-PH code with your GCash app{'\n'}
-                    GCash will recognize the payment details automatically{'\n'}
+                    Scan this QR-PH code with your {selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya'} app{'\n'}
+                    {selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya'} will recognize the payment details automatically{'\n'}
                     Or share it to another device to scan
                   </Text>
                   
                   <View style={styles.qrCodeWrapper}>
                     <QRCode
-                      {...getQRCodeProps(selectedPayment, selectedQRCodeAccount, 250)}
+                      {...getQRCodeProps(firstPayment, selectedQRCodeAccount, 250)}
                     />
                   </View>
                   
@@ -2749,8 +2508,9 @@ export default function TenantMainDashboard() {
                     onPress={async () => {
                       try {
                         const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
-                        const qrData = generatePaymentQRCodeString(selectedPayment, selectedQRCodeAccount);
-                        const paymentDetails = `GCash Payment QR Code\n\nAmount: ₱${selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${selectedPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${selectedPayment.paymentMonth}\nDue Date: ${new Date(selectedPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
+                        const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount);
+                        const paymentMethodName = selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya';
+                        const paymentDetails = `${paymentMethodName} Payment QR Code\n\nAmount: ₱${firstPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${firstPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${firstPayment.paymentMonth}\nDue Date: ${new Date(firstPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
                         
                         if (Platform.OS === 'web') {
                           // For web, copy to clipboard
@@ -2763,7 +2523,7 @@ export default function TenantMainDashboard() {
                           try {
                             await Share.share({
                               message: `${paymentDetails}\n\nQR Code Data:\n${qrData}`,
-                              title: 'GCash Payment QR Code',
+                              title: `${paymentMethodName} Payment QR Code`,
                             });
                           } catch (shareError) {
                             // Fallback to clipboard if share fails
@@ -2789,13 +2549,13 @@ export default function TenantMainDashboard() {
                   <View style={styles.qrCodeDetailRow}>
                     <Text style={styles.qrCodeDetailLabel}>Amount:</Text>
                     <Text style={styles.qrCodeDetailValue}>
-                      ₱{selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ₱{firstPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   </View>
 
                   <View style={styles.qrCodeDetailRow}>
                     <Text style={styles.qrCodeDetailLabel}>Reference:</Text>
-                    <Text style={styles.qrCodeDetailValue}>{selectedPayment.receiptNumber}</Text>
+                    <Text style={styles.qrCodeDetailValue}>{firstPayment.receiptNumber}</Text>
                   </View>
 
                   <View style={styles.qrCodeDetailRow}>
@@ -2807,13 +2567,13 @@ export default function TenantMainDashboard() {
 
                   <View style={styles.qrCodeDetailRow}>
                     <Text style={styles.qrCodeDetailLabel}>Payment Month:</Text>
-                    <Text style={styles.qrCodeDetailValue}>{selectedPayment.paymentMonth}</Text>
+                    <Text style={styles.qrCodeDetailValue}>{firstPayment.paymentMonth}</Text>
                   </View>
 
                   <View style={styles.qrCodeDetailRow}>
                     <Text style={styles.qrCodeDetailLabel}>Due Date:</Text>
                     <Text style={styles.qrCodeDetailValue}>
-                      {new Date(selectedPayment.dueDate).toLocaleDateString()}
+                      {new Date(firstPayment.dueDate).toLocaleDateString()}
                     </Text>
                   </View>
                 </View>
@@ -2822,15 +2582,15 @@ export default function TenantMainDashboard() {
                   <Text style={styles.qrCodeInstructionsTitle}>How to Pay with QR-PH:</Text>
                   <Text style={styles.qrCodeInstructionsText}>
                     <Text style={{ fontWeight: '600' }}>Option 1: Scan on this device</Text>{'\n'}
-                    1. Open your GCash app{'\n'}
+                    1. Open your {selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya'} app{'\n'}
                     2. Tap "Scan QR" or "QR Code"{'\n'}
                     3. Point camera at this QR-PH code{'\n'}
-                    4. GCash will show payment details automatically{'\n'}
+                    4. {selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya'} will show payment details automatically{'\n'}
                     5. Confirm amount and complete payment{'\n\n'}
                     <Text style={{ fontWeight: '600' }}>Option 2: Share to another device</Text>{'\n'}
                     1. Tap "Share QR Code" above{'\n'}
                     2. Send to another device{'\n'}
-                    3. Open GCash and scan the QR-PH code{'\n'}
+                    3. Open {selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya'} and scan the QR-PH code{'\n'}
                     4. Confirm and complete payment{'\n\n'}
                     This QR-PH code contains all payment details. After payment, tap "I Paid" below to confirm.
                   </Text>
@@ -2841,26 +2601,14 @@ export default function TenantMainDashboard() {
                 <TouchableOpacity
                   style={styles.qrCodeConfirmButton}
                   onPress={async () => {
-                    const paymentMethodName = `GCash - ${selectedQRCodeAccount.accountNumber.slice(-4)}`;
+                    const methodName = selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya';
+                    const paymentMethodName = `${methodName} - ${selectedQRCodeAccount.accountNumber.slice(-4)}`;
                     setSelectedPaymentMethod(paymentMethodName);
                     
-                    try {
-                      const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-                      if (success) {
-                        Alert.alert('Success', 'Payment recorded successfully!');
-                        setShowQRCodeModal(false);
-                        setShowPaymentModal(false);
-                        setSelectedPayment(null);
-                        setSelectedPaymentMethod(null);
-                        setSelectedQRCodeAccount(null);
-                        await loadDashboardData();
-                      } else {
-                        Alert.alert('Error', 'Failed to record payment. Please try again.');
-                      }
-                    } catch (error) {
-                      console.error('Error confirming payment:', error);
-                      Alert.alert('Error', 'Failed to record payment. Please try again.');
-                    }
+                    // Use unified payment handler
+                    handleConfirmPayment();
+                    setShowQRCodeModal(false);
+                    setSelectedQRCodeAccount(null);
                   }}
                 >
                   <CheckCircle size={20} color="#FFFFFF" />
@@ -2880,6 +2628,26 @@ export default function TenantMainDashboard() {
             </View>
           </View>
         </Modal>
+        ) : null;
+      })()}
+
+      {/* Paymongo Payment Modal */}
+      {selectedPayment && (
+        <PayMongoPayment
+          visible={showPaymongoModal}
+          payment={selectedPayment}
+          onSuccess={() => {
+            setShowPaymongoModal(false);
+            setShowPaymentModal(false);
+            setSelectedPayment(null);
+            setSelectedPaymentMethod(null);
+            loadDashboardData();
+          }}
+          onCancel={() => {
+            setShowPaymongoModal(false);
+            setSelectedPaymentMethod(null);
+          }}
+        />
       )}
 
       {/* Maintenance Request Modal */}
@@ -3217,7 +2985,7 @@ export default function TenantMainDashboard() {
                               backgroundColor: designTokens.colors.infoLight,
                               borderRadius: designTokens.borderRadius.md,
                             }}>
-                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 4, fontWeight: designTokens.typography.semibold }]}>
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 4, fontWeight: designTokens.typography.semibold as any }]}>
                                 Owner Notes:
                               </Text>
                               <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>
@@ -3248,7 +3016,7 @@ export default function TenantMainDashboard() {
                                 <Text style={{
                                   fontSize: designTokens.typography.sm,
                                   color: designTokens.colors.error,
-                                  fontWeight: designTokens.typography.semibold,
+                                  fontWeight: designTokens.typography.semibold as any,
                                 }}>
                                   Cancel Request
                                 </Text>
@@ -3314,7 +3082,7 @@ export default function TenantMainDashboard() {
                   <View style={{ flex: 1 }}>
                     <Text style={{
                       fontSize: designTokens.typography['2xl'],
-                      fontWeight: designTokens.typography.bold,
+                      fontWeight: designTokens.typography.bold as any,
                       color: designTokens.colors.textPrimary,
                       marginBottom: designTokens.spacing.xs,
                     }}>
@@ -3378,7 +3146,7 @@ export default function TenantMainDashboard() {
                     <View>
                       <Text style={{
                         fontSize: designTokens.typography.sm,
-                        fontWeight: designTokens.typography.semibold,
+                        fontWeight: designTokens.typography.semibold as any,
                         color: designTokens.colors.textSecondary,
                         marginBottom: designTokens.spacing.sm,
                         textTransform: 'uppercase',
@@ -3400,7 +3168,7 @@ export default function TenantMainDashboard() {
                       <View>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textSecondary,
                           marginBottom: designTokens.spacing.md,
                           textTransform: 'uppercase',
@@ -3509,7 +3277,7 @@ export default function TenantMainDashboard() {
                       <View>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textSecondary,
                           marginBottom: designTokens.spacing.md,
                           textTransform: 'uppercase',
@@ -3547,7 +3315,7 @@ export default function TenantMainDashboard() {
                               <View style={{ flex: 1 }}>
                                 <Text style={{
                                   fontSize: designTokens.typography.base,
-                                  fontWeight: designTokens.typography.semibold,
+                                  fontWeight: designTokens.typography.semibold as any,
                                   color: designTokens.colors.textPrimary,
                                   marginBottom: 2,
                                 }}>
@@ -3572,7 +3340,7 @@ export default function TenantMainDashboard() {
                       <View>
                         <Text style={{
                           fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold,
+                          fontWeight: designTokens.typography.semibold as any,
                           color: designTokens.colors.textSecondary,
                           marginBottom: designTokens.spacing.sm,
                           textTransform: 'uppercase',
@@ -3865,7 +3633,6 @@ const PhotoItem = React.memo(({ photo }: { photo: string }) => {
           height: '100%',
         }}
         resizeMode="contain"
-        showSkeleton={false}
       />
     </View>
   );
@@ -4462,47 +4229,6 @@ const styles = StyleSheet.create({
     color: '#111827',
     lineHeight: 18,
   },
-  payMongoButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#3B82F6',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    marginTop: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  payMongoButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  payMongoModalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  payMongoModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  payMongoModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  payMongoModalCloseButton: {
-    padding: 4,
-  },
   // QR Code Modal Styles
   qrCodeModalOverlay: {
     flex: 1,
@@ -4854,6 +4580,22 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginBottom: 20,
     lineHeight: 20,
+  },
+  paymentSection: {
+    marginBottom: 24,
+  },
+  paymentSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  advancedPaymentModalItemOverdue: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#EF4444',
+  },
+  advancedPaymentModalCheckboxOverdue: {
+    borderColor: '#EF4444',
   },
   advancedPaymentModalSummary: {
     marginTop: 20,

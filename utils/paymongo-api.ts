@@ -1,236 +1,381 @@
 /**
- * PayMongo API Service
- * Handles PayMongo payment intent creation and management
- * 
- * Note: PayMongo requires server-side API calls for security.
- * This service can work with a backend API endpoint or use PayMongo's public API where applicable.
+ * Paymongo API Integration Utilities
+ * Handles payment intent creation and verification for tenant-to-owner payments
  */
 
-import { API_BASE_URL } from '@/constants';
+import { API_BASE_URL } from '../constants';
 
-export interface PayMongoPaymentIntent {
+// Debug: Log the API URL being used (remove in production)
+if (__DEV__) {
+  console.log('🔗 PayMongo API URL:', API_BASE_URL);
+}
+
+export interface PaymongoPaymentIntent {
   id: string;
-  type: string;
+  type: 'payment_intent';
   attributes: {
     amount: number;
     currency: string;
-    description: string;
-    status: 'awaiting_payment_method' | 'awaiting_next_action' | 'processing' | 'succeeded' | 'failed';
+    status: 'awaiting_payment_method' | 'awaiting_next_action' | 'processing' | 'succeeded' | 'awaiting_payment' | 'canceled' | 'failed';
     client_key: string;
     payment_method_allowed: string[];
-    metadata?: Record<string, any>;
-    next_action?: {
-      type: string;
-      redirect?: {
-        url: string;
-        return_url: string;
+    payment_method_options: {
+      card?: {
+        request_three_d_secure: 'automatic' | 'any';
       };
     };
+    metadata?: Record<string, any>;
+    last_payment_error?: any;
+    created_at: number;
+    updated_at: number;
+  };
+}
+
+export interface PaymongoPaymentMethod {
+  id: string;
+  type: 'payment_method';
+  attributes: {
+    type: string;
+    details?: {
+      card_number?: string;
+      exp_month?: number;
+      exp_year?: number;
+      cvc?: string;
+    };
+    billing?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      address?: {
+        line1?: string;
+        line2?: string;
+        city?: string;
+        state?: string;
+        postal_code?: string;
+        country?: string;
+      };
+    };
+    created_at: number;
+    updated_at: number;
+  };
+}
+
+export interface PaymongoPayment {
+  id: string;
+  type: 'payment';
+  attributes: {
+    amount: number;
+    currency: string;
+    status: 'pending' | 'paid' | 'failed' | 'refunded' | 'partially_refunded';
+    description?: string;
+    statement_descriptor?: string;
+    metadata?: Record<string, any>;
+    fee: number;
+    net_amount: number;
+    refund_amount: number;
+    created_at: number;
+    updated_at: number;
   };
 }
 
 export interface CreatePaymentIntentParams {
-  amount: number; // Amount in PHP (will be converted to centavos)
-  description: string;
-  reference: string;
-  bookingId?: string;
-  metadata?: Record<string, any>;
-  successUrl?: string;
-  cancelUrl?: string;
+  amount: number; // Amount in cents (PHP)
+  currency?: string;
+  payment_method_allowed?: string[];
+  description?: string;
+  metadata?: {
+    paymentId?: string;
+    bookingId?: string;
+    tenantId?: string;
+    ownerId?: string;
+    propertyId?: string;
+    paymentMonth?: string;
+  };
 }
 
-export interface CreatePaymentIntentResponse {
-  success: boolean;
-  data?: PayMongoPaymentIntent;
-  paymentUrl?: string;
-  error?: string;
+export interface AttachPaymentMethodParams {
+  payment_intent_id: string;
+  payment_method_id: string;
+  return_url?: string;
+}
+
+export interface ConfirmPaymentIntentParams {
+  payment_intent_id: string;
+  payment_method_id?: string;
+  return_url?: string;
 }
 
 /**
- * Create a PayMongo Payment Intent via backend API
- * This is the secure way to create payment intents (requires secret key on backend)
+ * Helper function to handle network errors with helpful messages
  */
-export async function createPaymentIntentViaBackend(
-  params: CreatePaymentIntentParams
-): Promise<CreatePaymentIntentResponse> {
-  try {
-    const backendUrl = process.env.EXPO_PUBLIC_PAYMONGO_BACKEND_URL || API_BASE_URL;
-    const endpoint = `${backendUrl}/api/paymongo/create-payment-intent`;
+function handleNetworkError(error: unknown, defaultMessage: string): string {
+  if (error instanceof TypeError && error.message.includes('Network request failed')) {
+    const isLocalhost = API_BASE_URL.includes('localhost') || API_BASE_URL.includes('127.0.0.1');
+    
+    if (isLocalhost) {
+      return 'Cannot connect to server. Make sure:\n\n1. Backend server is running (npm start in server/ directory)\n2. If using a mobile device, use your computer\'s IP address instead of localhost\n3. Check your network connection';
+    } else {
+      return `Network request failed. Please check:\n\n1. Backend server is running and accessible\n2. Your internet connection\n3. API URL is correct: ${API_BASE_URL}`;
+    }
+  } else if (error instanceof Error) {
+    return error.message;
+  }
+  return defaultMessage;
+}
 
-    const response = await fetch(endpoint, {
+/**
+ * Create a payment intent via backend API
+ */
+export async function createPaymentIntent(
+  params: CreatePaymentIntentParams
+): Promise<{
+  success: boolean;
+  data?: PaymongoPaymentIntent;
+  error?: string;
+}> {
+  try {
+    const url = `${API_BASE_URL}/api/paymongo/create-payment-intent`;
+    if (__DEV__) {
+      console.log('📡 Attempting to create payment intent at:', url);
+    }
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         amount: params.amount,
+        currency: params.currency || 'PHP',
+        payment_method_allowed: params.payment_method_allowed || ['card', 'gcash', 'paymaya'],
         description: params.description,
-        reference: params.reference,
-        bookingId: params.bookingId,
         metadata: params.metadata,
-        successUrl: params.successUrl || `hanapbahay://payment-success?bookingId=${params.bookingId}&reference=${params.reference}`,
-        cancelUrl: params.cancelUrl || `hanapbahay://payment-cancel?bookingId=${params.bookingId}`,
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const errorData = await response.json().catch(() => ({ error: 'Failed to create payment intent' }));
       throw new Error(errorData.error || `HTTP ${response.status}`);
     }
 
     const data = await response.json();
-
-    // Extract payment URL from response
-    let paymentUrl: string | undefined;
-    if (data.paymentUrl) {
-      paymentUrl = data.paymentUrl;
-    } else if (data.data?.attributes?.next_action?.redirect?.url) {
-      paymentUrl = data.data.attributes.next_action.redirect.url;
-    } else if (data.data?.attributes?.client_key) {
-      // PayMongo checkout URL format
-      paymentUrl = `https://payments.paymongo.com/checkout/${data.data.attributes.client_key}`;
-    }
-
     return {
       success: true,
       data: data.data,
-      paymentUrl,
     };
   } catch (error) {
-    console.error('❌ Error creating PayMongo payment intent via backend:', error);
+    console.error('❌ Error creating payment intent:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to create payment intent',
+      error: handleNetworkError(error, 'Failed to create payment intent'),
     };
   }
 }
 
 /**
- * Create a PayMongo Payment Intent using public key (client-side)
- * Note: This is less secure but can work if backend is not available
- * Requires PayMongo public key in environment variables
+ * Attach payment method to payment intent
  */
-export async function createPaymentIntentClientSide(
-  params: CreatePaymentIntentParams
-): Promise<CreatePaymentIntentResponse> {
+export async function attachPaymentMethod(
+  params: AttachPaymentMethodParams
+): Promise<{
+  success: boolean;
+  data?: PaymongoPaymentIntent;
+  error?: string;
+}> {
   try {
-    const publicKey = process.env.EXPO_PUBLIC_PAYMONGO_PUBLIC_KEY;
-    
-    if (!publicKey) {
-      throw new Error('PayMongo public key not configured. Please set EXPO_PUBLIC_PAYMONGO_PUBLIC_KEY in your .env file');
-    }
-
-    // PayMongo API endpoint for creating payment intents
-    const response = await fetch('https://api.paymongo.com/v1/payment_intents', {
+    const response = await fetch(`${API_BASE_URL}/api/paymongo/attach-payment-method`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(publicKey + ':')}`, // Basic auth with public key
       },
       body: JSON.stringify({
-        data: {
-          attributes: {
-            amount: Math.round(params.amount * 100), // Convert to centavos
-            currency: 'PHP',
-            description: params.description,
-            payment_method_allowed: ['gcash'],
-            metadata: {
-              reference: params.reference,
-              bookingId: params.bookingId,
-              ...params.metadata,
-            },
-          },
-        },
+        payment_intent_id: params.payment_intent_id,
+        payment_method_id: params.payment_method_id,
+        return_url: params.return_url,
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ errors: [{ detail: 'Unknown error' }] }));
-      const errorMessage = errorData.errors?.[0]?.detail || `HTTP ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    const result = await response.json();
-    const paymentIntent = result.data as PayMongoPaymentIntent;
-
-    // Get payment URL
-    let paymentUrl: string | undefined;
-    if (paymentIntent.attributes.next_action?.redirect?.url) {
-      paymentUrl = paymentIntent.attributes.next_action.redirect.url;
-    } else if (paymentIntent.attributes.client_key) {
-      paymentUrl = `https://payments.paymongo.com/checkout/${paymentIntent.attributes.client_key}`;
-    }
-
-    return {
-      success: true,
-      data: paymentIntent,
-      paymentUrl,
-    };
-  } catch (error) {
-    console.error('❌ Error creating PayMongo payment intent (client-side):', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to create payment intent',
-    };
-  }
-}
-
-/**
- * Create PayMongo Payment Intent (automatically chooses backend or client-side)
- */
-export async function createPaymentIntent(
-  params: CreatePaymentIntentParams
-): Promise<CreatePaymentIntentResponse> {
-  // Try backend first (more secure)
-  const backendUrl = process.env.EXPO_PUBLIC_PAYMONGO_BACKEND_URL || API_BASE_URL;
-  const useBackend = backendUrl && backendUrl !== 'http://localhost:3000';
-
-  if (useBackend) {
-    const result = await createPaymentIntentViaBackend(params);
-    if (result.success) {
-      return result;
-    }
-    // Fallback to client-side if backend fails
-    console.warn('⚠️ Backend API failed, falling back to client-side PayMongo API');
-  }
-
-  // Use client-side as fallback or primary method
-  return createPaymentIntentClientSide(params);
-}
-
-/**
- * Verify payment status via backend webhook or API
- */
-export async function verifyPaymentStatus(
-  paymentIntentId: string
-): Promise<{ success: boolean; status?: string; error?: string }> {
-  try {
-    const backendUrl = process.env.EXPO_PUBLIC_PAYMONGO_BACKEND_URL || API_BASE_URL;
-    const endpoint = `${backendUrl}/api/paymongo/verify-payment`;
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ paymentIntentId }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errorData = await response.json().catch(() => ({ error: 'Failed to attach payment method' }));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
     }
 
     const data = await response.json();
     return {
       success: true,
-      status: data.status,
+      data: data.data,
     };
   } catch (error) {
-    console.error('❌ Error verifying payment status:', error);
+    console.error('❌ Error attaching payment method:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to verify payment',
+      error: handleNetworkError(error, 'Failed to attach payment method'),
     };
+  }
+}
+
+/**
+ * Confirm payment intent
+ */
+export async function confirmPaymentIntent(
+  params: ConfirmPaymentIntentParams
+): Promise<{
+  success: boolean;
+  data?: PaymongoPaymentIntent;
+  next_action?: {
+    type: string;
+    redirect?: {
+      url: string;
+      return_url: string;
+    };
+  };
+  error?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/paymongo/confirm-payment-intent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        payment_intent_id: params.payment_intent_id,
+        payment_method_id: params.payment_method_id,
+        return_url: params.return_url,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Failed to confirm payment intent' }));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      data: data.data,
+      next_action: data.next_action,
+    };
+  } catch (error) {
+    console.error('❌ Error confirming payment intent:', error);
+    return {
+      success: false,
+      error: handleNetworkError(error, 'Failed to confirm payment intent'),
+    };
+  }
+}
+
+/**
+ * Retrieve payment intent status
+ */
+export async function getPaymentIntent(
+  paymentIntentId: string
+): Promise<{
+  success: boolean;
+  data?: PaymongoPaymentIntent;
+  error?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/paymongo/payment-intent/${paymentIntentId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Failed to retrieve payment intent' }));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      data: data.data,
+    };
+  } catch (error) {
+    console.error('❌ Error retrieving payment intent:', error);
+    return {
+      success: false,
+      error: handleNetworkError(error, 'Failed to retrieve payment intent'),
+    };
+  }
+}
+
+/**
+ * Verify payment via webhook (called by backend)
+ */
+export async function verifyPayment(
+  paymentIntentId: string
+): Promise<{
+  success: boolean;
+  payment?: PaymongoPayment;
+  error?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/paymongo/verify-payment`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        payment_intent_id: paymentIntentId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Failed to verify payment' }));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      payment: data.payment,
+    };
+  } catch (error) {
+    console.error('❌ Error verifying payment:', error);
+    return {
+      success: false,
+      error: handleNetworkError(error, 'Failed to verify payment'),
+    };
+  }
+}
+
+/**
+ * Format amount from PHP to cents (Paymongo uses cents)
+ */
+export function formatAmountToCents(amountInPHP: number): number {
+  return Math.round(amountInPHP * 100);
+}
+
+/**
+ * Format amount from cents to PHP
+ */
+export function formatAmountFromCents(amountInCents: number): number {
+  return amountInCents / 100;
+}
+
+/**
+ * Get payment status display text
+ */
+export function getPaymentStatusText(status: string): string {
+  switch (status) {
+    case 'awaiting_payment_method':
+      return 'Awaiting Payment Method';
+    case 'awaiting_next_action':
+      return 'Action Required';
+    case 'processing':
+      return 'Processing';
+    case 'succeeded':
+      return 'Payment Successful';
+    case 'awaiting_payment':
+      return 'Awaiting Payment';
+    case 'canceled':
+      return 'Payment Canceled';
+    case 'failed':
+      return 'Payment Failed';
+    default:
+      return status;
   }
 }
 

@@ -24,6 +24,12 @@ config.resolver.unstable_enableSymlinks = false;
 config.transformer = {
   ...config.transformer,
   unstable_allowRequireContext: true,
+  getTransformOptions: async () => ({
+    transform: {
+      experimentalImportSupport: false,
+      inlineRequires: true,
+    },
+  }),
 };
 
 // Custom resolver removed - using default Metro resolver

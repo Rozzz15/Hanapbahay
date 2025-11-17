@@ -24,7 +24,7 @@ As an owner, you can confirm tenant payments in the **Owner Dashboard**.
    - The alert box will display:
      - "Payment Awaiting Confirmation (X)" - where X is the number of pending payments
      - Payment amount
-     - Payment method (e.g., "PayMongo GCash")
+     - Payment method (e.g., "GCash")
      - Payment date
 
 5. **Confirm or Reject Payment**
@@ -62,7 +62,7 @@ Owner Dashboard
 
 ## Important Notes
 
-- **PayMongo Payments**: When tenants pay via PayMongo GCash, payments are automatically verified by PayMongo but require your confirmation to ensure you received the money in your account
+- **GCash Payments**: When tenants pay via GCash, payments require your confirmation to ensure you received the money in your account
 - **Payment Account Link**: Payments are linked to your GCash payment account (the one you set up in Payment Settings)
 - **Notifications**: You'll also receive a message notification when a payment is waiting for confirmation
 - **Multiple Payments**: If a tenant has multiple pending payments, they'll all be listed in the confirmation section
@@ -75,7 +75,7 @@ Owner Dashboard
 
 **Q: I don't see any pending confirmations**
 - All payments may have already been confirmed
-- Check if there are any new tenant payments via PayMongo
+- Check if there are any new tenant payments
 
 **Q: The confirmation buttons don't work**
 - Make sure you have an active internet connection

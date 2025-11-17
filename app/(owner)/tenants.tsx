@@ -33,16 +33,18 @@ import TenantInfoModal from '../../components/TenantInfoModal';
 import { designTokens } from '../../styles/owner-dashboard-styles';
 import { addCustomEventListener } from '../../utils/custom-events';
 import { getRentPaymentsByBooking, type RentPayment } from '../../utils/tenant-payments';
-import { CheckCircle, Clock, XCircle, AlertCircle, Download, History, FileText } from 'lucide-react-native';
+import { CheckCircle, Clock, XCircle, AlertCircle, Download, History, FileText, Bell } from 'lucide-react-native';
 import { loadPropertyMedia } from '../../utils/media-storage';
 import { db } from '../../utils/db';
 import { generatePaymentReceipt } from '../../utils/tenant-payments';
 import { BookingRecord, RentPaymentRecord } from '../../types';
-import { confirmPaymentByOwner, rejectPaymentByOwner } from '../../utils/owner-payment-confirmation';
+import { confirmPaymentByOwner, rejectPaymentByOwner, restoreRejectedPayment, deleteRejectedPayment, autoDeleteOldRejectedPayments } from '../../utils/owner-payment-confirmation';
+import { useNotifications } from '../../context/NotificationContext';
 
 export default function TenantsPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const { pendingPaymentsCount, refreshPendingPayments } = useNotifications();
   const [listingsWithTenants, setListingsWithTenants] = useState<ListingWithTenants[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -181,6 +183,13 @@ export default function TenantsPage() {
       setTenantPayments(paymentsMap);
       setTenantAvatars(avatarsMap);
       setPropertyCoverPhotos(coverPhotosMap);
+      
+      // Refresh pending payments count in notification context
+      try {
+        await refreshPendingPayments();
+      } catch (error) {
+        console.error('❌ Error refreshing pending payments count:', error);
+      }
     } catch (error) {
       console.error('❌ Error loading tenants:', error);
       showAlert('Error', 'Failed to load tenants. Please try again.');
@@ -203,6 +212,11 @@ export default function TenantsPage() {
     }
 
     loadTenants();
+    
+    // Auto-delete rejected payments older than 2 days
+    autoDeleteOldRejectedPayments().catch((error: any) => {
+      console.error('Error auto-deleting old rejected payments:', error);
+    });
   }, [user, loadTenants]);
 
   // Refresh when screen comes into focus
@@ -210,6 +224,10 @@ export default function TenantsPage() {
     useCallback(() => {
       if (user?.id) {
         loadTenants();
+        // Auto-delete rejected payments older than 2 days when screen comes into focus
+        autoDeleteOldRejectedPayments().catch((error: any) => {
+          console.error('Error auto-deleting old rejected payments:', error);
+        });
       }
     }, [user?.id, loadTenants])
   );
@@ -241,19 +259,29 @@ export default function TenantsPage() {
     const removeBookingStatusChanged = addCustomEventListener('bookingStatusChanged', handleBookingApproved);
     
     // Listen for payment updates
-    const handlePaymentUpdate = (event: any) => {
+    const handlePaymentUpdate = async (event: any) => {
       console.log('🔄 Payment updated, refreshing tenants...', event?.detail);
+      // Update pending payments count immediately
+      await refreshPendingPayments();
       loadTenants();
     };
     const removePaymentUpdate = addCustomEventListener('paymentUpdated', handlePaymentUpdate);
     
     console.log('👂 Tenants page: Added booking and payment change listeners');
     
+    // Set up periodic auto-delete check (every 6 hours)
+    const autoDeleteInterval = setInterval(() => {
+      autoDeleteOldRejectedPayments().catch((error: any) => {
+        console.error('Error in periodic auto-delete check:', error);
+      });
+    }, 6 * 60 * 60 * 1000); // 6 hours
+    
     return () => {
       removeBookingCreated();
       removeBookingDeleted();
       removeBookingStatusChanged();
       removePaymentUpdate();
+      clearInterval(autoDeleteInterval);
       console.log('🔇 Tenants page: Removed booking and payment change listeners');
     };
   }, [user?.id, loadTenants]);
@@ -306,6 +334,9 @@ export default function TenantsPage() {
               if (result.success) {
                 showAlert('Success', 'Payment confirmed successfully.');
                 
+                // Update pending payments count
+                await refreshPendingPayments();
+                
                 // Reload tenants to refresh payment data
                 await loadTenants();
                 
@@ -343,13 +374,35 @@ export default function TenantsPage() {
   const handleRejectPayment = async (paymentId: string) => {
     if (!user?.id) return;
 
+    // Get payment details for better warning message
+    let paymentAmount = '';
+    let paymentMethod = '';
+    try {
+      const payment = await db.get<RentPaymentRecord>('rent_payments', paymentId);
+      if (payment) {
+        paymentAmount = `₱${payment.totalAmount.toLocaleString()}`;
+        paymentMethod = payment.paymentMethod || 'Unknown method';
+      }
+    } catch (error) {
+      console.error('Error loading payment details:', error);
+    }
+
     Alert.alert(
-      'Reject Payment',
-      'Have you verified that you did NOT receive this payment in your account?\n\nThis will mark the payment as pending and notify the tenant to pay again.',
+      '⚠️ Reject Payment',
+      `Are you absolutely sure you did NOT receive this payment?\n\n` +
+      `Payment Details:\n` +
+      `• Amount: ${paymentAmount}\n` +
+      `• Method: ${paymentMethod}\n\n` +
+      `⚠️ WARNING: This action will:\n` +
+      `• Mark the payment as pending\n` +
+      `• Notify the tenant to pay again\n` +
+      `• Clear the payment confirmation\n\n` +
+      `If you accidentally reject, you can restore it from the payment history.\n\n` +
+      `Please double-check your account before rejecting.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Yes, Reject',
+          text: 'Yes, I\'m Sure - Reject',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -362,6 +415,9 @@ export default function TenantsPage() {
               
               if (result.success) {
                 showAlert('Success', 'Payment rejected. Tenant has been notified.');
+                
+                // Update pending payments count
+                await refreshPendingPayments();
                 
                 // Reload tenants to refresh payment data
                 await loadTenants();
@@ -520,6 +576,20 @@ export default function TenantsPage() {
               </Text>
             </View>
           </View>
+
+          {/* Payment Awaiting Confirmation Notification */}
+          {pendingPaymentsCount > 0 && (
+            <View style={styles.pendingPaymentNotification}>
+              <View style={styles.pendingPaymentNotificationContent}>
+                <Bell size={16} color="#F59E0B" />
+                <Text style={styles.pendingPaymentNotificationText}>
+                  {pendingPaymentsCount === 1 
+                    ? '1 payment awaiting confirmation'
+                    : `${pendingPaymentsCount} payments awaiting confirmation`}
+                </Text>
+              </View>
+            </View>
+          )}
 
           {/* Search Bar */}
           {totalTenants > 0 && (
@@ -780,9 +850,25 @@ export default function TenantsPage() {
                           {/* Payment Status */}
                           {(() => {
                             const payments = tenantPayments.get(tenant.bookingId) || [];
-                            const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'overdue');
+                            const now = new Date();
+                            // Filter out advance payments (future months) and rejected payments from pending count
+                            // Advance payments should only show when they're awaiting confirmation, not as pending
+                            // Rejected payments should not show as pending
+                            const pendingPayments = payments.filter(p => {
+                              // Don't count rejected payments as pending
+                              if (p.status === 'rejected') return false;
+                              if (p.status === 'pending' || p.status === 'overdue') {
+                                // Check if this is an advance payment (future month)
+                                const paymentMonth = new Date(p.paymentMonth + '-01');
+                                const isAdvancePayment = paymentMonth > now;
+                                // Don't count advance payments as pending - they should only show when paid/awaiting confirmation
+                                return !isAdvancePayment;
+                              }
+                              return false;
+                            });
                             const paidPayments = payments.filter(p => p.status === 'paid');
                             const overduePayments = payments.filter(p => p.status === 'overdue');
+                            const rejectedPayments = payments.filter(p => p.status === 'rejected');
                             const pendingConfirmationPayments = payments.filter(p => p.status === 'pending_owner_confirmation');
                             
                             if (payments.length === 0) {
@@ -1018,19 +1104,24 @@ export default function TenantsPage() {
                             payment.status === 'pending' && styles.paymentHistoryStatusBadgePending,
                             payment.status === 'overdue' && styles.paymentHistoryStatusBadgeOverdue,
                             payment.status === 'pending_owner_confirmation' && styles.paymentHistoryStatusBadgePending,
+                            payment.status === 'rejected' && styles.paymentHistoryStatusBadgeRejected,
                           ]}>
                             {payment.status === 'paid' && <CheckCircle size={14} color="#10B981" />}
                             {payment.status === 'pending' && <Clock size={14} color="#F59E0B" />}
                             {payment.status === 'overdue' && <XCircle size={14} color="#EF4444" />}
                             {payment.status === 'pending_owner_confirmation' && <AlertCircle size={14} color="#F59E0B" />}
+                            {payment.status === 'rejected' && <XCircle size={14} color="#EF4444" />}
                             <Text style={[
                               styles.paymentHistoryStatusText,
                               payment.status === 'paid' && styles.paymentHistoryStatusTextPaid,
                               payment.status === 'pending' && styles.paymentHistoryStatusTextPending,
                               payment.status === 'overdue' && styles.paymentHistoryStatusTextOverdue,
                               payment.status === 'pending_owner_confirmation' && styles.paymentHistoryStatusTextPending,
+                              payment.status === 'rejected' && styles.paymentHistoryStatusTextRejected,
                             ]}>
-                              {payment.status === 'pending_owner_confirmation' ? 'Pending Confirmation' : payment.status.toUpperCase()}
+                              {payment.status === 'pending_owner_confirmation' ? 'Pending Confirmation' : 
+                               payment.status === 'rejected' ? 'Rejected' :
+                               payment.status.toUpperCase()}
                             </Text>
                           </View>
                           <Text style={styles.paymentHistoryAmount}>
@@ -1094,6 +1185,193 @@ export default function TenantsPage() {
                           </View>
                         )}
                       </View>
+
+                      {/* Restore/Delete Buttons for Rejected Payments */}
+                      {payment.status === 'rejected' && (
+                        <View style={styles.paymentHistoryActionsContainer}>
+                          <Text style={styles.paymentHistoryActionsTitle}>
+                            ⚠️ This payment was previously rejected
+                          </Text>
+                          <Text style={styles.paymentHistoryRestoreNote}>
+                            ⚠️ Only restore if you have verified in your account that you actually received this payment. Do not restore scam or fake payments.
+                          </Text>
+                          <View style={styles.paymentHistoryActionButtons}>
+                            <TouchableOpacity
+                              style={[styles.restorePaymentButton, processingPayment === payment.id && styles.paymentButtonDisabled]}
+                              onPress={async () => {
+                                if (!user?.id) return;
+                                
+                                Alert.alert(
+                                  '⚠️ Restore Rejected Payment',
+                                  `IMPORTANT: Only restore this payment if you have VERIFIED that you actually received it in your account.\n\n` +
+                                  `Payment Details:\n` +
+                                  `• Amount: ₱${payment.totalAmount.toLocaleString()}\n` +
+                                  `• Method: ${payment.originalPaymentMethod || payment.paymentMethod || 'Unknown'}\n` +
+                                  `• Receipt: ${payment.receiptNumber}\n\n` +
+                                  `⚠️ WARNING:\n` +
+                                  `• Do NOT restore if this was a scam or fake payment\n` +
+                                  `• Do NOT restore if you did NOT receive the payment\n` +
+                                  `• Only restore if you accidentally rejected a legitimate payment\n\n` +
+                                  `This will restore the payment to "awaiting confirmation" status, and you'll need to verify it again before confirming.\n\n` +
+                                  `Have you verified in your account that you actually received this payment?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'No, I Did NOT Receive It',
+                                      style: 'destructive',
+                                      onPress: () => {
+                                        showAlert('Info', 'Payment will remain rejected. If you need to restore it later, you can do so from the payment history.');
+                                      },
+                                    },
+                                    {
+                                      text: 'Yes, I Received It - Restore',
+                                      onPress: async () => {
+                                        try {
+                                          setProcessingPayment(payment.id);
+                                          const result = await restoreRejectedPayment(payment.id, user.id, true);
+                                          
+                                          if (result.success) {
+                                            showAlert('Success', 'Payment restored successfully. Tenant has been notified.');
+                                            
+                                            // Update pending payments count
+                                            await refreshPendingPayments();
+                                            
+                                            // Reload tenants to refresh payment data
+                                            await loadTenants();
+                                            
+                                            // If payment history modal is open, refresh the selected tenant's payments
+                                            if (selectedTenantForHistory) {
+                                              try {
+                                                const updatedPayments = await getRentPaymentsByBooking(selectedTenantForHistory.tenant.bookingId);
+                                                const booking = await db.get<BookingRecord>('bookings', selectedTenantForHistory.tenant.bookingId);
+                                                setSelectedTenantForHistory({
+                                                  ...selectedTenantForHistory,
+                                                  payments: updatedPayments.sort((a, b) => 
+                                                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                                                  ),
+                                                  booking: booking || selectedTenantForHistory.booking,
+                                                });
+                                              } catch (error) {
+                                                console.error('Error refreshing payment history:', error);
+                                              }
+                                            }
+                                          } else {
+                                            showAlert('Error', result.error || 'Failed to restore payment');
+                                          }
+                                        } catch (error) {
+                                          console.error('Error restoring payment:', error);
+                                          showAlert('Error', 'Failed to restore payment');
+                                        } finally {
+                                          setProcessingPayment(null);
+                                        }
+                                      },
+                                    },
+                                  ]
+                                );
+                              }}
+                              disabled={processingPayment === payment.id}
+                              activeOpacity={0.7}
+                            >
+                              {processingPayment === payment.id ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                              ) : (
+                                <>
+                                  <CheckCircle size={16} color="#FFFFFF" />
+                                  <Text style={styles.restorePaymentButtonText}>Restore</Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity
+                              style={[styles.deletePaymentButton, processingPayment === payment.id && styles.paymentButtonDisabled]}
+                              onPress={async () => {
+                                if (!user?.id) return;
+                                
+                                Alert.alert(
+                                  '🗑️ Delete Rejected Payment',
+                                  `⚠️ PERMANENT ACTION - This cannot be undone!\n\n` +
+                                  `Payment Details:\n` +
+                                  `• Amount: ₱${payment.totalAmount.toLocaleString()}\n` +
+                                  `• Method: ${payment.originalPaymentMethod || payment.paymentMethod || 'Unknown'}\n` +
+                                  `• Receipt: ${payment.receiptNumber}\n\n` +
+                                  `⚠️ WARNING:\n` +
+                                  `• This will PERMANENTLY DELETE the payment from the system\n` +
+                                  `• The tenant will be notified of the deletion\n` +
+                                  `• This action CANNOT be undone\n\n` +
+                                  `Only delete if this was a scam or fake payment that should be completely removed.\n\n` +
+                                  `Are you absolutely sure you want to permanently delete this payment?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Yes, Delete Permanently',
+                                      style: 'destructive',
+                                      onPress: async () => {
+                                        try {
+                                          setProcessingPayment(payment.id);
+                                          const result = await deleteRejectedPayment(
+                                            payment.id, 
+                                            user.id, 
+                                            'Payment was a scam/fake payment - permanently deleted by owner'
+                                          );
+                                          
+                                          if (result.success) {
+                                            showAlert('Success', 'Payment permanently deleted. Tenant has been notified.');
+                                            
+                                            // Update pending payments count
+                                            await refreshPendingPayments();
+                                            
+                                            // Reload tenants to refresh payment data
+                                            await loadTenants();
+                                            
+                                            // If payment history modal is open, refresh the selected tenant's payments
+                                            if (selectedTenantForHistory) {
+                                              try {
+                                                const updatedPayments = await getRentPaymentsByBooking(selectedTenantForHistory.tenant.bookingId);
+                                                const booking = await db.get<BookingRecord>('bookings', selectedTenantForHistory.tenant.bookingId);
+                                                setSelectedTenantForHistory({
+                                                  ...selectedTenantForHistory,
+                                                  payments: updatedPayments.sort((a, b) => 
+                                                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                                                  ),
+                                                  booking: booking || selectedTenantForHistory.booking,
+                                                });
+                                              } catch (error) {
+                                                console.error('Error refreshing payment history:', error);
+                                              }
+                                            }
+                                            
+                                            // Close modal if payment was deleted
+                                            setPaymentHistoryModalVisible(false);
+                                            setSelectedTenantForHistory(null);
+                                          } else {
+                                            showAlert('Error', result.error || 'Failed to delete payment');
+                                          }
+                                        } catch (error) {
+                                          console.error('Error deleting payment:', error);
+                                          showAlert('Error', 'Failed to delete payment');
+                                        } finally {
+                                          setProcessingPayment(null);
+                                        }
+                                      },
+                                    },
+                                  ]
+                                );
+                              }}
+                              disabled={processingPayment === payment.id}
+                              activeOpacity={0.7}
+                            >
+                              {processingPayment === payment.id ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                              ) : (
+                                <>
+                                  <Trash2 size={16} color="#FFFFFF" />
+                                  <Text style={styles.deletePaymentButtonText}>Delete</Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
 
                       {/* Action Buttons for Pending Payments */}
                       {(payment.status === 'pending' || payment.status === 'pending_owner_confirmation') && (
@@ -1910,6 +2188,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EF4444',
   },
+  paymentHistoryStatusBadgeRejected: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
   paymentHistoryStatusText: {
     fontSize: 12,
     fontWeight: '600',
@@ -1921,6 +2204,9 @@ const styles = StyleSheet.create({
     color: '#F59E0B',
   },
   paymentHistoryStatusTextOverdue: {
+    color: '#EF4444',
+  },
+  paymentHistoryStatusTextRejected: {
     color: '#EF4444',
   },
   paymentHistoryAmount: {
@@ -1997,6 +2283,68 @@ const styles = StyleSheet.create({
   paymentHistoryActionButtons: {
     flexDirection: 'row',
     gap: 8,
+  },
+  paymentHistoryRestoreNote: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 12,
+    lineHeight: 16,
+  },
+  restorePaymentButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  restorePaymentButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  deletePaymentButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DC2626',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  deletePaymentButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  pendingPaymentNotification: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pendingPaymentNotificationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  pendingPaymentNotificationText: {
+    fontSize: 13,
+    color: '#92400E',
+    fontWeight: '600',
+    flex: 1,
   },
 });
 

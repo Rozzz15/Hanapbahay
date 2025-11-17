@@ -1,23 +1,43 @@
 import { db, generateId } from './db';
 import { PublishedListingRecord, ConversationRecord, MessageRecord, DbUserRecord, OwnerProfileRecord, TenantProfileRecord } from '../types';
 
-// Conditional import for web compatibility
-let supabase: any;
-if (typeof window !== 'undefined') {
-  // Web environment - use mock
-  supabase = {
-    from: () => ({
-      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
-      insert: () => Promise.resolve({ data: null, error: null }),
-      update: () => Promise.resolve({ data: null, error: null }),
-      delete: () => Promise.resolve({ data: null, error: null }),
-    }),
-  };
-} else {
-  // Mobile environment - use real Supabase
-  const { supabase: realSupabase } = require('./supabase-client');
-  supabase = realSupabase;
-}
+// Lazy-load supabase client to avoid Metro bundling issues
+// Create a mock supabase client that's always available
+const createMockSupabase = () => ({
+  from: () => ({
+    select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+    insert: () => Promise.resolve({ data: null, error: null }),
+    update: () => Promise.resolve({ data: null, error: null }),
+    delete: () => Promise.resolve({ data: null, error: null }),
+  }),
+});
+
+// Lazy-load supabase client only when needed (not at module load time)
+let supabaseCache: any = null;
+const getSupabase = async () => {
+  if (supabaseCache) {
+    return supabaseCache;
+  }
+  
+  try {
+    if (typeof window !== 'undefined') {
+      // Web environment - use mock
+      supabaseCache = createMockSupabase();
+    } else {
+      // Mobile environment - try to use real Supabase (lazy import)
+      const supabaseClient = await import('./supabase-client');
+      supabaseCache = supabaseClient.supabase || supabaseClient.default || createMockSupabase();
+    }
+  } catch (error) {
+    // Fallback to mock if import fails
+    supabaseCache = createMockSupabase();
+  }
+  
+  return supabaseCache;
+};
+
+// For synchronous access, use mock (most functions don't actually use supabase)
+const supabase = createMockSupabase();
 
 // Owner Dashboard Database Operations
 

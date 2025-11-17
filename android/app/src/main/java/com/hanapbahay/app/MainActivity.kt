@@ -66,8 +66,8 @@ class MainActivity : ReactActivity() {
   }
 
   /**
-   * Handle GCash deep links from WebView (PayMongo integration)
-   * This allows PayMongo payment pages to properly redirect to GCash app
+   * Handle GCash deep links from WebView
+   * This allows payment pages to properly redirect to GCash app
    */
   fun shouldOverrideUrlLoading(url: String): Boolean {
     // Use gcash:// on production and sit environment

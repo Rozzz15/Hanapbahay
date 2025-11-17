@@ -89,7 +89,7 @@ interface OwnerSidebarNavProps {
 export default function OwnerSidebarNav({ style }: OwnerSidebarNavProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { unreadCount, pendingBookingsCount } = useNotifications();
+  const { unreadCount, pendingBookingsCount, pendingPaymentsCount } = useNotifications();
   const sidebarWidth = getSidebarWidth();
 
   const isActive = (path: string) => {
@@ -103,6 +103,7 @@ export default function OwnerSidebarNav({ style }: OwnerSidebarNavProps) {
   const getBadgeCount = (itemId: string) => {
     if (itemId === 'messages') return unreadCount;
     if (itemId === 'bookings') return pendingBookingsCount;
+    if (itemId === 'tenants') return pendingPaymentsCount;
     return 0;
   };
 

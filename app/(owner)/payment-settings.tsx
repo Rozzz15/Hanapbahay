@@ -1,11 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Pressable, Platform, Image, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Pressable, Platform, Image, Alert, RefreshControl } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, generateId } from '../../utils/db';
-import { useToast } from '@/components/ui/toast';
-import { createNotification } from '@/utils';
-import { ArrowLeft, Plus, Trash2, CreditCard, Save, ImageIcon, X } from 'lucide-react-native';
+import { 
+  ArrowLeft, 
+  Plus, 
+  CreditCard, 
+  Save, 
+  ImageIcon, 
+  X, 
+  Wallet,
+  Smartphone,
+  Building2,
+  Banknote,
+  Edit,
+  CheckCircle,
+  XCircle
+} from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,8 +37,8 @@ interface PaymentAccount {
 }
 
 const PAYMENT_TYPES = [
-  { id: 'gcash', name: 'GCash', icon: '📱', placeholder: 'Enter GCash number (e.g., 09123456789)' },
-  { id: 'paymaya', name: 'Maya', icon: '💳', placeholder: 'Enter Maya number (e.g., 09123456789)' },
+  { id: 'gcash', name: 'GCash', icon: require('../../assets/images/Gcash.jpg'), placeholder: 'Enter GCash number (e.g., 09123456789)' },
+  { id: 'paymaya', name: 'Maya', icon: require('../../assets/images/paymaya.jpg'), placeholder: 'Enter Maya number (e.g., 09123456789)' },
   { id: 'bank_transfer', name: 'Bank Transfer', icon: '🏦', placeholder: 'Enter bank account number' },
   { id: 'cash', name: 'Cash Payment', icon: '💵', placeholder: 'Enter payment instructions' }
 ];
@@ -33,12 +46,12 @@ const PAYMENT_TYPES = [
 export default function PaymentSettings() {
   const { user } = useAuth();
   const router = useRouter();
-  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingAccount, setEditingAccount] = useState<PaymentAccount | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [formData, setFormData] = useState({
     type: 'gcash' as PaymentAccount['type'],
     accountName: '',
@@ -83,14 +96,30 @@ export default function PaymentSettings() {
       setAccounts(userAccounts);
     } catch (error) {
       console.error('❌ Error loading payment accounts:', error);
-      toast.show(createNotification({
-        title: 'Load Failed',
-        description: `Failed to load payment accounts: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
-        type: 'error'
-      }));
+      Alert.alert(
+        'Load Failed',
+        `Failed to load payment accounts: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`
+      );
     } finally {
       setLoadingData(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadPaymentAccounts();
+  };
+
+  const getPaymentStats = () => {
+    const total = accounts.length;
+    const gcash = accounts.filter(a => a.type === 'gcash').length;
+    const paymaya = accounts.filter(a => a.type === 'paymaya').length;
+    const bank = accounts.filter(a => a.type === 'bank_transfer').length;
+    const cash = accounts.filter(a => a.type === 'cash').length;
+    const active = accounts.filter(a => a.isActive).length;
+    
+    return { total, gcash, paymaya, bank, cash, active };
   };
 
   const resetForm = () => {
@@ -108,20 +137,12 @@ export default function PaymentSettings() {
 
   const validateForm = () => {
     if (!formData.accountName.trim()) {
-      toast.show(createNotification({
-        title: 'Validation Error',
-        description: 'Please enter the account holder name.',
-        type: 'error'
-      }));
+      Alert.alert('Validation Error', 'Please enter the account holder name.');
       return false;
     }
 
     if (!formData.accountNumber.trim()) {
-      toast.show(createNotification({
-        title: 'Validation Error',
-        description: 'Please enter the account number or email.',
-        type: 'error'
-      }));
+      Alert.alert('Validation Error', 'Please enter the account number or email.');
       return false;
     }
 
@@ -129,22 +150,14 @@ export default function PaymentSettings() {
     if (formData.type === 'gcash' || formData.type === 'paymaya') {
       const phoneRegex = /^09\d{9}$/;
       if (!phoneRegex.test(formData.accountNumber)) {
-        toast.show(createNotification({
-          title: 'Invalid Format',
-          description: 'Please enter a valid mobile number (e.g., 09123456789).',
-          type: 'error'
-        }));
+        Alert.alert('Invalid Format', 'Please enter a valid mobile number (e.g., 09123456789).');
         return false;
       }
     }
 
     if (formData.type === 'cash') {
       if (formData.accountNumber.trim().length < 5) {
-        toast.show(createNotification({
-          title: 'Invalid Instructions',
-          description: 'Please enter detailed payment instructions (at least 5 characters).',
-          type: 'error'
-        }));
+        Alert.alert('Invalid Instructions', 'Please enter detailed payment instructions (at least 5 characters).');
         return false;
       }
     }
@@ -159,11 +172,7 @@ export default function PaymentSettings() {
     
     if (!user?.id) {
       console.error('❌ No user ID found');
-      toast.show(createNotification({
-        title: 'Authentication Error',
-        description: 'Please log in to save payment settings.',
-        type: 'error'
-      }));
+      Alert.alert('Authentication Error', 'Please log in to save payment settings.');
       return;
     }
 
@@ -198,11 +207,7 @@ export default function PaymentSettings() {
         await db.upsert('payment_accounts', editingAccount.id, updatedAccount);
         console.log('✅ Account updated successfully');
         
-        toast.show(createNotification({
-          title: '✅ Payment Info Updated',
-          description: 'Your payment information has been updated successfully.',
-          type: 'success'
-        }));
+        Alert.alert('✅ Payment Info Updated', 'Your payment information has been updated successfully.');
       } else {
         // Create new account
         const newAccount: PaymentAccount = {
@@ -222,11 +227,7 @@ export default function PaymentSettings() {
         await db.upsert('payment_accounts', newAccount.id, newAccount);
         console.log('✅ Account created successfully');
         
-        toast.show(createNotification({
-          title: '✅ Payment Info Added',
-          description: 'Your payment information has been saved successfully.',
-          type: 'success'
-        }));
+        Alert.alert('✅ Payment Info Added', 'Your payment information has been saved successfully.');
       }
 
       console.log('🔄 Resetting form and reloading accounts...');
@@ -235,11 +236,10 @@ export default function PaymentSettings() {
       console.log('✅ Payment account save process completed');
     } catch (error) {
       console.error('❌ Error saving payment account:', error);
-      toast.show(createNotification({
-        title: 'Save Failed',
-        description: `Failed to save payment information: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
-        type: 'error'
-      }));
+      Alert.alert(
+        'Save Failed',
+        `Failed to save payment information: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`
+      );
     } finally {
       setLoading(false);
     }
@@ -268,20 +268,12 @@ export default function PaymentSettings() {
               
               await db.remove('payment_accounts', accountId);
               
-              toast.show(createNotification({
-                title: '✅ Payment Account Deleted',
-                description: 'The payment account has been removed successfully.',
-                type: 'success'
-              }));
+              Alert.alert('✅ Payment Account Deleted', 'The payment account has been removed successfully.');
               
               loadPaymentAccounts();
             } catch (error) {
               console.error('Error deleting payment account:', error);
-              toast.show(createNotification({
-                title: 'Delete Failed',
-                description: 'Failed to delete payment account. Please try again.',
-                type: 'error'
-              }));
+              Alert.alert('Delete Failed', 'Failed to delete payment account. Please try again.');
             } finally {
               setLoading(false);
             }
@@ -326,19 +318,11 @@ export default function PaymentSettings() {
 
       if (!result.canceled && result.assets[0]) {
         setFormData(prev => ({ ...prev, qrCodeImageUri: result.assets[0].uri }));
-        toast.show(createNotification({
-          title: 'QR Code Added',
-          description: 'QR code image has been selected.',
-          type: 'success'
-        }));
+        Alert.alert('QR Code Added', 'QR code image has been selected.');
       }
     } catch (error) {
       console.error('Error picking QR code image:', error);
-      toast.show(createNotification({
-        title: 'Error',
-        description: 'Failed to pick QR code image. Please try again.',
-        type: 'error'
-      }));
+      Alert.alert('Error', 'Failed to pick QR code image. Please try again.');
     }
   };
 
@@ -398,7 +382,7 @@ export default function PaymentSettings() {
                 <Text style={{
                   fontSize: designTokens.typography.xs,
                   color: designTokens.colors.info,
-                  fontWeight: designTokens.typography.medium,
+                  fontWeight: '500' as const,
                 }}>
                   {existingAccountsOfType.length} existing {formData.type === 'gcash' ? 'GCash' : formData.type === 'paymaya' ? 'Maya' : formData.type}
                 </Text>
@@ -408,6 +392,7 @@ export default function PaymentSettings() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
             {PAYMENT_TYPES.map((type) => {
               const existingOfThisType = accounts.filter(acc => acc.type === type.id && (!editingAccount || acc.id !== editingAccount.id));
+              const isImage = typeof type.icon !== 'string';
               return (
                 <TouchableOpacity
                   key={type.id}
@@ -417,11 +402,30 @@ export default function PaymentSettings() {
                   ]}
                   onPress={() => setFormData(prev => ({ ...prev, type: type.id as PaymentAccount['type'] }))}
                 >
+                  {isImage ? (
+                    <Image 
+                      source={type.icon} 
+                      style={{ 
+                        width: 18, 
+                        height: 18, 
+                        marginRight: designTokens.spacing.xs,
+                        resizeMode: 'contain',
+                        borderRadius: 4
+                      }} 
+                    />
+                  ) : (
+                    <Text style={[
+                      sharedStyles.secondaryButtonText,
+                      formData.type === type.id && { color: 'white' }
+                    ]}>
+                      {type.icon}
+                    </Text>
+                  )}
                   <Text style={[
                     sharedStyles.secondaryButtonText,
                     formData.type === type.id && { color: 'white' }
                   ]}>
-                    {type.icon} {type.name}
+                    {type.name}
                     {existingOfThisType.length > 0 && ` (${existingOfThisType.length})`}
                   </Text>
                 </TouchableOpacity>
@@ -446,10 +450,27 @@ export default function PaymentSettings() {
         </View>
 
         <View style={sharedStyles.formGroup}>
-          <Text style={sharedStyles.formLabel}>Account Name *</Text>
+          <Text style={sharedStyles.formLabel}>
+            {formData.type === 'cash' ? 'Payment Method Name *' : 'Account Name / Label *'}
+          </Text>
+          <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs, fontSize: 12, color: designTokens.colors.textMuted }]}>
+            {formData.type === 'cash' 
+              ? 'Give this payment method a name (e.g., "Property Office", "Main Entrance", "Owner - Juan dela Cruz")'
+              : formData.type === 'gcash' || formData.type === 'paymaya'
+              ? 'Account holder name or label (e.g., "Juan dela Cruz", "Property Management Office", "Main GCash Account")'
+              : formData.type === 'bank_transfer'
+              ? 'Account holder name or label (e.g., "Juan dela Cruz", "ABC Property Management", "Savings Account")'
+              : 'Account holder name or label'}
+          </Text>
           <TextInput
             style={sharedStyles.formInput}
-            placeholder="Enter account holder name"
+            placeholder={
+              formData.type === 'cash'
+                ? 'e.g., Property Office, Main Entrance, Owner Name'
+                : formData.type === 'gcash' || formData.type === 'paymaya'
+                ? 'e.g., Juan dela Cruz, Property Office, Main Account'
+                : 'e.g., Juan dela Cruz, ABC Property Management'
+            }
             value={formData.accountName}
             onChangeText={(value) => setFormData(prev => ({ ...prev, accountName: value }))}
           />
@@ -481,12 +502,14 @@ export default function PaymentSettings() {
           />
         </View>
 
-        {/* QR Code Upload - Only for GCash */}
-        {formData.type === 'gcash' && (
+        {/* QR Code Upload - For GCash and Maya */}
+        {(formData.type === 'gcash' || formData.type === 'paymaya') && (
           <View style={sharedStyles.formGroup}>
-            <Text style={sharedStyles.formLabel}>GCash QR Code (Optional)</Text>
+            <Text style={sharedStyles.formLabel}>
+              {formData.type === 'gcash' ? 'GCash' : 'Maya'} QR Code (Optional)
+            </Text>
             <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm, fontSize: 12 }]}>
-              Upload your GCash QR code image. This will be used to generate dynamic QR codes for each rental invoice.
+              Upload your {formData.type === 'gcash' ? 'GCash' : 'Maya'} QR code image. This will be used to generate dynamic QR codes for each rental invoice.
             </Text>
             {formData.qrCodeImageUri ? (
               <View style={{ position: 'relative', marginTop: designTokens.spacing.sm }}>
@@ -602,16 +625,75 @@ export default function PaymentSettings() {
     const hasMultipleOfSameType = accountsOfSameType.length > 1;
     const accountIndex = accountsOfSameType.findIndex(acc => acc.id === account.id) + 1;
     
+    // Get icon based on type
+    const getTypeIcon = () => {
+      switch (account.type) {
+        case 'gcash':
+          return (
+            <Image 
+              source={require('../../assets/images/Gcash.jpg')} 
+              style={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 18
+              }} 
+              resizeMode="cover"
+            />
+          );
+        case 'paymaya':
+          return (
+            <Image 
+              source={require('../../assets/images/paymaya.jpg')} 
+              style={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 18
+              }} 
+              resizeMode="cover"
+            />
+          );
+        case 'bank_transfer':
+          return <Building2 size={20} color={designTokens.colors.primary} />;
+        case 'cash':
+          return <Banknote size={20} color={designTokens.colors.warning} />;
+        default:
+          return <CreditCard size={20} color={designTokens.colors.primary} />;
+      }
+    };
+
+    const getTypeIconBg = () => {
+      switch (account.type) {
+        case 'gcash':
+          return iconBackgrounds.blue;
+        case 'paymaya':
+          return iconBackgrounds.teal;
+        case 'bank_transfer':
+          return iconBackgrounds.green;
+        case 'cash':
+          return iconBackgrounds.orange;
+        default:
+          return iconBackgrounds.blue;
+      }
+    };
+    
     return (
-      <View key={account.id} style={sharedStyles.card}>
+      <Pressable
+        key={account.id}
+        style={({ pressed }) => [
+          sharedStyles.card,
+          pressed && { opacity: 0.7 }
+        ]}
+        onLongPress={() => handleDelete(account.id)}
+      >
+        {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.lg }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginRight: designTokens.spacing.md }]}>
-              <Text style={{ fontSize: 20 }}>{paymentType?.icon}</Text>
+            <View style={[sharedStyles.statIcon, getTypeIconBg(), { marginRight: designTokens.spacing.md }]}>
+              {getTypeIcon()}
             </View>
             <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, marginBottom: 4 }}>
-                <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.lg }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, marginBottom: designTokens.spacing.xs, flexWrap: 'wrap' }}>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: 0 }]}>
                   {paymentType?.name}
                 </Text>
                 {hasMultipleOfSameType && (
@@ -624,69 +706,76 @@ export default function PaymentSettings() {
                     <Text style={{
                       fontSize: designTokens.typography.xs,
                       color: designTokens.colors.primary,
-                      fontWeight: designTokens.typography.semibold,
+                      fontWeight: '600' as const,
                     }}>
                       #{accountIndex}
                     </Text>
                   </View>
                 )}
               </View>
-              <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.textPrimary }]}>
+              <Text style={[sharedStyles.statLabel, { color: designTokens.colors.textPrimary, fontWeight: '500' as const, marginBottom: designTokens.spacing.xs }]}>
                 {account.accountName}
               </Text>
               {hasMultipleOfSameType && (
-                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, color: designTokens.colors.textMuted, marginTop: 2 }]}>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, color: designTokens.colors.textMuted }]}>
                   {account.accountNumber}
                 </Text>
               )}
             </View>
           </View>
-          <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
-            <TouchableOpacity
-              style={[sharedStyles.secondaryButton, { paddingHorizontal: designTokens.spacing.md, paddingVertical: designTokens.spacing.xs }]}
-              onPress={() => handleEdit(account)}
-            >
-              <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info }]}>
-                Edit
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[sharedStyles.secondaryButton, { paddingHorizontal: designTokens.spacing.md, paddingVertical: designTokens.spacing.xs }]}
-              onPress={() => handleDelete(account.id)}
-            >
-              <Trash2 size={14} color={designTokens.colors.error} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[sharedStyles.secondaryButton, { paddingHorizontal: designTokens.spacing.md, paddingVertical: designTokens.spacing.xs, flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs }]}
+            onPress={() => handleEdit(account)}
+          >
+            <Edit size={14} color={designTokens.colors.info} />
+            <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info }]}>
+              Edit
+            </Text>
+          </TouchableOpacity>
         </View>
 
+        {/* Details Section */}
         <View style={{ borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, paddingTop: designTokens.spacing.lg }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-            <Text style={sharedStyles.statSubtitle}>
-              {account.type === 'cash' ? 'Payment Instructions:' : 'Account Number:'}
-            </Text>
-            <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>
-              {account.accountNumber}
-            </Text>
-          </View>
+          {account.type === 'cash' ? (
+            <View style={{ marginBottom: designTokens.spacing.md }}>
+              <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.xs }]}>
+                Payment Instructions:
+              </Text>
+              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, lineHeight: 20 }]}>
+                {account.accountNumber}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ marginBottom: designTokens.spacing.md }}>
+              <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.xs }]}>
+                Account Number:
+              </Text>
+              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, fontWeight: '600' as const }]}>
+                {account.accountNumber}
+              </Text>
+            </View>
+          )}
           
           {account.accountDetails && (
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
-              <Text style={sharedStyles.statSubtitle}>Notes:</Text>
-              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, flex: 1, textAlign: 'right' }]}>
+            <View style={{ marginBottom: designTokens.spacing.md }}>
+              <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.xs }]}>Notes:</Text>
+              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm, lineHeight: 20 }]}>
                 {account.accountDetails}
               </Text>
             </View>
           )}
           
-          {account.type === 'gcash' && account.qrCodeImageUri && (
-            <View style={{ marginTop: designTokens.spacing.md, alignItems: 'center' }}>
-              <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm }]}>QR Code:</Text>
+          {(account.type === 'gcash' || account.type === 'paymaya') && account.qrCodeImageUri && (
+            <View style={{ marginBottom: designTokens.spacing.md, alignItems: 'center', padding: designTokens.spacing.md, backgroundColor: designTokens.colors.background, borderRadius: designTokens.borderRadius.md }}>
+              <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.sm }]}>
+                {account.type === 'gcash' ? 'GCash' : 'Maya'} QR Code:
+              </Text>
               <Image
                 source={{ uri: account.qrCodeImageUri }}
                 style={{
                   width: 150,
                   height: 150,
-                  borderRadius: designTokens.spacing.sm,
+                  borderRadius: designTokens.borderRadius.md,
                   borderWidth: 1,
                   borderColor: designTokens.colors.borderLight
                 }}
@@ -695,22 +784,41 @@ export default function PaymentSettings() {
             </View>
           )}
           
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={sharedStyles.statSubtitle}>Status:</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: designTokens.spacing.sm }}>
+            <Text style={[sharedStyles.formLabel, { marginBottom: 0 }]}>Status:</Text>
             <View style={[
               sharedStyles.statusBadge,
-              { backgroundColor: account.isActive ? designTokens.colors.successLight : designTokens.colors.borderLight }
+              { 
+                backgroundColor: account.isActive ? designTokens.colors.successLight : designTokens.colors.borderLight,
+                paddingHorizontal: designTokens.spacing.md,
+                paddingVertical: designTokens.spacing.xs,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: designTokens.spacing.xs,
+              }
             ]}>
+              {account.isActive ? (
+                <CheckCircle size={14} color={designTokens.colors.success} />
+              ) : (
+                <XCircle size={14} color={designTokens.colors.textMuted} />
+              )}
               <Text style={[
                 sharedStyles.statusText,
-                { color: account.isActive ? designTokens.colors.success : designTokens.colors.textMuted }
+                { 
+                  color: account.isActive ? designTokens.colors.success : designTokens.colors.textMuted,
+                }
               ]}>
                 {account.isActive ? 'Active' : 'Inactive'}
               </Text>
             </View>
           </View>
         </View>
-      </View>
+        <View style={{ marginTop: designTokens.spacing.sm, paddingTop: designTokens.spacing.sm, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+          <Text style={[sharedStyles.statSubtitle, { fontSize: 11, color: designTokens.colors.textMuted, fontStyle: 'italic', textAlign: 'center' }]}>
+            💡 Tap and hold to delete
+          </Text>
+        </View>
+      </Pressable>
     );
   };
 
@@ -722,19 +830,25 @@ export default function PaymentSettings() {
     );
   }
 
+  const stats = getPaymentStats();
+
   return (
     <View style={sharedStyles.container}>
       <View style={sharedStyles.mainContent}>
-        <ScrollView style={sharedStyles.scrollView}>
+        <ScrollView 
+          style={sharedStyles.scrollView}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           <View style={sharedStyles.pageContainer}>
             {/* Header */}
             <View style={sharedStyles.pageHeader}>
-              <TouchableOpacity onPress={() => router.back()} style={{ marginRight: designTokens.spacing.md }}>
-                <ArrowLeft size={24} color={designTokens.colors.textPrimary} />
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
+              <View style={sharedStyles.headerLeft}>
                 <Text style={sharedStyles.pageTitle}>Payment Settings</Text>
-                <Text style={[sharedStyles.statSubtitle, { marginTop: 4 }]}>Manage your payment methods</Text>
+                <Text style={sharedStyles.pageSubtitle}>
+                  {stats.total} payment method{stats.total !== 1 ? 's' : ''} configured
+                </Text>
               </View>
             </View>
 
@@ -743,22 +857,67 @@ export default function PaymentSettings() {
 
             {/* Add Button - Always show when not editing */}
             {!showAddForm && (
-              <View style={sharedStyles.section}>
+              <View style={[sharedStyles.section, { marginBottom: designTokens.spacing.lg }]}>
                 <Pressable
-                  style={({ pressed }) => [
-                    sharedStyles.primaryButton,
-                    { 
-                      marginBottom: designTokens.spacing.lg,
-                      opacity: pressed ? 0.7 : 1,
-                      cursor: Platform.OS === 'web' ? 'pointer' : undefined
-                    }
-                  ]}
                   onPress={handleOpenAddForm}
                   accessibilityRole="button"
                   accessibilityLabel="Add Payment Account"
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.8 : 1,
+                    cursor: Platform.OS === 'web' ? 'pointer' : undefined
+                  })}
                 >
-                  <Plus size={16} color="white" />
-                  <Text style={sharedStyles.primaryButtonText}>Add Payment Account</Text>
+                  <View style={[
+                    sharedStyles.card,
+                    {
+                      backgroundColor: designTokens.colors.white,
+                      borderWidth: 2,
+                      borderColor: designTokens.colors.primary,
+                      borderStyle: 'dashed',
+                      padding: designTokens.spacing.lg,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: designTokens.spacing.md,
+                    }
+                  ]}>
+                    <LinearGradient
+                      colors={designTokens.gradients.primary as any}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        ...designTokens.shadows.sm,
+                      }}
+                    >
+                      <Plus size={20} color="#FFFFFF" strokeWidth={2.5} />
+                    </LinearGradient>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[
+                        sharedStyles.sectionTitle,
+                        {
+                          fontSize: designTokens.typography.base,
+                          marginBottom: 2,
+                          color: designTokens.colors.textPrimary,
+                        }
+                      ]}>
+                        Add Payment Account
+                      </Text>
+                      <Text style={[
+                        sharedStyles.statSubtitle,
+                        {
+                          fontSize: designTokens.typography.xs,
+                          color: designTokens.colors.textSecondary,
+                        }
+                      ]}>
+                        Add GCash, Maya, Bank Transfer, or Cash
+                      </Text>
+                    </View>
+                  </View>
                 </Pressable>
               </View>
             )}
@@ -767,12 +926,12 @@ export default function PaymentSettings() {
             <View style={sharedStyles.section}>
               {accounts.length === 0 ? (
                 <View style={sharedStyles.emptyState}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginBottom: designTokens.spacing.lg }]}>
-                    <CreditCard size={32} color="#3B82F6" />
+                  <View style={[sharedStyles.statIconLarge, iconBackgrounds.blue, { marginBottom: designTokens.spacing.lg }]}>
+                    <Wallet size={32} color={designTokens.colors.primary} />
                   </View>
-                  <Text style={sharedStyles.emptyStateTitle}>No payment accounts</Text>
+                  <Text style={sharedStyles.emptyStateTitle}>No Payment Methods</Text>
                   <Text style={sharedStyles.emptyStateText}>
-                    Add your payment methods to receive payments from tenants
+                    Add your payment methods to receive payments from tenants. You can add multiple accounts for each payment type.
                   </Text>
                 </View>
               ) : (
@@ -785,7 +944,7 @@ export default function PaymentSettings() {
             {/* Info Box */}
             <View style={[sharedStyles.card, { backgroundColor: designTokens.colors.infoLight }]}>
               <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info }]}>
-                <Text style={{ fontWeight: designTokens.typography.semibold }}>Note:</Text> These payment details will be automatically shared with tenants when their booking requests are approved. Make sure all information is accurate and up-to-date.
+                <Text style={{ fontWeight: '600' as const }}>Note:</Text> These payment details will be automatically shared with tenants when their booking requests are approved. Make sure all information is accurate and up-to-date.
               </Text>
             </View>
           </View>
