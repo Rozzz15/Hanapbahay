@@ -198,7 +198,7 @@ export interface MessageRecord {
   createdAt: string;
   readBy: string[];
   // Message type to distinguish from revenue-generating actions
-  type: 'message' | 'inquiry' | 'booking_request' | 'image';
+  type: 'message' | 'inquiry' | 'booking_request' | 'image' | 'notification';
   // Property reference for context
   propertyId?: string;
   propertyTitle?: string;

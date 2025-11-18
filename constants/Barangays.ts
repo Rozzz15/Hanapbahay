@@ -4,6 +4,7 @@ export const BARANGAYS = [
   'TALOLONG', 
   'GOMEZ',
   'MAGSAYSAY',
+  'BURGOS',
 ] as const;
 
 export type Barangay = typeof BARANGAYS[number];

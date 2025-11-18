@@ -328,6 +328,12 @@ export default function TabLayout() {
                     tabBarActiveTintColor: '#10B981',
                 }}
             />
+            <Tabs.Screen
+                name="favorites"
+                options={{
+                    href: null, // Hide from tab bar
+                }}
+            />
                 </Tabs>
             </SafeAreaView>
         </SafeAreaProvider>

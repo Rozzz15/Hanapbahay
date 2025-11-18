@@ -63,7 +63,28 @@ export async function getOwnerFinancialAnalyticsCustom(
       b => b.status === 'approved' && b.paymentStatus === 'paid'
     );
     
-    const totalRevenue = paidBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    // Get rent payments for this owner
+    const { getRentPaymentsByOwner } = await import('./tenant-payments');
+    const allRentPayments = await getRentPaymentsByOwner(ownerId);
+    
+    // Filter rent payments by custom date range
+    const periodRentPayments = allRentPayments.filter(payment => {
+      const paymentDate = payment.paidDate || payment.createdAt;
+      const paymentDateObj = new Date(paymentDate);
+      return paymentDateObj >= rangeStart && paymentDateObj <= rangeEnd;
+    });
+    
+    // Get paid rent payments in the period
+    const paidRentPayments = periodRentPayments.filter(p => p.status === 'paid');
+    
+    // Calculate revenue from booking deposits (initial payments)
+    const bookingDepositRevenue = paidBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    
+    // Calculate revenue from monthly rent payments
+    const rentPaymentRevenue = paidRentPayments.reduce((sum, payment) => sum + (payment.totalAmount || 0), 0);
+    
+    // Total Revenue: Sum of booking deposits + monthly rent payments
+    const totalRevenue = bookingDepositRevenue + rentPaymentRevenue;
     const averageBookingValue = paidBookings.length > 0
       ? paidBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0) / paidBookings.length
       : 0;

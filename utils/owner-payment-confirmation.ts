@@ -56,6 +56,23 @@ export async function confirmPaymentByOwner(
     await db.upsert('rent_payments', paymentId, updatedPayment);
     console.log('✅ Owner confirmed payment:', paymentId);
 
+    // Update booking's paymentStatus to 'paid' if this is the first payment or booking is not yet paid
+    try {
+      const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
+      if (booking && booking.status === 'approved' && booking.paymentStatus !== 'paid') {
+        const updatedBooking: BookingRecord = {
+          ...booking,
+          paymentStatus: 'paid',
+          updatedAt: new Date().toISOString(),
+        };
+        await db.upsert('bookings', booking.id, updatedBooking);
+        console.log('✅ Updated booking paymentStatus to paid:', booking.id);
+      }
+    } catch (bookingError) {
+      console.warn('⚠️ Could not update booking paymentStatus:', bookingError);
+      // Don't fail the payment confirmation if booking update fails
+    }
+
     // Send confirmation message to tenant
     await sendPaymentConfirmedNotification(updatedPayment);
 
@@ -69,13 +86,21 @@ export async function confirmPaymentByOwner(
         tenantId: payment.tenantId,
         status: 'paid',
       });
+      
+      // Also dispatch revenue update event to refresh dashboard
+      dispatchCustomEvent('revenueUpdated', {
+        ownerId: payment.ownerId,
+        paymentId,
+        amount: updatedPayment.totalAmount,
+        paymentMonth: updatedPayment.paymentMonth,
+      });
     } catch (eventError) {
       console.warn('⚠️ Could not dispatch payment update event:', eventError);
     }
 
     return {
       success: true,
-      message: 'Payment confirmed successfully',
+      message: 'Payment confirmed successfully and added to rental income',
     };
   } catch (error) {
     console.error('❌ Error confirming payment by owner:', error);
@@ -510,18 +535,34 @@ async function sendPaymentDeletedNotification(
       text: messageText,
       createdAt: now,
       readBy: [booking.ownerId],
-      type: 'message',
+      type: 'notification',
     };
 
     await db.upsert('messages', messageId, messageRecord);
 
-    // Update conversation
+    // Update conversation - but don't update lastMessageText for notifications
+    // Notifications should not appear in conversation preview
     const conversation = await db.get<ConversationRecord>('conversations', conversationId);
     if (conversation) {
+      // Get the last non-notification message to use as lastMessageText
+      const allMessages = await db.list<MessageRecord>('messages');
+      const conversationMessages = allMessages
+        .filter(msg => 
+          msg.conversationId === conversationId && 
+          msg.type !== 'notification'
+        )
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      const lastRegularMessage = conversationMessages[0];
+      const lastMessageText = lastRegularMessage 
+        ? (lastRegularMessage.type === 'image' ? '📷 Image' : lastRegularMessage.text.substring(0, 100))
+        : conversation.lastMessageText;
+      const lastMessageAt = lastRegularMessage?.createdAt || conversation.lastMessageAt || now;
+      
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        lastMessageText: messageText.substring(0, 100),
-        lastMessageAt: now,
+        lastMessageText: lastMessageText,
+        lastMessageAt: lastMessageAt,
         unreadByTenant: (conversation.unreadByTenant || 0) + 1,
         updatedAt: now,
       });
@@ -639,18 +680,34 @@ async function sendPaymentAutoDeletedNotification(payment: RentPaymentRecord): P
       text: messageText,
       createdAt: now,
       readBy: [booking.ownerId],
-      type: 'message',
+      type: 'notification',
     };
 
     await db.upsert('messages', messageId, messageRecord);
 
-    // Update conversation
+    // Update conversation - but don't update lastMessageText for notifications
+    // Notifications should not appear in conversation preview
     const conversation = await db.get<ConversationRecord>('conversations', conversationId);
     if (conversation) {
+      // Get the last non-notification message to use as lastMessageText
+      const allMessages = await db.list<MessageRecord>('messages');
+      const conversationMessages = allMessages
+        .filter(msg => 
+          msg.conversationId === conversationId && 
+          msg.type !== 'notification'
+        )
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      const lastRegularMessage = conversationMessages[0];
+      const lastMessageText = lastRegularMessage 
+        ? (lastRegularMessage.type === 'image' ? '📷 Image' : lastRegularMessage.text.substring(0, 100))
+        : conversation.lastMessageText;
+      const lastMessageAt = lastRegularMessage?.createdAt || conversation.lastMessageAt || now;
+      
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        lastMessageText: messageText.substring(0, 100),
-        lastMessageAt: now,
+        lastMessageText: lastMessageText,
+        lastMessageAt: lastMessageAt,
         unreadByTenant: (conversation.unreadByTenant || 0) + 1,
         updatedAt: now,
       });
@@ -695,18 +752,34 @@ async function sendPaymentRestoredNotification(payment: RentPaymentRecord): Prom
       text: messageText,
       createdAt: now,
       readBy: [booking.ownerId],
-      type: 'message',
+      type: 'notification',
     };
 
     await db.upsert('messages', messageId, messageRecord);
 
-    // Update conversation
+    // Update conversation - but don't update lastMessageText for notifications
+    // Notifications should not appear in conversation preview
     const conversation = await db.get<ConversationRecord>('conversations', conversationId);
     if (conversation) {
+      // Get the last non-notification message to use as lastMessageText
+      const allMessages = await db.list<MessageRecord>('messages');
+      const conversationMessages = allMessages
+        .filter(msg => 
+          msg.conversationId === conversationId && 
+          msg.type !== 'notification'
+        )
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      const lastRegularMessage = conversationMessages[0];
+      const lastMessageText = lastRegularMessage 
+        ? (lastRegularMessage.type === 'image' ? '📷 Image' : lastRegularMessage.text.substring(0, 100))
+        : conversation.lastMessageText;
+      const lastMessageAt = lastRegularMessage?.createdAt || conversation.lastMessageAt || now;
+      
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        lastMessageText: messageText.substring(0, 100),
-        lastMessageAt: now,
+        lastMessageText: lastMessageText,
+        lastMessageAt: lastMessageAt,
         unreadByTenant: (conversation.unreadByTenant || 0) + 1,
         updatedAt: now,
       });
@@ -751,18 +824,34 @@ async function sendPaymentConfirmedNotification(payment: RentPaymentRecord): Pro
       text: messageText,
       createdAt: now,
       readBy: [booking.ownerId],
-      type: 'message',
+      type: 'notification',
     };
 
     await db.upsert('messages', messageId, messageRecord);
 
-    // Update conversation
+    // Update conversation - but don't update lastMessageText for notifications
+    // Notifications should not appear in conversation preview
     const conversation = await db.get<ConversationRecord>('conversations', conversationId);
     if (conversation) {
+      // Get the last non-notification message to use as lastMessageText
+      const allMessages = await db.list<MessageRecord>('messages');
+      const conversationMessages = allMessages
+        .filter(msg => 
+          msg.conversationId === conversationId && 
+          msg.type !== 'notification'
+        )
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      const lastRegularMessage = conversationMessages[0];
+      const lastMessageText = lastRegularMessage 
+        ? (lastRegularMessage.type === 'image' ? '📷 Image' : lastRegularMessage.text.substring(0, 100))
+        : conversation.lastMessageText;
+      const lastMessageAt = lastRegularMessage?.createdAt || conversation.lastMessageAt || now;
+      
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        lastMessageText: messageText.substring(0, 100),
-        lastMessageAt: now,
+        lastMessageText: lastMessageText,
+        lastMessageAt: lastMessageAt,
         unreadByTenant: (conversation.unreadByTenant || 0) + 1,
         updatedAt: now,
       });
@@ -818,18 +907,34 @@ async function sendPaymentRejectedNotification(
       text: messageText,
       createdAt: now,
       readBy: [booking.ownerId],
-      type: 'message',
+      type: 'notification',
     };
 
     await db.upsert('messages', messageId, messageRecord);
 
-    // Update conversation
+    // Update conversation - but don't update lastMessageText for notifications
+    // Notifications should not appear in conversation preview
     const conversation = await db.get<ConversationRecord>('conversations', conversationId);
     if (conversation) {
+      // Get the last non-notification message to use as lastMessageText
+      const allMessages = await db.list<MessageRecord>('messages');
+      const conversationMessages = allMessages
+        .filter(msg => 
+          msg.conversationId === conversationId && 
+          msg.type !== 'notification'
+        )
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      const lastRegularMessage = conversationMessages[0];
+      const lastMessageText = lastRegularMessage 
+        ? (lastRegularMessage.type === 'image' ? '📷 Image' : lastRegularMessage.text.substring(0, 100))
+        : conversation.lastMessageText;
+      const lastMessageAt = lastRegularMessage?.createdAt || conversation.lastMessageAt || now;
+      
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        lastMessageText: messageText.substring(0, 100),
-        lastMessageAt: now,
+        lastMessageText: lastMessageText,
+        lastMessageAt: lastMessageAt,
         unreadByTenant: (conversation.unreadByTenant || 0) + 1,
         updatedAt: now,
       });

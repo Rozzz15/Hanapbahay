@@ -1,8 +1,9 @@
 import { ScrollView, View, Pressable, Animated, Text, TouchableOpacity, Image, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db, isPublishedListingRecord, clearCache, getAll } from '../../utils/db';
 import { OwnerProfileRecord, DbUserRecord, PublishedListingRecord, PropertyPhotoRecord, PropertyVideoRecord } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -20,6 +21,9 @@ import { createOrFindConversation } from '../../utils/conversation-utils';
 import { addCustomEventListener } from '../../utils/custom-events';
 import BookingStatusModal from '@/components/BookingStatusModal';
 import { getBookingsByTenant } from '../../utils/booking';
+import { Heart } from 'lucide-react-native';
+import { toggleFavorite, isFavorite } from '../../utils/favorites';
+import { showAlert } from '../../utils/alert';
 import { BookingRecord } from '../../types';
 import {
   loadShownBookingNotifications,
@@ -29,6 +33,7 @@ import {
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { isAuthenticated, user } = useAuth();
   const scrollIndicatorOpacity = useRef(new Animated.Value(1)).current;
   const carouselRef = useRef<{ scrollToNext: () => void } | null>(null);
@@ -53,6 +58,8 @@ export default function DashboardScreen() {
   });
   const shownBookingNotificationsRef = useRef<Set<string>>(new Set());
   const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+  const [favoriteStatuses, setFavoriteStatuses] = useState<Map<string, boolean>>(new Map());
+  const [togglingFavorites, setTogglingFavorites] = useState<Set<string>>(new Set());
 
   // Load shown notifications from persistent storage
   useEffect(() => {
@@ -74,9 +81,28 @@ export default function DashboardScreen() {
   }, [user?.id]);
 
   // Check for active booking and redirect to main dashboard
+  // Skip redirect if user explicitly wants to browse (e.g., from favorites page)
+  const hasCheckedInitialRedirect = useRef(false);
   useEffect(() => {
     const checkActiveBooking = async () => {
       if (!user?.id) {
+        setCheckingActiveBooking(false);
+        return;
+      }
+
+      // Check if user wants to browse (set from favorites page)
+      const skipRedirect = await AsyncStorage.getItem('skip_booking_redirect');
+      if (skipRedirect === 'true') {
+        console.log('🔍 User wants to browse properties, skipping redirect');
+        await AsyncStorage.removeItem('skip_booking_redirect');
+        setCheckingActiveBooking(false);
+        hasCheckedInitialRedirect.current = true;
+        return;
+      }
+
+      // Only auto-redirect on initial load, not when user explicitly navigates here
+      // This allows users to browse properties even if they have an active booking
+      if (hasCheckedInitialRedirect.current) {
         setCheckingActiveBooking(false);
         return;
       }
@@ -90,6 +116,7 @@ export default function DashboardScreen() {
 
         if (activeBooking) {
           console.log('✅ Tenant has active booking, redirecting to main dashboard');
+          hasCheckedInitialRedirect.current = true;
           router.replace('/(tabs)/tenant-main-dashboard');
           return;
         }
@@ -97,6 +124,7 @@ export default function DashboardScreen() {
         console.error('❌ Error checking for active booking:', error);
       } finally {
         setCheckingActiveBooking(false);
+        hasCheckedInitialRedirect.current = true;
       }
     };
 
@@ -1406,6 +1434,86 @@ export default function DashboardScreen() {
     }
   }, [ownerListings, searchParams]);
 
+  // Load favorite statuses for all listings
+  useEffect(() => {
+    const loadFavoriteStatuses = async () => {
+      if (!user?.id || filteredListings.length === 0) return;
+      
+      try {
+        const statuses = new Map<string, boolean>();
+        await Promise.all(
+          filteredListings.map(async (listing) => {
+            if (listing.id) {
+              const isFav = await isFavorite(user.id, listing.id);
+              statuses.set(listing.id, isFav);
+            }
+          })
+        );
+        setFavoriteStatuses(statuses);
+      } catch (error) {
+        console.error('Error loading favorite statuses:', error);
+      }
+    };
+    
+    loadFavoriteStatuses();
+  }, [user?.id, filteredListings]);
+
+  // Listen for favorite changes
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const handleFavoriteChange = async () => {
+      if (filteredListings.length === 0) return;
+      const statuses = new Map<string, boolean>();
+      await Promise.all(
+        filteredListings.map(async (listing) => {
+          if (listing.id) {
+            const isFav = await isFavorite(user.id, listing.id);
+            statuses.set(listing.id, isFav);
+          }
+        })
+      );
+      setFavoriteStatuses(statuses);
+    };
+
+    const unsubscribe = addCustomEventListener('favoriteChanged', handleFavoriteChange);
+    return unsubscribe;
+  }, [user?.id, filteredListings]);
+
+  // Toggle favorite handler
+  const handleToggleFavorite = async (listingId: string, e: any) => {
+    e.stopPropagation(); // Prevent card click
+    
+    if (!user?.id) {
+      showAlert('Login Required', 'Please log in to save favorites.');
+      return;
+    }
+
+    if (!listingId) {
+      showAlert('Error', 'Property ID not found.');
+      return;
+    }
+
+    try {
+      setTogglingFavorites(prev => new Set(prev).add(listingId));
+      const newFavoriteStatus = await toggleFavorite(user.id, listingId);
+      setFavoriteStatuses(prev => {
+        const updated = new Map(prev);
+        updated.set(listingId, newFavoriteStatus);
+        return updated;
+      });
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      showAlert('Error', 'Failed to update favorite. Please try again.');
+    } finally {
+      setTogglingFavorites(prev => {
+        const updated = new Set(prev);
+        updated.delete(listingId);
+        return updated;
+      });
+    }
+  };
+
   // Refresh listings when screen comes into focus
   useFocusEffect(
     useCallback(() => {
@@ -1634,33 +1742,36 @@ export default function DashboardScreen() {
         </View>
       )}
       
-      {/* Modern Professional Header */}
+      {/* Modern Clean Header */}
       <View style={styles.headerWrapper}>
-        <LinearGradient
-          colors={['#1E3A8A', '#3B82F6', '#60A5FA']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <View style={styles.headerTop}>
-              <View style={styles.headerTextContainer}>
-                <View style={styles.iconTitleRow}>
-                  <Ionicons name="home" size={28} color="#FFFFFF" style={styles.headerIcon} />
-                  <Text style={styles.headerTitle}>Find Your Perfect Home</Text>
-                </View>
-                <Text style={styles.headerSubtitle}>Discover rentals in the heart of Lopez, Quezon</Text>
-              </View>
-              {isRefreshing && (
-                <View style={styles.refreshBadge}>
-                  <Ionicons name="sync" size={12} color="#3B82F6" />
-                </View>
-              )}
-            </View>
-            {/* Inline Smart Search */}
+        <View style={styles.header}>
+          {/* Branding Section */}
+          <View style={styles.brandingSection}>
+            <Text style={styles.brandTitle}>Hanapbahay</Text>
+            <Text style={styles.brandSubtitle}>Hanap Mo, Nandito na!</Text>
+            <Text style={styles.brandDescription}>Discover Properties from verified owners</Text>
+          </View>
+          
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
             <TenantSmartSearch value={searchParams} onChange={setSearchParams} />
           </View>
-        </LinearGradient>
+          
+          {/* Property Count */}
+          <View style={styles.propertyCountContainer}>
+            <View style={styles.propertyCountBadge}>
+              <Ionicons name="home" size={14} color="#10B981" />
+              <Text style={styles.propertyCountText}>
+                {filteredListings.length} {filteredListings.length === 1 ? 'property' : 'properties'} available
+              </Text>
+            </View>
+            {isRefreshing && (
+              <View style={styles.refreshBadge}>
+                <Ionicons name="sync" size={12} color="#10B981" />
+              </View>
+            )}
+          </View>
+        </View>
       </View>
 
 
@@ -1768,6 +1879,21 @@ export default function DashboardScreen() {
                   <View style={styles.propertyTypeBadge}>
                     <Text style={styles.propertyTypeText}>{listing.propertyType}</Text>
                   </View>
+                )}
+                {/* Favorite Heart Button */}
+                {isAuthenticated && user?.id && listing.id && (
+                  <TouchableOpacity
+                    onPress={(e) => handleToggleFavorite(listing.id!, e)}
+                    disabled={togglingFavorites.has(listing.id!)}
+                    style={styles.favoriteButton}
+                    activeOpacity={0.7}
+                  >
+                    <Heart 
+                      size={20} 
+                      color={favoriteStatuses.get(listing.id!) ? "#EF4444" : "#6B7280"} 
+                      fill={favoriteStatuses.get(listing.id!) ? "#EF4444" : "none"}
+                    />
+                  </TouchableOpacity>
                 )}
               </View>
                 
@@ -2000,61 +2126,86 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   headerWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  headerGradient: {
-    paddingBottom: 24,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 2,
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 20,
+    paddingBottom: 20,
   },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+  brandingSection: {
     marginBottom: 20,
   },
-  headerTextContainer: {
-    flex: 1,
+  brandTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.8,
+    marginBottom: 6,
   },
-  iconTitleRow: {
+  brandSubtitle: {
+    fontSize: 17,
+    color: '#10B981',
+    fontWeight: '700',
+    marginBottom: 6,
+    letterSpacing: 0.2,
+  },
+  brandDescription: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '400',
+    lineHeight: 20,
+  },
+  searchContainer: {
+    marginBottom: 16,
+    marginTop: 0,
+    padding: 0,
+    width: '100%',
+  },
+  propertyCountContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    paddingTop: 8,
   },
-  headerIcon: {
-    marginRight: 12,
+  propertyCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  headerSubtitle: {
+  propertyCountText: {
     fontSize: 13,
-    color: '#E0E7FF',
-    marginTop: 4,
-    marginLeft: 40,
-    fontWeight: '400',
+    color: '#475569',
+    fontWeight: '600',
+    letterSpacing: 0.1,
   },
   refreshBadge: {
-    backgroundColor: '#FFFFFF',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    backgroundColor: '#F0FDF4',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1.5,
+    borderColor: '#D1FAE5',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 2,
+    elevation: 2,
   },
   headerButtons: {
     flexDirection: 'row',
@@ -2214,6 +2365,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#1E293B',
+  },
+  favoriteButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 9999,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   propertyTypeBadge: {
     position: 'absolute',

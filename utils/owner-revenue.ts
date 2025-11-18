@@ -30,35 +30,83 @@ export async function getMonthlyRevenueOverview(
 
     // Get all rent payments for this owner
     const allPayments = await getRentPaymentsByOwner(ownerId);
+    
+    // Get all bookings to verify payments are from active tenants (approved and paid bookings only)
+    const { db } = await import('./db');
+    const allBookings = await db.list<any>('bookings');
+    const activeBookings = allBookings.filter(
+      b => b.ownerId === ownerId && 
+      b.status === 'approved' && 
+      b.paymentStatus === 'paid'
+    );
+    const activeBookingIds = new Set(activeBookings.map(b => b.id));
+    
+    // Filter payments to only include those from active tenants (approved and paid bookings)
+    const activePayments = allPayments.filter(p => activeBookingIds.has(p.bookingId));
 
-    // Filter payments for the target month
-    const monthPayments = allPayments.filter(
+    // Filter payments for the target month (for pending/overdue calculations)
+    const monthPayments = activePayments.filter(
       (payment) => payment.paymentMonth === targetMonth
     );
 
-    // Calculate total rental income (sum of all paid payments)
-    const paidPayments = monthPayments.filter(
+    // Calculate total rental income (sum of ALL paid payments, regardless of month)
+    // This shows all confirmed/accepted payments the owner has received
+    const allPaidPayments = activePayments.filter(
       (p) => p.status === 'paid'
     );
-    const totalRentalIncome = paidPayments.reduce(
+    const totalRentalIncome = allPaidPayments.reduce(
       (sum, p) => sum + (p.totalAmount || 0),
       0
     );
+    
+    // For month-specific metrics, use only payments for the target month
+    const paidPayments = monthPayments.filter(
+      (p) => p.status === 'paid'
+    );
 
     // Calculate pending payments (pending or pending_owner_confirmation)
+    // Include current month and next month, but exclude advance payments (beyond next month) and rejected payments
+    const now = new Date();
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const twoMonthsFromNow = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+    
+    const allPendingPayments = activePayments.filter(
+      (p) => {
+        // Don't count rejected payments as pending
+        if (p.status === 'rejected') return false;
+        
+        // Only count pending or pending_owner_confirmation statuses
+        if (p.status === 'pending' || p.status === 'pending_owner_confirmation') {
+          // Check payment month
+          const paymentMonth = new Date(p.paymentMonth + '-01');
+          // Include current month and next month, exclude advance payments (beyond next month)
+          const isCurrentOrNextMonth = paymentMonth >= currentMonth && paymentMonth < twoMonthsFromNow;
+          return isCurrentOrNextMonth;
+        }
+        
+        return false;
+      }
+    );
+    const pendingPayments = allPendingPayments.reduce(
+      (sum, p) => sum + (p.totalAmount || 0),
+      0
+    );
+    
+    // For month-specific pending count, use only payments for the target month
     const pendingPaymentList = monthPayments.filter(
       (p) =>
         p.status === 'pending' || p.status === 'pending_owner_confirmation'
     );
-    const pendingPayments = pendingPaymentList.reduce(
-      (sum, p) => sum + (p.totalAmount || 0),
-      0
+
+    // Completed payments count (number of ALL paid payments, not just current month)
+    // This shows the total count of all confirmed/accepted payments
+    const completedPayments = allPaidPayments.length;
+
+    // Calculate overdue payments (only from active tenants)
+    const allOverduePayments = activePayments.filter(
+      (p) => p.status === 'overdue'
     );
-
-    // Completed payments count (number of paid payments, not the amount)
-    const completedPayments = paidPayments.length;
-
-    // Calculate overdue payments
     const overduePaymentList = monthPayments.filter(
       (p) => p.status === 'overdue'
     );
@@ -77,6 +125,10 @@ export async function getMonthlyRevenueOverview(
 
     console.log(`💰 Monthly revenue overview for owner ${ownerId} (${targetMonth}):`, {
       totalRentalIncome,
+      allPaidPaymentsCount: allPaidPayments.length,
+      monthPaidPaymentsCount: paidPayments.length,
+      allPendingPaymentsCount: allPendingPayments.length,
+      monthPendingPaymentsCount: pendingPaymentList.length,
       pendingPayments,
       completedPayments,
       overduePayments,

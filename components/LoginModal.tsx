@@ -325,65 +325,64 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                     }
                 }, 150);
             } else {
-                // Login failed - don't clear form fields, just show error
-                const newFailedAttempts = failedAttempts + 1;
-                setFailedAttempts(newFailedAttempts);
-                await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
+                // Login failed - handle different error types
+                const errorType = (result as any).error || 'UNKNOWN_ERROR';
+                const errorMessage = (result as any).errorMessage || 'An unexpected error occurred';
                 
                 // Clear password field for security, but keep email
                 setPassword('');
                 
-                if (newFailedAttempts >= 5) {
-                    const initialCountdown = 60;
-                    const countdownEnd = Date.now() + (initialCountdown * 1000);
+                // Only track attempts for invalid password (account exists but wrong password)
+                if (errorType === 'INVALID_PASSWORD') {
+                    const newFailedAttempts = failedAttempts + 1;
+                    setFailedAttempts(newFailedAttempts);
+                    await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
                     
-                    setCountdown(initialCountdown);
-                    setIsLocked(true);
-                    await AsyncStorage.setItem('login_countdown_end', countdownEnd.toString());
-                    
-                    showSimpleAlert(
-                        'Account Temporarily Locked 🔒',
-                        `Too many failed login attempts. Please wait ${initialCountdown} seconds before trying again.`
-                    );
+                    if (newFailedAttempts >= 5) {
+                        const initialCountdown = 60;
+                        const countdownEnd = Date.now() + (initialCountdown * 1000);
+                        
+                        setCountdown(initialCountdown);
+                        setIsLocked(true);
+                        await AsyncStorage.setItem('login_countdown_end', countdownEnd.toString());
+                        
+                        showSimpleAlert(
+                            'Account Temporarily Locked 🔒',
+                            `Too many failed login attempts. Please wait ${initialCountdown} seconds before trying again.`
+                        );
+                    } else {
+                        const remainingAttempts = 5 - newFailedAttempts;
+                        showSimpleAlert(
+                            'Login Failed ❌',
+                            `${errorMessage} ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
+                        );
+                    }
                 } else {
-                    const remainingAttempts = 5 - newFailedAttempts;
+                    // Account not found or other errors - don't track attempts
                     showSimpleAlert(
                         'Login Failed ❌',
-                        `Invalid email or password. ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
+                        errorMessage
                     );
                 }
             }
         } catch (error) {
             console.error('Login error:', error);
             
-            // Login error - don't clear form fields, just show error
-            const newFailedAttempts = failedAttempts + 1;
-            setFailedAttempts(newFailedAttempts);
-            await AsyncStorage.setItem('login_failed_attempts', newFailedAttempts.toString());
+            // Login error - check if it's a structured error with error type
+            const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+            
+            // Try to parse error message to see if it contains error type
+            // If the error was thrown from loginUser, it might not have the structure
+            // In this case, we'll treat it as an unknown error (don't track attempts)
             
             // Clear password field for security, but keep email
             setPassword('');
             
-            if (newFailedAttempts >= 5) {
-                const initialCountdown = 60;
-                const countdownEnd = Date.now() + (initialCountdown * 1000);
-                
-                setCountdown(initialCountdown);
-                setIsLocked(true);
-                await AsyncStorage.setItem('login_countdown_end', countdownEnd.toString());
-                
-                showSimpleAlert(
-                    'Account Temporarily Locked 🔒',
-                    `Too many failed login attempts. Please wait ${initialCountdown} seconds before trying again.`
-                );
-            } else {
-                const remainingAttempts = 5 - newFailedAttempts;
-                const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-                showSimpleAlert(
-                    'Login Failed ❌',
-                    `${errorMessage}. ${remainingAttempts > 0 ? `${remainingAttempts} attempt${remainingAttempts > 1 ? 's' : ''} remaining before account lock.` : ''}`
-                );
-            }
+            // For catch block errors, we don't track attempts (these are usually system errors)
+            showSimpleAlert(
+                'Login Failed ❌',
+                errorMessage
+            );
         } finally {
             setIsSubmitting(false);
         }

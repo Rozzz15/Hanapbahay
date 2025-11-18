@@ -9,6 +9,7 @@ import {
   Modal,
   ScrollView,
   Linking,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
@@ -480,7 +481,11 @@ export default function PayMongoPayment({
                       onPress={() => handlePaymentMethodSelection('gcash')}
                     >
                       <View style={styles.methodIconContainer}>
-                        <Ionicons name="phone-portrait" size={24} color="#10B981" />
+                        <Image 
+                          source={require('../assets/images/Gcash.jpg')} 
+                          style={{ width: 32, height: 32, borderRadius: 16 }}
+                          resizeMode="cover"
+                        />
                       </View>
                       <View style={styles.methodInfo}>
                         <Text style={styles.methodName}>GCash</Text>
@@ -494,7 +499,11 @@ export default function PayMongoPayment({
                       onPress={() => handlePaymentMethodSelection('paymaya')}
                     >
                       <View style={styles.methodIconContainer}>
-                        <Ionicons name="wallet" size={24} color="#10B981" />
+                        <Image 
+                          source={require('../assets/images/paymaya.jpg')} 
+                          style={{ width: 32, height: 32, borderRadius: 16 }}
+                          resizeMode="cover"
+                        />
                       </View>
                       <View style={styles.methodInfo}>
                         <Text style={styles.methodName}>PayMaya / Maya</Text>

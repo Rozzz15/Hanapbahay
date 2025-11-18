@@ -215,7 +215,13 @@ async function sendNewRatingNotification(
       (b.status === 'approved' || b.status === 'pending')
     );
 
-    if (activeBooking) {
+    // Create a notification message (not a regular message) that appears in notification modal
+    // Find any booking with this tenant and owner to get conversation
+    const anyBooking = bookings.find((b: any) => 
+      b.ownerId === listing.userId && b.tenantId === rating.userId
+    );
+
+    if (anyBooking) {
       const conversationId = await createOrFindConversation({
         ownerId: listing.userId,
         tenantId: rating.userId,
@@ -224,6 +230,7 @@ async function sendNewRatingNotification(
       const messageId = generateId('msg');
       const now = new Date().toISOString();
 
+      // Create as notification type, not regular message
       const messageRecord: MessageRecord = {
         id: messageId,
         conversationId,
@@ -231,65 +238,45 @@ async function sendNewRatingNotification(
         text: messageText,
         createdAt: now,
         readBy: [rating.userId],
-        type: 'message',
+        type: 'notification', // Changed to notification type
+        propertyId: propertyId,
+        propertyTitle: listing.propertyType,
       };
 
       await db.upsert('messages', messageId, messageRecord);
 
-      // Update conversation
+      // Don't update conversation's lastMessageText for notifications
+      // Notifications should not appear in conversation list
       const conversation = await db.get<ConversationRecord>('conversations', conversationId);
       if (conversation) {
+        // Get the last non-notification message to use as lastMessageText
+        const allMessages = await db.list<MessageRecord>('messages');
+        const conversationMessages = allMessages
+          .filter(msg => 
+            msg.conversationId === conversationId && 
+            msg.type !== 'notification'
+          )
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        
+        const lastRegularMessage = conversationMessages[0];
+        const lastMessageText = lastRegularMessage 
+          ? (lastRegularMessage.type === 'image' ? '📷 Image' : lastRegularMessage.text.substring(0, 100))
+          : conversation.lastMessageText;
+        const lastMessageAt = lastRegularMessage?.createdAt || conversation.lastMessageAt || now;
+        
         await db.upsert('conversations', conversationId, {
           ...conversation,
-          lastMessageText: messageText.substring(0, 100),
-          lastMessageAt: now,
-          unreadByOwner: (conversation.unreadByOwner || 0) + 1,
+          lastMessageText: lastMessageText,
+          lastMessageAt: lastMessageAt,
           updatedAt: now,
         });
       }
 
-      console.log('✅ New rating notification sent to owner');
+      console.log('✅ New rating notification sent to owner (as notification, not message)');
     } else {
-      // If no active booking, we can still create a notification via messages
-      // Find any booking with this tenant and owner
-      const anyBooking = bookings.find((b: any) => 
-        b.ownerId === listing.userId && b.tenantId === rating.userId
-      );
-
-      if (anyBooking) {
-        const conversationId = await createOrFindConversation({
-          ownerId: listing.userId,
-          tenantId: rating.userId,
-        });
-
-        const messageId = generateId('msg');
-        const now = new Date().toISOString();
-
-        const messageRecord: MessageRecord = {
-          id: messageId,
-          conversationId,
-          senderId: rating.userId,
-          text: messageText,
-          createdAt: now,
-          readBy: [rating.userId],
-          type: 'message',
-        };
-
-        await db.upsert('messages', messageId, messageRecord);
-
-        const conversation = await db.get<ConversationRecord>('conversations', conversationId);
-        if (conversation) {
-          await db.upsert('conversations', conversationId, {
-            ...conversation,
-            lastMessageText: messageText.substring(0, 100),
-            lastMessageAt: now,
-            unreadByOwner: (conversation.unreadByOwner || 0) + 1,
-            updatedAt: now,
-          });
-        }
-
-        console.log('✅ New rating notification sent to owner');
-      }
+      // If no booking exists, still create notification but without conversation
+      // This is a fallback for edge cases
+      console.log('⚠️ No booking found for rating notification, notification created without conversation');
     }
   } catch (error) {
     console.error('❌ Error sending new rating notification:', error);

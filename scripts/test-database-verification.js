@@ -41,7 +41,7 @@ async function runDatabaseVerificationTests() {
     // Test 5: Get Approved Owners for Specific Barangay
     console.log('📋 Test 5: Get Approved Owners for Barangay');
     console.log('============================================');
-    const barangays = ['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY'];
+    const barangays = ['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY', 'BURGOS'];
     
     for (const barangay of barangays) {
       console.log(`\n--- Testing ${barangay} ---`);

@@ -22,7 +22,7 @@ export const signUpSchema = z.object({
     // Owner-specific fields
     houseNumber: z.string().optional(),
     street: z.string().optional(),
-    barangay: z.enum(['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY']).optional(),
+    barangay: z.enum(['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY', 'BURGOS']).optional(),
 }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords must match",
     path: ["confirmPassword"],

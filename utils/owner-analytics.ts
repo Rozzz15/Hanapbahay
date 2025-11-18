@@ -1,5 +1,6 @@
 import { db } from './db';
-import { BookingRecord, PublishedListingRecord } from '@/types';
+import { BookingRecord, PublishedListingRecord, RentPaymentRecord } from '@/types';
+import { getRentPaymentsByOwner } from './tenant-payments';
 
 export type TimePeriod = 'today' | 'weekly' | 'monthly' | 'yearly';
 
@@ -120,8 +121,26 @@ export async function getOwnerFinancialAnalytics(
       b => b.status === 'approved' && b.paymentStatus === 'paid'
     );
 
-    // Total Revenue: Sum of totalAmount from paid bookings in the period
-    const totalRevenue = paidBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    // Get rent payments for this owner
+    const allRentPayments = await getRentPaymentsByOwner(ownerId);
+    
+    // Filter rent payments by time period (based on paidDate or createdAt)
+    const periodRentPayments = allRentPayments.filter(payment => {
+      const paymentDate = payment.paidDate || payment.createdAt;
+      return isDateInRange(paymentDate, startDate, endDate);
+    });
+    
+    // Get paid rent payments in the period
+    const paidRentPayments = periodRentPayments.filter(p => p.status === 'paid');
+    
+    // Calculate revenue from booking deposits (initial payments)
+    const bookingDepositRevenue = paidBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    
+    // Calculate revenue from monthly rent payments
+    const rentPaymentRevenue = paidRentPayments.reduce((sum, payment) => sum + (payment.totalAmount || 0), 0);
+    
+    // Total Revenue: Sum of booking deposits + monthly rent payments
+    const totalRevenue = bookingDepositRevenue + rentPaymentRevenue;
 
     // Average Booking Value: Average of totalAmount from paid bookings
     const averageBookingValue =
@@ -171,7 +190,16 @@ export async function getOwnerFinancialAnalytics(
       totalListings: ownerListings.length
     };
 
-    console.log(`📊 Financial analytics for owner ${ownerId} (${period}):`, analytics);
+    console.log(`📊 Financial analytics for owner ${ownerId} (${period}):`, {
+      totalRevenue: analytics.totalRevenue,
+      bookingDepositRevenue,
+      rentPaymentRevenue,
+      totalBookings: analytics.totalBookings,
+      paidBookings: analytics.paidBookings,
+      averageBookingValue: analytics.averageBookingValue,
+      averageMonthlyRent: analytics.averageMonthlyRent,
+      conversionRate: analytics.conversionRate
+    });
 
     return analytics;
   } catch (error) {

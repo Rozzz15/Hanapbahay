@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Image } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../utils/db';
@@ -36,8 +36,8 @@ interface BookingInfo {
 }
 
 const PAYMENT_TYPES = [
-  { id: 'gcash', name: 'GCash', icon: '📱', color: '#00A86B' },
-  { id: 'paymaya', name: 'Maya', icon: '💳', color: '#00A86B' },
+  { id: 'gcash', name: 'GCash', icon: '📱', iconImage: require('../assets/images/Gcash.jpg'), color: '#00A86B' },
+  { id: 'paymaya', name: 'Maya', icon: '💳', iconImage: require('../assets/images/paymaya.jpg'), color: '#00A86B' },
   { id: 'bank_transfer', name: 'Bank Transfer', icon: '🏦', color: '#1E40AF' },
   { id: 'cash', name: 'Cash Payment', icon: '💵', color: '#059669' }
 ];
@@ -146,8 +146,16 @@ export default function PaymentMethods() {
     return (
       <View key={account.id} style={[sharedStyles.card, { marginBottom: 16, padding: 16 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-          <View style={[sharedStyles.statIcon, { backgroundColor: paymentType?.color + '20', marginRight: 12, width: 32, height: 32, borderRadius: 16 }]}>
-            <Text style={{ fontSize: 20 }}>{paymentType?.icon}</Text>
+          <View style={[sharedStyles.statIcon, { backgroundColor: paymentType?.color + '20', marginRight: 12, width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }]}>
+            {paymentType?.iconImage ? (
+              <Image 
+                source={paymentType.iconImage} 
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text style={{ fontSize: 20 }}>{paymentType?.icon}</Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 2, fontWeight: '600' }]}>

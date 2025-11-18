@@ -20,7 +20,12 @@ export async function loginUser(data: LoginData) {
         const result = await mockSignIn(data.email, data.password);
 
         if (!result.success) {
-            throw new Error(result.error || "Invalid email or password");
+            // Return error details including error type and message
+            return {
+                success: false,
+                error: result.error || "UNKNOWN_ERROR",
+                errorMessage: result.errorMessage || "An unexpected error occurred"
+            };
         }
 
         // The mockSignIn function already stores the user data
@@ -37,7 +42,8 @@ export async function loginUser(data: LoginData) {
         console.error("Login error:", message);
         return {
             success: false,
-            error: message
+            error: "UNKNOWN_ERROR",
+            errorMessage: message
         };
     }
 }

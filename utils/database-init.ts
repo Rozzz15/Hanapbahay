@@ -74,6 +74,57 @@ export async function initializeDatabase(): Promise<DatabaseInitResult> {
 }
 
 /**
+ * Create or update barangay official for a specific barangay
+ * This can be called to ensure a barangay has an official account
+ */
+export async function createBarangayOfficial(barangay: string): Promise<{ success: boolean; message: string; officialId?: string }> {
+  try {
+    const existingUsers = await db.list<DbUserRecord>('users');
+    const existingOfficial = existingUsers.find(
+      user => user.role === 'brgy_official' && user.barangay?.toUpperCase() === barangay.toUpperCase()
+    );
+    
+    if (existingOfficial) {
+      return {
+        success: true,
+        message: `Barangay official for ${barangay} already exists`,
+        officialId: existingOfficial.id
+      };
+    }
+    
+    const officialId = generateId('brgy');
+    const now = new Date().toISOString();
+    const official: DbUserRecord = {
+      id: officialId,
+      email: `brgy.${barangay.toLowerCase()}@hanapbahay.com`,
+      name: `Barangay ${barangay} Official`,
+      phone: '+63 910 000 0000',
+      address: `${barangay} Street, Lopez, Quezon`,
+      role: 'brgy_official',
+      roles: ['brgy_official'],
+      barangay: barangay.toUpperCase(),
+      createdAt: now,
+      updatedAt: now
+    };
+    
+    await db.upsert('users', officialId, official);
+    console.log(`✅ Created barangay official for ${barangay}`);
+    
+    return {
+      success: true,
+      message: `Successfully created barangay official for ${barangay}`,
+      officialId: officialId
+    };
+  } catch (error) {
+    console.error(`❌ Failed to create barangay official for ${barangay}:`, error);
+    return {
+      success: false,
+      message: `Failed to create barangay official: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
+/**
  * Create default barangay officials for testing
  */
 async function createDefaultBarangayOfficials(): Promise<boolean> {
@@ -83,15 +134,24 @@ async function createDefaultBarangayOfficials(): Promise<boolean> {
     const existingUsers = await db.list<DbUserRecord>('users');
     const existingBarangayOfficials = existingUsers.filter(user => user.role === 'brgy_official');
     
-    if (existingBarangayOfficials.length > 0) {
-      console.log(`✅ Barangay officials already exist: ${existingBarangayOfficials.length}`);
-      return true;
-    }
-    
-    const barangays = ['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY'];
+    const barangays = ['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY', 'BURGOS'];
     const now = new Date().toISOString();
     
+    // Check which barangays already have officials
+    const existingBarangays = new Set(
+      existingBarangayOfficials
+        .map(official => official.barangay?.toUpperCase())
+        .filter((b): b is string => !!b)
+    );
+    
+    // Create officials only for missing barangays
+    let createdCount = 0;
     for (const barangay of barangays) {
+      if (existingBarangays.has(barangay)) {
+        console.log(`✅ Barangay official for ${barangay} already exists`);
+        continue;
+      }
+      
       const officialId = generateId('brgy');
       const official: DbUserRecord = {
         id: officialId,
@@ -108,9 +168,15 @@ async function createDefaultBarangayOfficials(): Promise<boolean> {
       
       await db.upsert('users', officialId, official);
       console.log(`✅ Created barangay official for ${barangay}`);
+      createdCount++;
     }
     
-    console.log('✅ Default barangay officials created successfully');
+    if (createdCount > 0) {
+      console.log(`✅ Created ${createdCount} new barangay official(s)`);
+    } else {
+      console.log(`✅ All barangay officials already exist: ${existingBarangayOfficials.length}`);
+    }
+    
     return true;
     
   } catch (error) {

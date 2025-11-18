@@ -14,7 +14,8 @@ import {
   LogOut,
   Settings,
   Bell,
-  CheckSquare
+  CheckSquare,
+  Star
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -428,6 +429,20 @@ export default function BrgyDashboard() {
               <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
                 <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>View Properties</Text>
                 <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>Browse available rental properties</Text>
+              </View>
+              <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[sharedStyles.listItem, { padding: designTokens.spacing.md }]}
+              onPress={() => router.push('/(brgy)/ratings' as any)}
+            >
+              <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { width: 40, height: 40, borderRadius: 20 }]}>
+                <Star size={18} color="#F59E0B" />
+              </View>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.statLabel, { marginBottom: 2, fontSize: designTokens.typography.sm }]}>Property Ratings</Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>View ratings and comments for properties</Text>
               </View>
               <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>›</Text>
             </TouchableOpacity>

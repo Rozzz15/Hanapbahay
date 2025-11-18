@@ -608,6 +608,11 @@ const ProfileScreen = memo(function ProfileScreen() {
             },
         },
         {
+            icon: <Ionicons name="heart" size={20} color="#4B5563" />,
+            label: 'Saved Listings',
+            route: '/(tabs)/favorites',
+        },
+        {
             icon: <Ionicons name="lock-closed" size={20} color="#4B5563" />,
             label: 'Change Password',
             onPress: () => setShowChangePassword(true),

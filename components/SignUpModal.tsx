@@ -33,7 +33,7 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
     const [ownerAddress, setOwnerAddress] = useState({
         houseNumber: '',
         street: '',
-        barangay: '' as 'RIZAL' | 'TALOLONG' | 'GOMEZ' | 'MAGSAYSAY' | ''
+        barangay: '' as 'RIZAL' | 'TALOLONG' | 'GOMEZ' | 'MAGSAYSAY' | 'BURGOS' | ''
     });
     const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
     const [ownerDocuments, setOwnerDocuments] = useState<OwnerApplicationDocument[]>([]);
@@ -752,7 +752,7 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                                                     </Pressable>
                                                     {showBarangayDropdown && (
                                                         <View style={styles.dropdownContainer}>
-                                                            {(['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY'] as const).map((barangay) => (
+                                                            {(['RIZAL', 'TALOLONG', 'GOMEZ', 'MAGSAYSAY', 'BURGOS'] as const).map((barangay) => (
                                                                 <Pressable
                                                                     key={barangay}
                                                                     style={styles.dropdownOption}

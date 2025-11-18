@@ -6,11 +6,13 @@ import { VStack } from "@/components/ui/vstack";
 import { HStack } from "@/components/ui/hstack";
 import { Icon } from "@/components/ui/icon";
 import { Image } from "@/components/ui/image";
-import { Star, Home, MapPin, Users } from "lucide-react-native";
+import { Star, Home, MapPin, Users, Heart } from "lucide-react-native";
 import { useAuth } from "@/context/AuthContext";
 import { trackListingView } from "@/utils/view-tracking";
 import { createOrFindConversation } from "@/utils/conversation-utils";
 import { showAlert } from "@/utils/alert";
+import { toggleFavorite, isFavorite } from "@/utils/favorites";
+import { addCustomEventListener } from "@/utils/custom-events";
 
 export type ListingType = {
     id?: string;
@@ -99,13 +101,65 @@ const ListingCard: React.FC<ListingType> = ({
     const isMobile = width < 768;
     const router = useRouter();
     const { user, isAuthenticated } = useAuth();
-    // Removed favorite functionality
+    const [isFavorited, setIsFavorited] = useState(false);
+    const [isToggling, setIsToggling] = useState(false);
 
-    // Removed favorite status checking
+    // Load favorite status
+    useEffect(() => {
+        const loadFavoriteStatus = async () => {
+            if (!user?.id || !id) return;
+            try {
+                const favoriteStatus = await isFavorite(user.id, id);
+                setIsFavorited(favoriteStatus);
+            } catch (error) {
+                console.error('Error loading favorite status:', error);
+            }
+        };
+        loadFavoriteStatus();
+    }, [user?.id, id]);
 
-    // Removed favorite status reloading
+    // Listen for favorite changes from other components
+    useEffect(() => {
+        if (!user?.id || !id) return;
+        
+        const handleFavoriteChange = async () => {
+            try {
+                const favoriteStatus = await isFavorite(user.id, id);
+                setIsFavorited(favoriteStatus);
+            } catch (error) {
+                console.error('Error checking favorite status:', error);
+            }
+        };
 
-    // Removed favorite toggle handler
+        const unsubscribe = addCustomEventListener('favoriteChanged', handleFavoriteChange);
+        return unsubscribe;
+    }, [user?.id, id]);
+
+    // Toggle favorite handler
+    const handleToggleFavorite = async (e: any) => {
+        e.stopPropagation(); // Prevent card click
+        
+        if (!user?.id) {
+            showAlert('Login Required', 'Please log in to save favorites.');
+            return;
+        }
+
+        if (!id) {
+            showAlert('Error', 'Property ID not found.');
+            return;
+        }
+
+        try {
+            setIsToggling(true);
+            const newFavoriteStatus = await toggleFavorite(user.id, id);
+            setIsFavorited(newFavoriteStatus);
+        } catch (error) {
+            console.error('Error toggling favorite:', error);
+            showAlert('Error', 'Failed to update favorite. Please try again.');
+        } finally {
+            setIsToggling(false);
+        }
+    };
 
     const handleViewDetails = async () => {
         // Navigate immediately - track view in background
@@ -196,7 +250,34 @@ const ListingCard: React.FC<ListingType> = ({
                             </Text>
                         </HStack>
                     </View>
-                    {/* Removed favorite button */}
+                    
+                    {/* Favorite Heart Button */}
+                    {isAuthenticated && user?.id && (
+                        <TouchableOpacity
+                            onPress={handleToggleFavorite}
+                            disabled={isToggling}
+                            style={{
+                                position: 'absolute',
+                                top: 12,
+                                right: 12,
+                                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                borderRadius: 9999,
+                                padding: 8,
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.1,
+                                shadowRadius: 4,
+                                elevation: 3,
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Heart 
+                                size={20} 
+                                color={isFavorited ? "#EF4444" : "#6B7280"} 
+                                fill={isFavorited ? "#EF4444" : "none"}
+                            />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Content Section */}

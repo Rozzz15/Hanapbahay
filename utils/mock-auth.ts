@@ -67,6 +67,18 @@ const createDefaultUsers = async () => {
       barangay: 'MAGSAYSAY',
       roles: ['brgy_official'],
       createdAt: new Date().toISOString()
+    },
+    {
+      id: 'brgy_burgos_001',
+      email: 'brgy.burgos@hanapbahay.com',
+      password: 'burgos123',
+      name: 'Barangay Burgos Official',
+      phone: '+63 910 999 0000',
+      address: 'Burgos Street, Lopez, Quezon',
+      role: 'brgy_official',
+      barangay: 'BURGOS',
+      roles: ['brgy_official'],
+      createdAt: new Date().toISOString()
     }
   ];
 
@@ -229,6 +241,7 @@ export interface MockAuthResponse {
     permissions?: string[];
   };
   error?: string;
+  errorMessage?: string;
 }
 
 export async function mockSignUp(email: string, password: string, role: 'tenant' | 'owner' = 'tenant'): Promise<MockAuthResponse> {
@@ -374,7 +387,8 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
       console.log('🔍 Available users:', Array.from(mockUsers.keys()));
       return {
         success: false,
-        error: 'Invalid email or password'
+        error: 'ACCOUNT_NOT_FOUND',
+        errorMessage: 'This account does not exist. Please check your email or sign up for a new account.'
       };
     }
 
@@ -384,7 +398,8 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
       console.log('❌ Password mismatch for user:', normalizedEmail);
       return {
         success: false,
-        error: 'Invalid email or password'
+        error: 'INVALID_PASSWORD',
+        errorMessage: 'Incorrect password. Please try again.'
       };
     }
 

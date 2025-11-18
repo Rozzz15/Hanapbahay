@@ -390,12 +390,42 @@ export default function OwnerDashboard() {
     
     const removeMaintenanceRequestCreated = addCustomEventListener('maintenanceRequestCreated', handleMaintenanceRequestCreated);
     
+    // Listen for payment and revenue updates to refresh revenue data
+    const handlePaymentUpdated = async (event?: any) => {
+      const eventDetail = event?.detail || {};
+      console.log('🔄 Owner Dashboard: Payment updated event received:', eventDetail);
+      
+      if (eventDetail.ownerId === user?.id && user?.id) {
+        // Reload revenue data when payment is confirmed
+        await loadRevenueData();
+        // Also reload stats which includes monthly revenue
+        await loadStats();
+      }
+    };
+    
+    const handleRevenueUpdated = async (event?: any) => {
+      const eventDetail = event?.detail || {};
+      console.log('🔄 Owner Dashboard: Revenue updated event received:', eventDetail);
+      
+      if (eventDetail.ownerId === user?.id && user?.id) {
+        // Reload revenue data when revenue is updated
+        await loadRevenueData();
+        // Also reload stats which includes monthly revenue
+        await loadStats();
+      }
+    };
+    
+    const removePaymentUpdated = addCustomEventListener('paymentUpdated', handlePaymentUpdated);
+    const removeRevenueUpdated = addCustomEventListener('revenueUpdated', handleRevenueUpdated);
+    
     return () => {
       removeListingChanged();
       removeBookingCreated();
       removeMaintenanceRequestCreated();
+      removePaymentUpdated();
+      removeRevenueUpdated();
     };
-  }, [user?.id]); // Only depend on user.id to prevent infinite loops
+  }, [user?.id, loadRevenueData, loadStats]); // Include loadRevenueData and loadStats in dependencies
 
 
   const loadDashboardData = useCallback(async () => {
@@ -406,7 +436,11 @@ export default function OwnerDashboard() {
       
       // Check and send payment due date notifications (runs in background)
       try {
-        const { checkAndSendPaymentDueDateNotifications } = await import('../../utils/tenant-payments');
+        const { checkAndSendPaymentDueDateNotifications, updateOverduePayments } = await import('../../utils/tenant-payments');
+        // First update overdue payments, then check notifications
+        updateOverduePayments().catch(err => {
+          console.log('Overdue payment update completed (background)');
+        });
         checkAndSendPaymentDueDateNotifications().catch(err => {
           console.log('Payment notification check completed (background)');
         });
@@ -1576,7 +1610,7 @@ export default function OwnerDashboard() {
                   </View>
                 </View>
                 <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>Total Rental Income</Text>
-                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0, color: designTokens.colors.success }]}>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
                   ₱{monthlyRevenueOverview.totalRentalIncome.toLocaleString()}
                 </Text>
               </View>
@@ -1597,7 +1631,7 @@ export default function OwnerDashboard() {
                   </View>
                 </View>
                 <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>Pending Payments</Text>
-                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0, color: designTokens.colors.warning }]}>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
                   ₱{monthlyRevenueOverview.pendingPayments.toLocaleString()}
                 </Text>
               </View>
@@ -1618,8 +1652,8 @@ export default function OwnerDashboard() {
                   </View>
                 </View>
                 <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>Completed Payments</Text>
-                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0, color: designTokens.colors.info }]}>
-                  {monthlyRevenueOverview.completedPayments.toLocaleString()} {monthlyRevenueOverview.completedPayments === 1 ? 'payment' : 'payments'}
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
+                  {monthlyRevenueOverview.completedPayments.toLocaleString()}
                 </Text>
               </View>
             </View>
@@ -1639,7 +1673,7 @@ export default function OwnerDashboard() {
                   </View>
                 </View>
                 <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>Overdue Payments</Text>
-                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0, color: designTokens.colors.error }]}>
+                <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
                   ₱{monthlyRevenueOverview.overduePayments.toLocaleString()}
                 </Text>
               </View>

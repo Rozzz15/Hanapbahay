@@ -63,6 +63,7 @@ export default function BrgyLayout() {
             <Stack.Screen name="settings" />
             <Stack.Screen name="owner-applications" />
             <Stack.Screen name="approved-owners" />
+            <Stack.Screen name="ratings" />
           </Stack>
           <BrgyBottomNav />
         </View>

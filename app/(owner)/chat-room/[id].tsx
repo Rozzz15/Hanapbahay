@@ -30,7 +30,7 @@ interface Message {
     senderId: string;
     createdAt: string;
     isOwner: boolean;
-    type?: 'message' | 'image' | 'inquiry' | 'booking_request';
+    type?: 'message' | 'image' | 'inquiry' | 'booking_request' | 'notification';
     imageUri?: string;
     imageWidth?: number;
     imageHeight?: number;
@@ -237,9 +237,23 @@ export default function OwnerChatRoom() {
 
             // Get all messages for this conversation
             const allMessages = await db.list('messages');
-            const conversationMessages = allMessages.filter((msg: any) => 
-                msg.conversationId === conversationId
-            );
+            const conversationMessages = allMessages.filter((msg: any) => {
+                // Check both conversationId and conversation_id for compatibility
+                const msgConversationId = msg.conversationId || msg.conversation_id;
+                return msgConversationId === conversationId;
+            });
+            
+            console.log(`📨 Found ${conversationMessages.length} total messages for conversation ${conversationId}`);
+            const notificationCount = conversationMessages.filter((msg: any) => {
+                const msgType = msg.type || 'message';
+                return msgType === 'notification';
+            }).length;
+            console.log(`🔔 Found ${notificationCount} notification messages`);
+            
+            // Debug: Log all message types
+            conversationMessages.forEach((msg: any, index: number) => {
+                console.log(`📨 Message ${index + 1}: type="${msg.type || 'message'}", text="${(msg.text || '').substring(0, 50)}..."`);
+            });
 
             // Sort by creation time
             conversationMessages.sort((a: any, b: any) => 
@@ -251,17 +265,21 @@ export default function OwnerChatRoom() {
             const conversationOwnerId = conversation?.ownerId || conversation?.owner_id;
             
             // Convert to UI format
-            const uiMessages: Message[] = conversationMessages.map((msg: any) => ({
-                id: msg.id,
-                text: msg.text || '',
-                senderId: msg.senderId || msg.sender_id || '',
-                createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
-                isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId,
-                type: msg.type || 'message',
-                imageUri: msg.imageUri || msg.image_uri,
-                imageWidth: msg.imageWidth || msg.image_width,
-                imageHeight: msg.imageHeight || msg.image_height
-            }));
+            const uiMessages: Message[] = conversationMessages.map((msg: any) => {
+                const messageType = msg.type || 'message';
+                console.log(`🔄 Converting message ${msg.id}: type="${messageType}"`);
+                return {
+                    id: msg.id,
+                    text: msg.text || '',
+                    senderId: msg.senderId || msg.sender_id || '',
+                    createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
+                    isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId,
+                    type: messageType,
+                    imageUri: msg.imageUri || msg.image_uri,
+                    imageWidth: msg.imageWidth || msg.image_width,
+                    imageHeight: msg.imageHeight || msg.image_height
+                };
+            });
 
             setMessages(uiMessages);
             console.log(`✅ Loaded ${uiMessages.length} messages`);
@@ -563,6 +581,54 @@ export default function OwnerChatRoom() {
         if (!message || !message.id) {
             console.warn('⚠️ Invalid message in renderMessage:', message);
             return null;
+        }
+
+        // Check if message is a notification
+        const messageType = message.type || 'message';
+        
+        // Fallback: Check message content for notification patterns if type is not set
+        const isNotificationByType = messageType === 'notification';
+        const isNotificationByContent = !isNotificationByType && (
+            message.text?.includes('Payment Confirmed') ||
+            message.text?.includes('Payment Rejected') ||
+            message.text?.includes('Payment Restored') ||
+            message.text?.includes('Payment Deleted') ||
+            message.text?.includes('booking has been approved') ||
+            message.text?.includes('booking has been declined') ||
+            message.text?.startsWith('✅') ||
+            message.text?.startsWith('⚠️') ||
+            message.text?.startsWith('🎉') ||
+            message.text?.startsWith('❌')
+        );
+        
+        const isNotification = isNotificationByType || isNotificationByContent;
+        
+        // Debug logging for notification detection
+        if (isNotification) {
+            console.log(`🔔 Detected notification message:`, {
+                id: message.id,
+                type: messageType,
+                isNotificationByType,
+                isNotificationByContent,
+                textPreview: message.text?.substring(0, 50)
+            });
+        }
+        
+        // Render notification messages with special layout
+        if (isNotification) {
+            console.log(`✅ Rendering as notification layout for message ${message.id}`);
+            return (
+                <View key={message.id} style={styles.notificationContainer}>
+                    <View style={styles.notificationBubble}>
+                        <Text style={styles.notificationText}>
+                            {message.text}
+                        </Text>
+                        <Text style={styles.notificationTime}>
+                            {formatTime(message.createdAt)}
+                        </Text>
+                    </View>
+                </View>
+            );
         }
 
         // Check if message is from current user (not just if it's from owner)
@@ -1047,6 +1113,37 @@ const styles = StyleSheet.create({
     },
     otherUserMessageTime: {
         color: '#9CA3AF',
+    },
+    notificationContainer: {
+        alignItems: 'center',
+        marginVertical: 8,
+        paddingHorizontal: 16,
+    },
+    notificationBubble: {
+        backgroundColor: '#F0F9FF',
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        maxWidth: '85%',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    notificationText: {
+        fontSize: 14,
+        lineHeight: 20,
+        color: '#1E40AF',
+        textAlign: 'center',
+    },
+    notificationTime: {
+        fontSize: 11,
+        color: '#60A5FA',
+        marginTop: 6,
+        textAlign: 'center',
     },
     inputContainer: {
         backgroundColor: '#FFFFFF',

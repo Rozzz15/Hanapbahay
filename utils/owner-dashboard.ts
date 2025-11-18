@@ -144,8 +144,12 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
     const ownerBookings = allBookingsData.filter(booking => booking.ownerId === ownerId);
     const totalBookings = ownerBookings.length;
 
-    // Get monthly revenue from approved bookings with PAID status only
+    // Get monthly revenue from:
+    // 1. Approved bookings with PAID status (initial deposits) created this month
+    // 2. Rent payments with PAID status (monthly payments) paid this month
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+    
+    // Calculate revenue from booking deposits (initial payments) created this month
     const paidOwnerBookings = allBookingsData.filter(booking => 
       booking.ownerId === ownerId && 
       booking.status === 'approved' &&
@@ -153,12 +157,33 @@ export async function getOwnerDashboardStats(ownerId: string): Promise<OwnerDash
       booking.createdAt && 
       booking.createdAt.startsWith(currentMonth)
     );
+    const bookingDepositRevenue = paidOwnerBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
     
-    const monthlyRevenue = paidOwnerBookings.reduce((sum, booking) => sum + (booking.totalAmount || 0), 0);
+    // Calculate revenue from rent payments (monthly payments) paid this month
+    const { getRentPaymentsByOwner } = await import('./tenant-payments');
+    const allRentPayments = await getRentPaymentsByOwner(ownerId);
+    const paidRentPayments = allRentPayments.filter(payment => {
+      // Only include payments that are confirmed/accepted (status === 'paid')
+      if (payment.status !== 'paid') return false;
+      
+      // Check if payment was paid in the current month
+      // Use paidDate if available, otherwise fall back to createdAt
+      const paidDate = payment.paidDate || payment.createdAt;
+      
+      // Include if paid this month (when the owner confirmed/accepted the payment)
+      return paidDate.startsWith(currentMonth);
+    });
+    const rentPaymentRevenue = paidRentPayments.reduce((sum, payment) => sum + (payment.totalAmount || 0), 0);
+    
+    // Total monthly revenue = booking deposits + rent payments
+    const monthlyRevenue = bookingDepositRevenue + rentPaymentRevenue;
     
     console.log('💰 Revenue calculation:', {
       totalBookings: allBookingsData.filter((b: any) => b.ownerId === ownerId && b.status === 'approved').length,
       paidBookings: paidOwnerBookings.length,
+      bookingDepositRevenue,
+      paidRentPayments: paidRentPayments.length,
+      rentPaymentRevenue,
       monthlyRevenue
     });
 
@@ -572,8 +597,12 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
     
     for (const conv of ownerConversations) {
       console.log('🔍 Processing conversation:', conv.id);
+      // Filter out notifications - only get regular messages for conversation preview
       const convMessages = normalizedMessages
-        .filter(msg => msg.conversationId === conv.id)
+        .filter(msg => 
+          msg.conversationId === conv.id && 
+          msg.type !== 'notification' // Exclude notifications from conversation list
+        )
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       
       console.log('📨 Messages for conversation', conv.id, ':', convMessages.length);

@@ -191,6 +191,16 @@ export default function TenantMainDashboard() {
     try {
       setLoading(true);
       
+      // Update overdue payments (runs in background)
+      try {
+        const { updateOverduePayments } = await import('../../utils/tenant-payments');
+        updateOverduePayments().catch(err => {
+          console.log('Overdue payment update completed (background)');
+        });
+      } catch (err) {
+        // Silently fail - overdue update is not critical
+      }
+      
       // Get active booking (approved and paid)
       const bookings = await getBookingsByTenant(user.id);
       const active = bookings.find(
@@ -1320,6 +1330,76 @@ export default function TenantMainDashboard() {
           </View>
         </View>
 
+        {/* Prominent Payment Alert Banner - Shows when payment is within 7 days */}
+        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (nextDueDays <= 7 || isNextDueOverdue) && (
+          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: 0 }]}>
+            <TouchableOpacity
+              onPress={handlePayRent}
+              activeOpacity={0.8}
+              style={{
+                backgroundColor: isNextDueOverdue 
+                  ? designTokens.colors.error 
+                  : nextDueDays <= 3 
+                    ? '#F59E0B' 
+                    : designTokens.colors.warning,
+                borderRadius: designTokens.borderRadius.md,
+                padding: designTokens.spacing.md,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: designTokens.spacing.sm,
+                ...designTokens.shadows.md,
+                borderLeftWidth: 4,
+                borderLeftColor: isNextDueOverdue ? '#DC2626' : nextDueDays <= 3 ? '#D97706' : '#F59E0B',
+              }}
+            >
+              <View style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}>
+                {isNextDueOverdue ? (
+                  <AlertCircle size={20} color="#FFFFFF" />
+                ) : (
+                  <Bell size={20} color="#FFFFFF" />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  fontWeight: designTokens.typography.bold as any,
+                  color: '#FFFFFF',
+                  marginBottom: 2,
+                }}>
+                  {isNextDueOverdue 
+                    ? `⚠️ Payment Overdue!`
+                    : nextDueDays <= 1
+                      ? `🚨 Payment Due Tomorrow!`
+                      : nextDueDays <= 3
+                        ? `⚡ Payment Due in ${nextDueDays} Days`
+                        : `📅 Payment Due in ${nextDueDays} Days`}
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: 'rgba(255, 255, 255, 0.9)',
+                }}>
+                  ₱{rentHistory.nextDueAmount.toLocaleString()} • {formatDate(rentHistory.nextDueDate)}
+                </Text>
+              </View>
+              <View style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                borderRadius: designTokens.borderRadius.sm,
+                paddingHorizontal: designTokens.spacing.sm,
+                paddingVertical: designTokens.spacing.xs,
+              }}>
+                <ChevronRight size={18} color="#FFFFFF" />
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Compact Payment Notification Banner */}
         {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
@@ -2080,6 +2160,9 @@ export default function TenantMainDashboard() {
                       const methodIcon = account.type === 'gcash' ? '📱' : 
                                         account.type === 'paymaya' ? '💳' :
                                         account.type === 'bank_transfer' ? '🏦' : '💵';
+                      const methodIconImage = account.type === 'gcash' ? require('../../assets/images/Gcash.jpg') :
+                                             account.type === 'paymaya' ? require('../../assets/images/paymaya.jpg') :
+                                             null;
                       const isSelected = selectedPaymentMethod === `${methodName} - ${account.accountNumber.slice(-4)}`;
                       
                       return (
@@ -2093,7 +2176,15 @@ export default function TenantMainDashboard() {
                             activeOpacity={0.7}
                           >
                             <View style={styles.paymentMethodLeft}>
-                              <Text style={styles.paymentMethodIcon}>{methodIcon}</Text>
+                              {methodIconImage ? (
+                                <Image 
+                                  source={methodIconImage} 
+                                  style={styles.paymentMethodIconImage}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <Text style={styles.paymentMethodIcon}>{methodIcon}</Text>
+                              )}
                               <View style={styles.paymentMethodInfo}>
                                 <Text style={styles.paymentMethodName}>{methodName}</Text>
                                 <Text style={styles.paymentMethodAccount}>
@@ -4661,6 +4752,12 @@ const styles = StyleSheet.create({
   },
   paymentMethodIcon: {
     fontSize: 24,
+  },
+  paymentMethodIconImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
   },
   paymentMethodInfo: {
     flex: 1,

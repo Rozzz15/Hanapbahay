@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
@@ -24,8 +24,8 @@ interface PaymentMethodsDisplayProps {
 }
 
 const PAYMENT_TYPES = [
-  { id: 'gcash', name: 'GCash', icon: '📱', color: '#00A86B' },
-  { id: 'paymaya', name: 'Maya', icon: '💳', color: '#00A86B' },
+  { id: 'gcash', name: 'GCash', icon: '📱', iconImage: require('../../assets/images/Gcash.jpg'), color: '#00A86B' },
+  { id: 'paymaya', name: 'Maya', icon: '💳', iconImage: require('../../assets/images/paymaya.jpg'), color: '#00A86B' },
   { id: 'bank_transfer', name: 'Bank Transfer', icon: '🏦', color: '#1E40AF' },
   { id: 'cash', name: 'Cash Payment', icon: '💵', color: '#059669' }
 ];
@@ -159,7 +159,15 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
             return (
               <View key={account.id} style={styles.methodCard}>
                 <View style={styles.methodHeader}>
-                  <Text style={{ fontSize: 24, marginRight: 8 }}>{paymentType?.icon}</Text>
+                  {paymentType?.iconImage ? (
+                    <Image 
+                      source={paymentType.iconImage} 
+                      style={styles.methodIconImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Text style={{ fontSize: 24, marginRight: 8 }}>{paymentType?.icon}</Text>
+                  )}
                   <View style={{ flex: 1 }}>
                     <Text style={styles.methodName}>{paymentType?.name}</Text>
                     <Text style={styles.accountName}>{account.accountName}</Text>
@@ -167,21 +175,38 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
                 </View>
                 
                 <View style={styles.methodDetails}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>
-                      {account.type === 'cash' ? 'Instructions:' : 'Account Number:'}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.copyButton}
-                      onPress={() => copyToClipboard(account.accountNumber, 'Account number')}
-                    >
-                      <Text style={styles.detailValue}>{account.accountNumber}</Text>
-                      <Ionicons name="copy-outline" size={16} color="#6B7280" />
-                    </TouchableOpacity>
-                  </View>
-                  
-                  {account.accountDetails && (
-                    <Text style={styles.detailNotes}>{account.accountDetails}</Text>
+                  {account.type === 'cash' ? (
+                    <View style={styles.cashInstructionsContainer}>
+                      <Text style={styles.detailLabel}>
+                        Instructions:
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.cashCopyButton}
+                        onPress={() => copyToClipboard(account.accountNumber, 'Instructions')}
+                      >
+                        <Text style={styles.cashInstructionsText}>{account.accountNumber}</Text>
+                        <Ionicons name="copy-outline" size={16} color="#6B7280" />
+                      </TouchableOpacity>
+                      {account.accountDetails && (
+                        <Text style={styles.detailNotes}>{account.accountDetails}</Text>
+                      )}
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Account Number:</Text>
+                        <TouchableOpacity
+                          style={styles.copyButton}
+                          onPress={() => copyToClipboard(account.accountNumber, 'Account number')}
+                        >
+                          <Text style={styles.detailValue}>{account.accountNumber}</Text>
+                          <Ionicons name="copy-outline" size={16} color="#6B7280" />
+                        </TouchableOpacity>
+                      </View>
+                      {account.accountDetails && (
+                        <Text style={styles.detailNotes}>{account.accountDetails}</Text>
+                      )}
+                    </>
                   )}
                 </View>
               </View>
@@ -241,6 +266,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    overflow: 'hidden',
   },
   methodHeader: {
     flexDirection: 'row',
@@ -264,7 +290,7 @@ const styles = StyleSheet.create({
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 8,
   },
   detailLabel: {
@@ -273,19 +299,46 @@ const styles = StyleSheet.create({
   },
   copyButton: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 6,
+    flex: 1,
+    marginLeft: 8,
   },
   detailValue: {
     fontSize: 13,
     fontWeight: '600',
     color: '#111827',
+    flex: 1,
+    flexShrink: 1,
   },
   detailNotes: {
     fontSize: 12,
     color: '#6B7280',
     lineHeight: 16,
     fontStyle: 'italic',
+    marginTop: 8,
+  },
+  cashInstructionsContainer: {
+    width: '100%',
+  },
+  cashCopyButton: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: 4,
+  },
+  cashInstructionsText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+    flex: 1,
+    flexShrink: 1,
+  },
+  methodIconImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
   },
 });
 

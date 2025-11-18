@@ -242,3 +242,71 @@ export async function getRatingsForOwner(ownerId: string): Promise<Array<Propert
   }
 }
 
+/**
+ * Get all ratings for properties in a barangay
+ */
+export async function getRatingsForBarangay(barangayName: string): Promise<Array<PropertyRatingRecord & {
+  propertyTitle: string;
+  propertyAddress: string;
+  tenantName?: string;
+  ownerName?: string;
+}>> {
+  try {
+    const allListings = await db.list<PublishedListingRecord>('published_listings');
+    const allUsers = await db.list('users');
+    
+    // Filter listings by barangay
+    const barangayListings = allListings.filter(listing => {
+      if (listing.barangay) {
+        return listing.barangay.trim().toUpperCase() === barangayName.trim().toUpperCase();
+      }
+      // Fallback: check via user
+      const listingUser = allUsers.find((u: any) => u.id === listing.userId);
+      const userBarangay = listingUser?.barangay;
+      return userBarangay && userBarangay.trim().toUpperCase() === barangayName.trim().toUpperCase();
+    });
+    
+    const barangayPropertyIds = barangayListings.map(listing => listing.id);
+
+    const allRatings = await db.list<PropertyRatingRecord>('property_ratings');
+    const barangayRatings = allRatings.filter(rating => barangayPropertyIds.includes(rating.propertyId));
+
+    // Enrich with property, tenant, and owner info
+    const enrichedRatings = await Promise.all(
+      barangayRatings.map(async (rating) => {
+        const listing = barangayListings.find(l => l.id === rating.propertyId);
+        let tenantName: string | undefined;
+        let ownerName: string | undefined;
+        
+        try {
+          const tenant = allUsers.find((u: any) => u.id === rating.userId);
+          tenantName = tenant?.name || tenant?.email || 'Anonymous';
+          
+          if (listing?.userId) {
+            const owner = allUsers.find((u: any) => u.id === listing.userId);
+            ownerName = owner?.name || owner?.email || 'Unknown Owner';
+          }
+        } catch (error) {
+          console.error('Error getting user names:', error);
+        }
+
+        return {
+          ...rating,
+          propertyTitle: listing?.propertyType || 'Unknown Property',
+          propertyAddress: listing?.address || 'Unknown Address',
+          tenantName: rating.isAnonymous ? 'Anonymous' : tenantName,
+          ownerName: ownerName,
+        };
+      })
+    );
+
+    // Sort by most recent first
+    return enrichedRatings.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  } catch (error) {
+    console.error('❌ Error getting ratings for barangay:', error);
+    return [];
+  }
+}
+

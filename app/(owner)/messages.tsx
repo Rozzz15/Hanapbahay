@@ -8,7 +8,8 @@ import {
     TextInput, 
     Image, 
     ActivityIndicator,
-    RefreshControl
+    RefreshControl,
+    Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -95,6 +96,10 @@ export default function OwnerMessages() {
         avatar?: string;
     } | null>(null);
     const [tenantInfoModalVisible, setTenantInfoModalVisible] = useState(false);
+    const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+    const [notifications, setNotifications] = useState<any[]>([]);
+    const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
 
     const loadConversations = useCallback(async () => {
         if (!user?.id) return;
@@ -114,10 +119,16 @@ export default function OwnerMessages() {
             console.log(`📊 Found ${ownerConversations.length} conversations for owner`);
 
             // Get all messages to check which conversations have actual messages
+            // Filter out notifications - they shouldn't appear in conversation list
             const allMessages = await db.list('messages');
             const conversationsWithMessages = new Set(
                 allMessages
-                    .filter((msg: any) => msg.conversationId && msg.text && msg.text.trim() !== '')
+                    .filter((msg: any) => 
+                        msg.conversationId && 
+                        msg.text && 
+                        msg.text.trim() !== '' &&
+                        msg.type !== 'notification' // Exclude notifications
+                    )
                     .map((msg: any) => msg.conversationId)
             );
 
@@ -293,12 +304,40 @@ export default function OwnerMessages() {
                         console.log('Error loading tenant details:', error);
                     }
 
+                    // Get the last non-notification message for preview
+                    let lastMessage = conv.lastMessageText || 'Start conversation';
+                    let lastMessageAt = conv.lastMessageAt;
+                    
+                    // If last message is a notification, find the last regular message
+                    if (conv.lastMessageText) {
+                        try {
+                            const conversationMessages = allMessages
+                                .filter((msg: any) => 
+                                    msg.conversationId === conv.id && 
+                                    msg.type !== 'notification' &&
+                                    msg.text && 
+                                    msg.text.trim() !== ''
+                                )
+                                .sort((a: any, b: any) => 
+                                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                                );
+                            
+                            if (conversationMessages.length > 0) {
+                                const lastRegularMessage = conversationMessages[0];
+                                lastMessage = lastRegularMessage.text || 'Start conversation';
+                                lastMessageAt = lastRegularMessage.createdAt || conv.lastMessageAt;
+                            }
+                        } catch (error) {
+                            console.log('Error getting last regular message:', error);
+                        }
+                    }
+
                     return {
                         id: conv.id,
                         ownerId: user.id,
                         tenantId: tenantId || '',
-                        lastMessage: conv.lastMessageText || 'Start conversation',
-                        lastMessageAt: conv.lastMessageAt,
+                        lastMessage,
+                        lastMessageAt,
                         unreadCount: conv.unreadByOwner || 0,
                         tenantName,
                         tenantAvatar,
@@ -348,8 +387,12 @@ export default function OwnerMessages() {
     useEffect(() => {
         if (user?.id) {
             loadConversations();
+            loadNotifications(); // Load notifications on mount
         }
-    }, [user?.id, loadConversations]);
+    }, [user?.id, loadConversations, loadNotifications]);
+
+    // Update badge count when notifications or read status changes
+    const unreadNotificationCount = notifications.filter(notif => !readNotificationIds.has(notif.id)).length;
 
     useFocusEffect(
         useCallback(() => {
@@ -481,6 +524,165 @@ export default function OwnerMessages() {
         }
     };
 
+    const loadNotifications = useCallback(async () => {
+        if (!user?.id) return;
+
+        try {
+            setNotificationsLoading(true);
+            console.log('🔄 Loading notifications for owner:', user.id);
+
+            // Load read notification IDs from storage
+            try {
+                const readIdsJson = await AsyncStorage.getItem(`read_notifications_${user.id}`);
+                if (readIdsJson) {
+                    const readIds = JSON.parse(readIdsJson);
+                    setReadNotificationIds(new Set(readIds));
+                }
+            } catch (error) {
+                console.log('Error loading read notifications:', error);
+            }
+
+            // Get all conversations where user is the owner
+            const allConversations = await db.list('conversations');
+            const ownerConversations = allConversations.filter((conv: any) => 
+                conv.ownerId === user.id || 
+                (conv.participantIds && conv.participantIds.includes(user.id))
+            );
+
+            // Get all notification messages
+            const allMessages = await db.list('messages');
+            const notificationMessages = allMessages.filter((msg: any) => {
+                const msgConversationId = msg.conversationId || msg.conversation_id;
+                const isOwnerConversation = ownerConversations.some((conv: any) => conv.id === msgConversationId);
+                const isNotification = msg.type === 'notification' || 
+                    msg.text?.includes('Payment Confirmed') ||
+                    msg.text?.includes('Payment Rejected') ||
+                    msg.text?.includes('Payment Restored') ||
+                    msg.text?.includes('Payment Deleted') ||
+                    msg.text?.includes('booking has been approved') ||
+                    msg.text?.includes('booking has been declined') ||
+                    msg.text?.includes('New Rating Received') ||
+                    msg.text?.includes('⭐ New Rating');
+                return isOwnerConversation && isNotification;
+            });
+
+            // Sort by creation time (newest first)
+            notificationMessages.sort((a: any, b: any) => {
+                const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+                const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+                return timeB - timeA;
+            });
+
+            // Get conversation and tenant details for each notification
+            const notificationsWithDetails = await Promise.all(
+                notificationMessages.map(async (msg: any) => {
+                    const conversationId = msg.conversationId || msg.conversation_id;
+                    const conversation = ownerConversations.find((conv: any) => conv.id === conversationId);
+                    const tenantId = conversation?.tenantId || conversation?.participantIds?.find((id: string) => id !== user.id);
+                    
+                    let tenantName = 'Unknown Tenant';
+                    if (tenantId) {
+                        try {
+                            const tenantRecord = await db.get('users', tenantId);
+                            if (tenantRecord) {
+                                tenantName = (tenantRecord as any).name || tenantName;
+                            }
+                        } catch (error) {
+                            console.log('Error loading tenant for notification:', error);
+                        }
+                    }
+
+                    return {
+                        id: msg.id,
+                        text: msg.text || '',
+                        createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
+                        conversationId,
+                        tenantName,
+                        tenantId
+                    };
+                })
+            );
+
+            setNotifications(notificationsWithDetails);
+            console.log(`✅ Loaded ${notificationsWithDetails.length} notifications`);
+        } catch (error) {
+            console.error('❌ Error loading notifications:', error);
+            showAlert('Error', 'Failed to load notifications');
+        } finally {
+            setNotificationsLoading(false);
+        }
+    }, [user?.id]);
+
+    const markNotificationAsRead = useCallback(async (notificationId: string) => {
+        if (!user?.id) return;
+        
+        try {
+            const newReadIds = new Set(readNotificationIds);
+            newReadIds.add(notificationId);
+            setReadNotificationIds(newReadIds);
+            
+            // Save to storage
+            await AsyncStorage.setItem(
+                `read_notifications_${user.id}`,
+                JSON.stringify(Array.from(newReadIds))
+            );
+        } catch (error) {
+            console.error('Error marking notification as read:', error);
+        }
+    }, [user?.id, readNotificationIds]);
+
+    const markAllNotificationsAsRead = useCallback(async () => {
+        if (!user?.id || notifications.length === 0) return;
+        
+        try {
+            const allIds = new Set(readNotificationIds);
+            notifications.forEach(notif => allIds.add(notif.id));
+            setReadNotificationIds(allIds);
+            
+            // Save to storage
+            await AsyncStorage.setItem(
+                `read_notifications_${user.id}`,
+                JSON.stringify(Array.from(allIds))
+            );
+        } catch (error) {
+            console.error('Error marking all notifications as read:', error);
+        }
+    }, [user?.id, notifications, readNotificationIds]);
+
+    const handleNotificationIconPress = async () => {
+        setNotificationsModalVisible(true);
+        await loadNotifications(); // Refresh notifications when opening modal
+        // Mark all as read when opening modal
+        setTimeout(() => {
+            markAllNotificationsAsRead();
+        }, 500);
+    };
+
+    const handleNotificationPress = async (notification: any) => {
+        // Mark notification as read
+        await markNotificationAsRead(notification.id);
+        
+        // Check if it's a rating notification
+        const isRatingNotification = notification.text?.includes('New Rating Received') || 
+                                     notification.text?.includes('⭐ New Rating');
+        
+        if (isRatingNotification) {
+            // Navigate to ratings page for rating notifications
+            setNotificationsModalVisible(false);
+            router.push('/(owner)/ratings');
+        } else if (notification.conversationId) {
+            // Navigate to the conversation for other notifications
+            setNotificationsModalVisible(false);
+            router.push({
+                pathname: '/chat-room',
+                params: {
+                    conversationId: notification.conversationId,
+                    tenantName: notification.tenantName
+                }
+            });
+        }
+    };
+
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -498,6 +700,17 @@ export default function OwnerMessages() {
             <View style={styles.header}>
                 <View style={styles.headerContent}>
                     <Text style={styles.headerTitle}>Messages</Text>
+                    <TouchableOpacity 
+                        onPress={handleNotificationIconPress}
+                        style={styles.notificationIconButton}
+                    >
+                        <Ionicons name="notifications" size={24} color="#10B981" style={styles.headerIcon} />
+                        {unreadNotificationCount > 0 && (
+                            <View style={styles.notificationBadge}>
+                                <Text style={styles.notificationBadgeText}>{unreadNotificationCount}</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
                     {unreadCount > 0 && (
                         <View style={styles.badge}>
                             <Text style={styles.badgeText}>{unreadCount}</Text>
@@ -647,6 +860,131 @@ export default function OwnerMessages() {
                     }}
                 />
             )}
+
+            {/* Notifications Modal */}
+            <Modal
+                visible={notificationsModalVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setNotificationsModalVisible(false)}
+            >
+                <SafeAreaView style={styles.modalContainer} edges={['bottom']}>
+                    <TouchableOpacity
+                        style={styles.modalBackdrop}
+                        activeOpacity={1}
+                        onPress={() => setNotificationsModalVisible(false)}
+                    />
+                    <View style={styles.modalContent}>
+                        {/* Modal Header */}
+                        <View style={styles.modalHeader}>
+                            <View style={styles.modalHeaderLeft}>
+                                <View style={styles.modalTitleContainer}>
+                                    <Ionicons name="notifications" size={28} color="#111827" style={styles.modalTitleIcon} />
+                                    <Text style={styles.modalTitle}>Notifications</Text>
+                                </View>
+                                {notifications.length > 0 && (
+                                    <Text style={styles.modalSubtitle}>{notifications.length} {notifications.length === 1 ? 'notification' : 'notifications'}</Text>
+                                )}
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setNotificationsModalVisible(false)}
+                                style={styles.modalCloseButton}
+                            >
+                                <View style={styles.modalCloseButtonInner}>
+                                    <Ionicons name="close" size={20} color="#6B7280" />
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Notifications List */}
+                        {notificationsLoading ? (
+                            <View style={styles.modalLoadingContainer}>
+                                <ActivityIndicator size="large" color="#10B981" />
+                                <Text style={styles.modalLoadingText}>Loading notifications...</Text>
+                            </View>
+                        ) : notifications.length === 0 ? (
+                            <View style={styles.modalEmptyState}>
+                                <Ionicons name="notifications-outline" size={64} color="#9CA3AF" />
+                                <Text style={styles.modalEmptyTitle}>No notifications</Text>
+                                <Text style={styles.modalEmptyText}>
+                                    You don't have any notifications yet
+                                </Text>
+                            </View>
+                        ) : (
+                            <ScrollView 
+                                style={styles.modalScrollView}
+                                contentContainerStyle={styles.modalScrollViewContent}
+                                showsVerticalScrollIndicator={true}
+                            >
+                                {notifications.map((notification) => {
+                                    // Determine notification type based on content
+                                    const notificationText = notification.text || '';
+                                    const isRejected = notificationText.includes('Rejected') || 
+                                                      notificationText.includes('rejected') ||
+                                                      notificationText.includes('declined') ||
+                                                      notificationText.includes('Declined') ||
+                                                      notificationText.startsWith('❌') ||
+                                                      notificationText.includes('⚠️ Payment Rejected');
+                                    
+                                    const isApproved = notificationText.includes('Confirmed') ||
+                                                       notificationText.includes('confirmed') ||
+                                                       notificationText.includes('approved') ||
+                                                       notificationText.includes('Approved') ||
+                                                       notificationText.startsWith('✅') ||
+                                                       notificationText.startsWith('🎉') ||
+                                                       notificationText.includes('Payment Confirmed') ||
+                                                       notificationText.includes('booking has been approved');
+                                    
+                                    const isRating = notificationText.includes('New Rating Received') ||
+                                                     notificationText.includes('⭐ New Rating') ||
+                                                     notificationText.startsWith('⭐');
+                                    
+                                    const iconColor = isRejected ? '#EF4444' : 
+                                                     (isApproved ? '#10B981' : 
+                                                     (isRating ? '#F59E0B' : '#3B82F6'));
+                                    const iconBgColor = isRejected ? '#FEF2F2' : 
+                                                       (isApproved ? '#F0FDF4' : 
+                                                       (isRating ? '#FFFBEB' : '#EFF6FF'));
+                                    
+                                    return (
+                                        <TouchableOpacity
+                                            key={notification.id}
+                                            style={styles.notificationItem}
+                                            onPress={() => handleNotificationPress(notification)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <View style={styles.notificationItemCard}>
+                                                <View style={[styles.notificationIconContainer, { backgroundColor: iconBgColor }]}>
+                                                    <Ionicons name="notifications" size={22} color={iconColor} />
+                                                </View>
+                                                <View style={styles.notificationTextContainer}>
+                                                    <Text style={styles.notificationItemText} numberOfLines={3}>
+                                                        {notification.text}
+                                                    </Text>
+                                                    <View style={styles.notificationItemFooter}>
+                                                        <View style={styles.notificationItemFooterLeft}>
+                                                            <Ionicons name="person-outline" size={14} color="#6B7280" style={styles.footerIcon} />
+                                                            <Text style={styles.notificationItemTenant}>
+                                                                {notification.tenantName}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.notificationItemFooterRight}>
+                                                            <Ionicons name="time-outline" size={14} color="#9CA3AF" style={styles.footerIcon} />
+                                                            <Text style={styles.notificationItemTime}>
+                                                                {formatTime(notification.createdAt)}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        )}
+                    </View>
+                </SafeAreaView>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -673,6 +1011,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
+    },
+    headerIcon: {
+        marginLeft: 8,
     },
     headerTitle: {
         fontSize: 28,
@@ -867,5 +1208,209 @@ const styles = StyleSheet.create({
     unreadMessage: {
         fontWeight: '600',
         color: '#111827',
+    },
+    notificationIconButton: {
+        position: 'relative',
+        padding: 4,
+    },
+    notificationBadge: {
+        position: 'absolute',
+        top: -2,
+        right: -2,
+        backgroundColor: '#EF4444',
+        borderRadius: 10,
+        minWidth: 20,
+        height: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 6,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+    },
+    notificationBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: 'bold',
+    },
+    modalContainer: {
+        flex: 1,
+        justifyContent: 'flex-end',
+    },
+    modalBackdrop: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    modalContent: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        flex: 1,
+        maxHeight: '90%',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        paddingHorizontal: 20,
+        paddingTop: 16,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+        backgroundColor: '#FAFBFC',
+    },
+    modalHeaderLeft: {
+        flex: 1,
+    },
+    modalTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 2,
+    },
+    modalTitleIcon: {
+        marginRight: 8,
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: '700',
+        color: '#111827',
+        letterSpacing: -0.5,
+    },
+    modalSubtitle: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginTop: 0,
+        fontWeight: '500',
+    },
+    modalCloseButton: {
+        padding: 4,
+        marginTop: -2,
+    },
+    modalCloseButtonInner: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    modalLoadingContainer: {
+        paddingVertical: 60,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalLoadingText: {
+        marginTop: 12,
+        fontSize: 14,
+        color: '#6B7280',
+        fontWeight: '500',
+    },
+    modalEmptyState: {
+        paddingVertical: 60,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 32,
+    },
+    modalEmptyTitle: {
+        fontSize: 20,
+        fontWeight: '600',
+        color: '#111827',
+        marginTop: 16,
+        marginBottom: 6,
+        letterSpacing: -0.3,
+    },
+    modalEmptyText: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    modalScrollView: {
+        flex: 1,
+        backgroundColor: '#F9FAFB',
+    },
+    modalScrollViewContent: {
+        paddingVertical: 12,
+        paddingBottom: 16,
+    },
+    notificationItem: {
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        marginBottom: 6,
+    },
+    notificationItemCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    notificationIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    notificationTextContainer: {
+        flex: 1,
+        paddingTop: 0,
+    },
+    notificationItemText: {
+        fontSize: 14,
+        lineHeight: 20,
+        color: '#111827',
+        marginBottom: 8,
+        fontWeight: '400',
+        letterSpacing: -0.2,
+    },
+    notificationItemFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    notificationItemFooterLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    notificationItemFooterRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    footerIcon: {
+        marginRight: 3,
+    },
+    notificationItemTenant: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#374151',
+    },
+    notificationItemTime: {
+        fontSize: 11,
+        color: '#9CA3AF',
+        fontWeight: '500',
     },
 });

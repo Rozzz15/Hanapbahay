@@ -14,7 +14,7 @@ This document provides information about the Barangay Official Dashboard feature
 
 ## User Accounts Created
 
-Four barangay official accounts have been created, one for each barangay:
+Five barangay official accounts have been created, one for each barangay:
 
 ### 1. Barangay Rizal
 - **Email**: brgy.rizal@hanapbahay.com
@@ -47,6 +47,14 @@ Four barangay official accounts have been created, one for each barangay:
 - **Phone**: +63 910 777 8888
 - **Address**: Magsaysay Street, Dumaguete City
 - **Barangay**: MAGSAYSAY
+
+### 5. Barangay Burgos
+- **Email**: brgy.burgos@hanapbahay.com
+- **Password**: burgos123
+- **Name**: Barangay Burgos Official
+- **Phone**: +63 910 999 0000
+- **Address**: Burgos Street, Lopez, Quezon
+- **Barangay**: BURGOS
 
 ## How to Login
 
@@ -96,7 +104,7 @@ Four barangay official accounts have been created, one for each barangay:
 ### Files Modified
 - `types/index.ts` - Added `brgy_official` role and `barangay` field
 - `context/AuthContext.tsx` - Added `redirectBrgyOfficial()` function
-- `utils/mock-auth.ts` - Added 4 barangay official accounts
+- `utils/mock-auth.ts` - Added 5 barangay official accounts
 - `app/login.tsx` - Added barangay official login routing
 
 ## Design System

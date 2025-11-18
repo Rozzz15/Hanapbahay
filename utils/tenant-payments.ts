@@ -119,6 +119,109 @@ export function getDaysOverdue(dueDate: string): number {
 }
 
 /**
+ * Update payments to overdue status if they have passed their due date
+ * This should be called periodically (e.g., when dashboard loads, daily checks)
+ */
+export async function updateOverduePayments(): Promise<{
+  updated: number;
+  errors: number;
+}> {
+  try {
+    const allPayments = await db.list<RentPayment>('rent_payments');
+    const now = new Date();
+    let updatedCount = 0;
+    let errorCount = 0;
+
+    // Find all pending or pending_owner_confirmation payments that are past due
+    const paymentsToUpdate = allPayments.filter(payment => {
+      // Only update payments that are pending (including pending_owner_confirmation)
+      // Exclude: paid, overdue, rejected, and partial payments
+      const isPending = payment.status === 'pending' || payment.status === 'pending_owner_confirmation';
+      if (!isPending) {
+        return false;
+      }
+
+      // Check if payment is past due date
+      const dueDate = new Date(payment.dueDate);
+      const isPastDue = now > dueDate;
+      
+      if (isPastDue) {
+        console.log(`📅 Payment ${payment.id} is overdue: status=${payment.status}, dueDate=${payment.dueDate}, now=${now.toISOString()}`);
+      }
+      
+      return isPastDue;
+    });
+
+    console.log(`🔄 Found ${paymentsToUpdate.length} pending payment(s) to update to overdue status`);
+
+    // Update each payment
+    for (const payment of paymentsToUpdate) {
+      try {
+        // Get booking to calculate late fee
+        const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
+        if (!booking) {
+          console.warn(`⚠️ Booking not found for payment ${payment.id}`);
+          errorCount++;
+          continue;
+        }
+
+        // Calculate days overdue and late fee
+        const daysOverdue = getDaysOverdue(payment.dueDate);
+        const monthlyRent = booking.monthlyRent || payment.amount || 0;
+        const lateFee = calculateLateFee(monthlyRent, daysOverdue);
+        const totalAmount = monthlyRent + lateFee;
+
+        // Update payment status to overdue
+        const updatedPayment: RentPayment = {
+          ...payment,
+          status: 'overdue',
+          lateFee,
+          totalAmount,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await db.upsert('rent_payments', payment.id, updatedPayment);
+        updatedCount++;
+        
+        console.log(`✅ Updated payment ${payment.id} to overdue (${daysOverdue} days overdue, late fee: ₱${lateFee.toLocaleString()})`);
+
+        // Dispatch event to notify other parts of the app
+        try {
+          const { dispatchCustomEvent } = await import('./custom-events');
+          dispatchCustomEvent('paymentUpdated', {
+            paymentId: payment.id,
+            bookingId: payment.bookingId,
+            ownerId: payment.ownerId,
+            tenantId: payment.tenantId,
+            status: 'overdue',
+          });
+        } catch (eventError) {
+          console.warn('⚠️ Could not dispatch payment update event:', eventError);
+        }
+      } catch (error) {
+        console.error(`❌ Error updating payment ${payment.id} to overdue:`, error);
+        errorCount++;
+      }
+    }
+
+    if (updatedCount > 0) {
+      console.log(`✅ Updated ${updatedCount} payment(s) to overdue status`);
+    }
+
+    return {
+      updated: updatedCount,
+      errors: errorCount,
+    };
+  } catch (error) {
+    console.error('❌ Error updating overdue payments:', error);
+    return {
+      updated: 0,
+      errors: 1,
+    };
+  }
+}
+
+/**
  * Create a monthly rent payment record
  */
 export async function createRentPayment(
@@ -237,8 +340,27 @@ export async function getRentHistorySummary(tenantId: string): Promise<RentHisto
       .filter(p => p.status === 'paid')
       .reduce((sum, p) => sum + p.totalAmount, 0);
     
+    const now = new Date();
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const twoMonthsFromNow = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+    
     const totalPending = payments
-      .filter(p => p.status === 'pending')
+      .filter(p => {
+        // Don't count rejected payments as pending
+        if (p.status === 'rejected') return false;
+        
+        // Only count pending or pending_owner_confirmation statuses
+        if (p.status === 'pending' || p.status === 'pending_owner_confirmation') {
+          // Check payment month
+          const paymentMonth = new Date(p.paymentMonth + '-01');
+          // Include current month and next month, exclude advance payments (beyond next month)
+          const isCurrentOrNextMonth = paymentMonth >= currentMonth && paymentMonth < twoMonthsFromNow;
+          return isCurrentOrNextMonth;
+        }
+        
+        return false;
+      })
       .reduce((sum, p) => sum + p.totalAmount, 0);
     
     const totalOverdue = payments
@@ -387,7 +509,7 @@ async function sendPaymentNotificationToOwner(payment: RentPayment): Promise<voi
       text: messageText,
       createdAt: now,
       readBy: [booking.tenantId],
-      type: 'message',
+      type: 'notification',
     };
 
     await db.upsert('messages', messageId, messageRecord);
@@ -587,6 +709,9 @@ export async function getPaymentRemindersForOwner(ownerId: string): Promise<Paym
  */
 export async function checkAndSendPaymentDueDateNotifications(): Promise<void> {
   try {
+    // First, update any payments that are now overdue
+    await updateOverduePayments();
+    
     const now = new Date();
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     
