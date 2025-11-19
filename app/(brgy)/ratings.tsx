@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, RefreshControl, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { getRatingsForBarangay } from '../../utils/rating-replies';
@@ -24,6 +24,16 @@ interface EnrichedRating extends PropertyRatingRecord {
   ownerName?: string;
 }
 
+interface PropertyRatingsGroup {
+  propertyId: string;
+  propertyTitle: string;
+  propertyAddress: string;
+  ownerName?: string;
+  ratings: EnrichedRating[];
+  averageRating: number;
+  latestRatingDate: string;
+}
+
 export default function BrgyRatingsPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -31,6 +41,48 @@ export default function BrgyRatingsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [barangayName, setBarangayName] = useState<string>('');
+
+  const propertyRatingGroups = useMemo<PropertyRatingsGroup[]>(() => {
+    if (!ratings.length) return [];
+
+    const groupsMap: Record<string, PropertyRatingsGroup> = {};
+
+    ratings.forEach((rating) => {
+      if (!groupsMap[rating.propertyId]) {
+        groupsMap[rating.propertyId] = {
+          propertyId: rating.propertyId,
+          propertyTitle: rating.propertyTitle || 'Untitled Listing',
+          propertyAddress: rating.propertyAddress || 'Address not provided',
+          ownerName: rating.ownerName,
+          ratings: [],
+          averageRating: 0,
+          latestRatingDate: rating.createdAt,
+        };
+      }
+      groupsMap[rating.propertyId].ratings.push(rating);
+    });
+
+    return Object.values(groupsMap)
+      .map((group) => {
+        const sortedRatings = [...group.ratings].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        const averageRating =
+          sortedRatings.reduce((sum, current) => sum + current.rating, 0) /
+          sortedRatings.length;
+        return {
+          ...group,
+          ratings: sortedRatings,
+          averageRating,
+          latestRatingDate: sortedRatings[0]?.createdAt ?? group.latestRatingDate,
+        };
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.latestRatingDate).getTime() -
+          new Date(a.latestRatingDate).getTime()
+      );
+  }, [ratings]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -74,172 +126,121 @@ export default function BrgyRatingsPage() {
     loadRatings();
   }, [loadRatings]);
 
-  const renderRatingCard = (rating: EnrichedRating) => {
-    return (
-      <View key={rating.id} style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
-        {/* Rating Header */}
-        <View style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: designTokens.spacing.md,
-        }}>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
-              {[...Array(5)].map((_, i) => (
+  const formatFullDate = (value?: string) => {
+    if (!value) return '';
+    return new Date(value).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  const renderPropertyGroup = (group: PropertyRatingsGroup) => (
+    <View key={group.propertyId} style={[sharedStyles.card, styles.propertyCard]}>
+      <View style={styles.propertyHeader}>
+        <View style={styles.propertyMeta}>
+          <Text style={styles.propertyTitle}>{group.propertyTitle}</Text>
+          <View style={styles.propertyAddressRow}>
+            <MapPin size={14} color={designTokens.colors.info} />
+            <Text style={styles.propertyAddressText} numberOfLines={2}>
+              {group.propertyAddress}
+            </Text>
+          </View>
+          {group.ownerName && (
+            <View style={styles.propertyOwnerRow}>
+              <Building2 size={14} color={designTokens.colors.success} />
+              <Text style={styles.propertyOwnerText}>Owner: {group.ownerName}</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.propertyStats}>
+          <View style={styles.starRow}>
+            {[...Array(5)].map((_, i) => {
+              const isFilled = i < Math.round(group.averageRating);
+              return (
                 <Star
                   key={i}
                   size={16}
-                  color={i < rating.rating ? '#F59E0B' : '#D1D5DB'}
-                  fill={i < rating.rating ? '#F59E0B' : 'transparent'}
+                  color={isFilled ? '#F59E0B' : '#E5E7EB'}
+                  fill={isFilled ? '#F59E0B' : 'transparent'}
+                  style={styles.starIcon}
                 />
-              ))}
-              <Text style={{
-                marginLeft: designTokens.spacing.xs,
-                fontSize: designTokens.typography.sm,
-                fontWeight: '600',
-                color: designTokens.colors.textPrimary,
-              }}>
-                {rating.rating}.0
-              </Text>
-            </View>
-            <Text style={{
-              fontSize: designTokens.typography.xs,
-              color: designTokens.colors.textMuted,
-            }}>
-              {new Date(rating.createdAt).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
+              );
+            })}
+            <Text style={styles.propertyRatingValue}>
+              {group.averageRating.toFixed(1)}
             </Text>
           </View>
-        </View>
-
-        {/* Property Info */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          marginBottom: designTokens.spacing.sm,
-          padding: designTokens.spacing.sm,
-          backgroundColor: designTokens.colors.infoLight,
-          borderRadius: designTokens.borderRadius.md,
-        }}>
-          <MapPin size={16} color={designTokens.colors.info} />
-          <View style={{ flex: 1, marginLeft: designTokens.spacing.xs }}>
-            <Text style={{
-              fontSize: designTokens.typography.sm,
-              fontWeight: '600',
-              color: designTokens.colors.textPrimary,
-            }} numberOfLines={1}>
-              {rating.propertyTitle}
-            </Text>
-            <Text style={{
-              fontSize: designTokens.typography.xs,
-              color: designTokens.colors.textMuted,
-            }} numberOfLines={1}>
-              {rating.propertyAddress}
-            </Text>
-          </View>
-        </View>
-
-        {/* Owner Info */}
-        {rating.ownerName && (
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginBottom: designTokens.spacing.sm,
-          }}>
-            <View style={[sharedStyles.statIcon, iconBackgrounds.green, { marginRight: designTokens.spacing.sm }]}>
-              <Building2 size={16} color="#10B981" />
-            </View>
-            <Text style={{
-              fontSize: designTokens.typography.sm,
-              color: designTokens.colors.textSecondary,
-            }}>
-              Owner: {rating.ownerName}
-            </Text>
-          </View>
-        )}
-
-        {/* Tenant Info */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          marginBottom: designTokens.spacing.md,
-        }}>
-          <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginRight: designTokens.spacing.sm }]}>
-            <UserIcon size={16} color="#3B82F6" />
-          </View>
-          <Text style={{
-            fontSize: designTokens.typography.sm,
-            color: designTokens.colors.textSecondary,
-          }}>
-            Tenant: {rating.tenantName || 'Anonymous'}
+          <Text style={styles.propertyStatsLabel}>
+            {group.ratings.length} rating{group.ratings.length > 1 ? 's' : ''}
           </Text>
         </View>
-
-        {/* Review Text */}
-        {rating.review && (
-          <View style={{
-            marginBottom: designTokens.spacing.md,
-            padding: designTokens.spacing.md,
-            backgroundColor: designTokens.colors.background,
-            borderRadius: designTokens.borderRadius.md,
-          }}>
-            <Text style={{
-              fontSize: designTokens.typography.sm,
-              color: designTokens.colors.textPrimary,
-              lineHeight: 20,
-            }}>
-              {rating.review}
-            </Text>
-          </View>
-        )}
-
-        {/* Owner Reply */}
-        {rating.ownerReply && (
-          <View style={{
-            marginBottom: designTokens.spacing.md,
-            padding: designTokens.spacing.md,
-            backgroundColor: designTokens.colors.primary + '10',
-            borderRadius: designTokens.borderRadius.md,
-            borderLeftWidth: 3,
-            borderLeftColor: designTokens.colors.primary,
-          }}>
-            <Text style={{
-              fontSize: designTokens.typography.xs,
-              fontWeight: '600',
-              color: designTokens.colors.primary,
-              marginBottom: designTokens.spacing.xs,
-            }}>
-              Owner's Reply
-            </Text>
-            <Text style={{
-              fontSize: designTokens.typography.sm,
-              color: designTokens.colors.textPrimary,
-              lineHeight: 20,
-            }}>
-              {rating.ownerReply}
-            </Text>
-            {rating.ownerReplyAt && (
-              <Text style={{
-                fontSize: designTokens.typography.xs,
-                color: designTokens.colors.textMuted,
-                marginTop: designTokens.spacing.xs,
-              }}>
-                Replied on {new Date(rating.ownerReplyAt).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric'
-                })}
-              </Text>
-            )}
-          </View>
-        )}
       </View>
-    );
-  };
+
+      <View style={styles.ratingList}>
+        {group.ratings.map((rating, index) => {
+          const isLast = index === group.ratings.length - 1;
+          return (
+            <View
+              key={rating.id}
+              style={[
+                styles.ratingItem,
+                isLast && styles.ratingItemLast,
+              ]}
+            >
+              <View style={styles.ratingHeaderRow}>
+                <View style={styles.ratingStarsRow}>
+                  {[...Array(5)].map((_, i) => {
+                    const filled = i < rating.rating;
+                    return (
+                      <Star
+                        key={i}
+                        size={14}
+                        color={filled ? '#F59E0B' : '#E5E7EB'}
+                        fill={filled ? '#F59E0B' : 'transparent'}
+                        style={styles.starIcon}
+                      />
+                    );
+                  })}
+                  <Text style={styles.ratingValue}>{rating.rating.toFixed(1)}</Text>
+                </View>
+                <Text style={styles.ratingDate}>
+                  {formatFullDate(rating.createdAt)}
+                </Text>
+              </View>
+
+              <View style={styles.tenantRow}>
+                <UserIcon size={14} color={designTokens.colors.info} />
+                <Text style={styles.tenantLabel}>
+                  Tenant:{' '}
+                  {rating.tenantName ||
+                    (rating.isAnonymous ? 'Anonymous' : 'Unavailable')}
+                </Text>
+              </View>
+
+              {rating.review && (
+                <View style={styles.reviewBubble}>
+                  <Text style={styles.reviewText}>{rating.review}</Text>
+                </View>
+              )}
+
+              {rating.ownerReply && (
+                <View style={styles.replyBubble}>
+                  <Text style={styles.replyLabel}>Owner's Reply</Text>
+                  <Text style={styles.replyText}>{rating.ownerReply}</Text>
+                  {rating.ownerReplyAt && (
+                    <Text style={styles.replyDate}>
+                      Replied on {formatFullDate(rating.ownerReplyAt)}
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
 
   if (loading) {
     return (
@@ -334,7 +335,7 @@ export default function BrgyRatingsPage() {
         )}
 
         {/* Ratings List */}
-        {ratings.length === 0 ? (
+        {propertyRatingGroups.length === 0 ? (
           <View style={sharedStyles.emptyState}>
             <Star size={48} color={designTokens.colors.textMuted} />
             <Text style={sharedStyles.emptyStateTitle}>No Ratings Yet</Text>
@@ -343,10 +344,150 @@ export default function BrgyRatingsPage() {
             </Text>
           </View>
         ) : (
-          ratings.map(renderRatingCard)
+          propertyRatingGroups.map(renderPropertyGroup)
         )}
       </ScrollView>
     </View>
   );
 }
 
+const styles = StyleSheet.create({
+  propertyCard: {
+    marginBottom: designTokens.spacing.lg,
+  },
+  propertyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: designTokens.spacing.lg,
+  },
+  propertyMeta: {
+    flex: 1,
+    gap: designTokens.spacing.xs,
+  },
+  propertyTitle: {
+    fontSize: designTokens.typography.lg,
+    fontWeight: designTokens.typography.semibold,
+    color: designTokens.colors.textPrimary,
+  },
+  propertyAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: designTokens.spacing.xs,
+    marginTop: designTokens.spacing.xs,
+  },
+  propertyAddressText: {
+    flex: 1,
+    fontSize: designTokens.typography.xs,
+    color: designTokens.colors.textSecondary,
+  },
+  propertyOwnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: designTokens.spacing.xs,
+    marginTop: designTokens.spacing.xs,
+  },
+  propertyOwnerText: {
+    fontSize: designTokens.typography.xs,
+    color: designTokens.colors.textSecondary,
+  },
+  propertyStats: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  starRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  starIcon: {
+    marginRight: 2,
+  },
+  propertyRatingValue: {
+    marginLeft: designTokens.spacing.xs,
+    fontSize: designTokens.typography.lg,
+    fontWeight: designTokens.typography.semibold,
+    color: designTokens.colors.textPrimary,
+  },
+  propertyStatsLabel: {
+    marginTop: designTokens.spacing.xs,
+    fontSize: designTokens.typography.xs,
+    color: designTokens.colors.textMuted,
+  },
+  ratingList: {
+    marginTop: designTokens.spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: designTokens.colors.borderLight,
+  },
+  ratingItem: {
+    paddingVertical: designTokens.spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: designTokens.colors.borderLight,
+  },
+  ratingItemLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
+  },
+  ratingHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: designTokens.spacing.sm,
+  },
+  ratingStarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ratingValue: {
+    marginLeft: designTokens.spacing.xs,
+    fontSize: designTokens.typography.sm,
+    fontWeight: designTokens.typography.semibold,
+    color: designTokens.colors.textPrimary,
+  },
+  ratingDate: {
+    fontSize: designTokens.typography.xs,
+    color: designTokens.colors.textMuted,
+  },
+  tenantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: designTokens.spacing.xs,
+    marginBottom: designTokens.spacing.sm,
+  },
+  tenantLabel: {
+    fontSize: designTokens.typography.sm,
+    color: designTokens.colors.textSecondary,
+  },
+  reviewBubble: {
+    backgroundColor: designTokens.colors.background,
+    borderRadius: designTokens.borderRadius.md,
+    padding: designTokens.spacing.md,
+    marginBottom: designTokens.spacing.sm,
+  },
+  reviewText: {
+    fontSize: designTokens.typography.sm,
+    color: designTokens.colors.textPrimary,
+    lineHeight: 20,
+  },
+  replyBubble: {
+    borderRadius: designTokens.borderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: designTokens.colors.primary,
+    backgroundColor: designTokens.colors.primary + '10',
+    padding: designTokens.spacing.md,
+  },
+  replyLabel: {
+    fontSize: designTokens.typography.xs,
+    fontWeight: designTokens.typography.semibold,
+    color: designTokens.colors.primary,
+    marginBottom: designTokens.spacing.xs,
+  },
+  replyText: {
+    fontSize: designTokens.typography.sm,
+    color: designTokens.colors.textPrimary,
+    lineHeight: 20,
+  },
+  replyDate: {
+    marginTop: designTokens.spacing.xs,
+    fontSize: designTokens.typography.xs,
+    color: designTokens.colors.textMuted,
+  },
+});
