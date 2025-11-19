@@ -1,21 +1,30 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, RefreshControl, Image, ActivityIndicator, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Image, ActivityIndicator, TouchableOpacity, FlatList, Modal, Pressable, Dimensions } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import { getBrgyListings } from '../../utils/brgy-dashboard';
 import { db } from '../../utils/db';
 import { DbUserRecord, PublishedListingRecord, BookingRecord } from '../../types';
-import { MapPin, Home, Bed, Bath, Tag, Phone, Mail, Calendar, Shield, ChevronDown, ChevronUp, User, Users } from 'lucide-react-native';
+import { MapPin, Home, Bed, Bath, Tag, Phone, Mail, Calendar, Shield, ChevronDown, ChevronUp, User, Users, X } from 'lucide-react-native';
 import { sharedStyles, designTokens } from '../../styles/owner-dashboard-styles';
+
+interface OwnerGroup {
+  ownerId: string;
+  ownerName: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
+  properties: PublishedListingRecord[];
+}
 
 export default function PropertiesPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [listings, setListings] = useState<PublishedListingRecord[]>([]);
+  const [ownerGroups, setOwnerGroups] = useState<OwnerGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [barangay, setBarangay] = useState('');
-  const [expandedProperty, setExpandedProperty] = useState<string | null>(null);
+  const [selectedProperty, setSelectedProperty] = useState<PublishedListingRecord | null>(null);
   const [propertyBookings, setPropertyBookings] = useState<Map<string, BookingRecord[]>>(new Map());
 
   // Check authentication and load data
@@ -69,10 +78,39 @@ export default function PropertiesPage() {
 
       setPropertyBookings(bookingsMap);
       setListings(rawListings);
+
+      // Group properties by owner
+      const ownerMap = new Map<string, OwnerGroup>();
+      
+      rawListings.forEach(listing => {
+        const ownerId = listing.userId;
+        const ownerName = listing.ownerName || 'Unknown Owner';
+        
+        if (!ownerMap.has(ownerId)) {
+          ownerMap.set(ownerId, {
+            ownerId,
+            ownerName,
+            ownerEmail: listing.email,
+            ownerPhone: listing.contactNumber,
+            properties: []
+          });
+        }
+
+        const group = ownerMap.get(ownerId)!;
+        group.properties.push(listing);
+      });
+
+      // Convert map to array and sort by owner name
+      const groupsArray = Array.from(ownerMap.values()).sort((a, b) => {
+        return a.ownerName.localeCompare(b.ownerName);
+      });
+
+      setOwnerGroups(groupsArray);
       console.log(`✅ Successfully loaded ${rawListings.length} properties for ${barangayName}`);
     } catch (error) {
       console.error('❌ Error loading properties:', error);
       setListings([]);
+      setOwnerGroups([]);
     } finally {
       setLoading(false);
     }
@@ -112,8 +150,12 @@ export default function PropertiesPage() {
     return `₱${formatted}`;
   };
 
-  const toggleExpand = (propertyId: string) => {
-    setExpandedProperty(expandedProperty === propertyId ? null : propertyId);
+  const openPropertyModal = (listing: PublishedListingRecord) => {
+    setSelectedProperty(listing);
+  };
+
+  const closePropertyModal = () => {
+    setSelectedProperty(null);
   };
 
   const getBookingStatusColor = (status: string) => {
@@ -135,38 +177,130 @@ export default function PropertiesPage() {
     }
   };
 
-  const renderProperty = ({ item: listing }: { item: PublishedListingRecord }) => {
-    const isExpanded = expandedProperty === listing.id;
+  const renderOwnerGroup = ({ item: group }: { item: OwnerGroup }) => {
+    return (
+      <View
+        style={{
+          marginBottom: designTokens.spacing.md,
+          marginHorizontal: designTokens.spacing.lg,
+        }}
+      >
+        {/* Owner Category Header */}
+        <View
+          style={{
+            paddingVertical: designTokens.spacing.xs,
+            paddingHorizontal: designTokens.spacing.sm,
+            backgroundColor: designTokens.colors.primary + '15',
+            borderRadius: 6,
+            marginBottom: designTokens.spacing.xs,
+            borderLeftWidth: 3,
+            borderLeftColor: designTokens.colors.primary,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '30',
+              padding: 3,
+              borderRadius: 3,
+              marginRight: designTokens.spacing.xs,
+            }}>
+              <User size={10} color={designTokens.colors.primary} />
+            </View>
+            <Text style={{
+              fontSize: designTokens.typography.sm,
+              fontWeight: '700',
+              color: designTokens.colors.textPrimary,
+              flex: 1,
+            }} numberOfLines={1}>
+              {group.ownerName}
+            </Text>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '30',
+              paddingHorizontal: 6,
+              paddingVertical: 1,
+              borderRadius: 10,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                fontWeight: '700',
+                color: designTokens.colors.primary,
+              }}>
+                {group.properties.length}
+              </Text>
+            </View>
+          </View>
+          {(group.ownerEmail || group.ownerPhone) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 20, marginTop: 2, gap: designTokens.spacing.sm }}>
+              {group.ownerEmail && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Mail size={9} color={designTokens.colors.textSecondary} />
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }} numberOfLines={1}>
+                    {group.ownerEmail}
+                  </Text>
+                </View>
+              )}
+              {group.ownerPhone && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Phone size={9} color={designTokens.colors.textSecondary} />
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }}>
+                    {group.ownerPhone}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Properties List - Always Visible */}
+        <View>
+          {group.properties.map((listing, index) => (
+            <View key={listing.id} style={{ marginBottom: designTokens.spacing.xs }}>
+              {renderProperty(listing)}
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const renderProperty = (listing: PublishedListingRecord) => {
     const tenants = propertyBookings.get(listing.id) || [];
     
     return (
       <View
         style={{
           backgroundColor: 'white',
-          borderRadius: 12,
-          marginBottom: 8,
-          marginHorizontal: designTokens.spacing.lg,
+          borderRadius: 8,
+          marginBottom: designTokens.spacing.xs,
           borderWidth: 1,
           borderColor: designTokens.colors.borderLight,
           overflow: 'hidden',
         }}
       >
+        {/* Property Header - Clickable */}
         <TouchableOpacity
-          onPress={() => toggleExpand(listing.id)}
+          onPress={() => openPropertyModal(listing)}
           activeOpacity={0.7}
           style={{
-            padding: designTokens.spacing.md,
+            padding: designTokens.spacing.sm,
             flexDirection: 'row',
-            alignItems: 'center',
+            alignItems: 'flex-start',
+            backgroundColor: 'white',
           }}
         >
           {/* Property Image */}
           <View style={{
-            width: 80,
-            height: 80,
-            borderRadius: 8,
+            width: 70,
+            height: 70,
+            borderRadius: 6,
             overflow: 'hidden',
-            marginRight: designTokens.spacing.md,
+            marginRight: designTokens.spacing.sm,
             backgroundColor: designTokens.colors.background,
           }}>
             {listing.coverPhoto ? (
@@ -183,22 +317,22 @@ export default function PropertiesPage() {
                 alignItems: 'center',
                 backgroundColor: designTokens.colors.background,
               }}>
-                <Home size={32} color={designTokens.colors.textMuted} />
+                <Home size={24} color={designTokens.colors.textMuted} />
               </View>
             )}
             {/* Status Badge Overlay */}
             <View style={{
               position: 'absolute',
-              top: 4,
-              right: 4,
+              top: 2,
+              right: 2,
               backgroundColor: getStatusColor(listing.availabilityStatus || 'available'),
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-              borderRadius: 4,
+              paddingHorizontal: 4,
+              paddingVertical: 1,
+              borderRadius: 3,
             }}>
               <Text style={{
                 color: 'white',
-                fontSize: 9,
+                fontSize: 8,
                 fontWeight: '700',
                 textTransform: 'uppercase',
               }}>
@@ -211,27 +345,29 @@ export default function PropertiesPage() {
           <View style={{ flex: 1 }}>
             <Text style={{
               fontSize: designTokens.typography.base,
-              fontWeight: '600',
+              fontWeight: '700',
               color: designTokens.colors.textPrimary,
-              marginBottom: 4,
+              marginBottom: 2,
             }} numberOfLines={1}>
               {listing.businessName || listing.propertyType || 'Property'}
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: designTokens.spacing.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Bed size={12} color={designTokens.colors.textSecondary} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, gap: designTokens.spacing.xs, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <Bed size={11} color={designTokens.colors.textSecondary} />
                 <Text style={{
                   fontSize: designTokens.typography.xs,
                   color: designTokens.colors.textSecondary,
+                  fontWeight: '500',
                 }}>
                   {listing.rooms || 0}
                 </Text>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Bath size={12} color={designTokens.colors.textSecondary} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <Bath size={11} color={designTokens.colors.textSecondary} />
                 <Text style={{
                   fontSize: designTokens.typography.xs,
                   color: designTokens.colors.textSecondary,
+                  fontWeight: '500',
                 }}>
                   {listing.bathrooms || 0}
                 </Text>
@@ -243,7 +379,7 @@ export default function PropertiesPage() {
                 borderRadius: 4,
               }}>
                 <Text style={{
-                  fontSize: 10,
+                  fontSize: designTokens.typography.xs,
                   fontWeight: '600',
                   color: designTokens.colors.primary,
                 }}>
@@ -251,10 +387,10 @@ export default function PropertiesPage() {
                 </Text>
               </View>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <MapPin size={12} color={designTokens.colors.textSecondary} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+              <MapPin size={10} color={designTokens.colors.textSecondary} />
               <Text style={{
-                marginLeft: 4,
+                marginLeft: 3,
                 fontSize: designTokens.typography.xs,
                 color: designTokens.colors.textSecondary,
                 flex: 1,
@@ -262,7 +398,7 @@ export default function PropertiesPage() {
                 {listing.address || 'Address not specified'}
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
               <Text style={{
                 fontSize: designTokens.typography.base,
                 fontWeight: '700',
@@ -270,330 +406,462 @@ export default function PropertiesPage() {
               }}>
                 {formatCurrency(listing.monthlyRent || 0)}/mo
               </Text>
-              {tenants.length > 0 && (
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: designTokens.colors.success + '15',
-                  paddingHorizontal: 6,
-                  paddingVertical: 2,
-                  borderRadius: 4,
-                  marginLeft: designTokens.spacing.xs,
-                }}>
-                  <Users size={10} color={designTokens.colors.success} />
-                  <Text style={{
-                    fontSize: 9,
-                    fontWeight: '600',
-                    color: designTokens.colors.success,
-                    marginLeft: 4,
-                  }}>
-                    {tenants.length} {tenants.length === 1 ? 'tenant' : 'tenants'}
-                  </Text>
-                </View>
-              )}
             </View>
           </View>
-
-          {/* Expand Icon */}
-          {isExpanded ? (
-            <ChevronUp size={20} color={designTokens.colors.textSecondary} />
-          ) : (
-            <ChevronDown size={20} color={designTokens.colors.textSecondary} />
-          )}
         </TouchableOpacity>
+      </View>
+    );
+  };
 
-        {/* Expanded Details */}
-        {isExpanded && (
-          <View style={{
-            borderTopWidth: 1,
-            borderTopColor: designTokens.colors.borderLight,
-            padding: designTokens.spacing.md,
-            backgroundColor: designTokens.colors.background,
-          }}>
-            {/* Property Type & Details */}
-            <View style={{ marginBottom: designTokens.spacing.md }}>
-              <Text style={{
-                fontSize: designTokens.typography.xs,
-                fontWeight: '600',
-                color: designTokens.colors.textSecondary,
-                textTransform: 'uppercase',
-                marginBottom: designTokens.spacing.sm,
-                letterSpacing: 0.5,
-              }}>
-                Property Details
-              </Text>
+  const renderPropertyModal = () => {
+    if (!selectedProperty) return null;
+    
+    const tenants = propertyBookings.get(selectedProperty.id) || [];
+    
+    return (
+      <Modal
+        visible={selectedProperty !== null}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closePropertyModal}
+      >
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'flex-end',
+          }}
+        >
+          <Pressable
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            }}
+            onPress={closePropertyModal}
+          />
+          <View
+            style={{
+              backgroundColor: designTokens.colors.white,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              height: Dimensions.get('window').height * 0.9,
+              zIndex: 1,
+            }}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={true}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ 
+                paddingBottom: designTokens.spacing['2xl'] * 3,
+              }}
+              nestedScrollEnabled={true}
+              bounces={true}
+              scrollEnabled={true}
+              alwaysBounceVertical={true}
+              keyboardShouldPersistTaps="handled"
+              removeClippedSubviews={false}
+            >
+              {/* Modal Header */}
               <View style={{
-                backgroundColor: 'white',
-                borderRadius: 8,
-                padding: designTokens.spacing.sm,
-                marginBottom: designTokens.spacing.xs,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: designTokens.spacing.lg,
+                borderBottomWidth: 1,
+                borderBottomColor: designTokens.colors.borderLight,
               }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
-                    Property Type
-                  </Text>
-                  <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '600', color: designTokens.colors.textPrimary }}>
-                    {listing.propertyType}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
-                    Rental Type
-                  </Text>
-                  <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '600', color: designTokens.colors.textPrimary }}>
-                    {listing.rentalType}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
-                    Status
-                  </Text>
-                  <View style={{
-                    backgroundColor: getStatusColor(listing.availabilityStatus || 'available') + '20',
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                    borderRadius: 4,
-                  }}>
-                    <Text style={{
-                      fontSize: designTokens.typography.xs,
-                      fontWeight: '600',
-                      color: getStatusColor(listing.availabilityStatus || 'available'),
-                      textTransform: 'uppercase',
-                    }}>
-                      {listing.availabilityStatus || 'available'}
-                    </Text>
-                  </View>
-                </View>
+                <Text style={{
+                  fontSize: designTokens.typography.xl,
+                  fontWeight: '700',
+                  color: designTokens.colors.textPrimary,
+                }}>
+                  Property Details
+                </Text>
+                <TouchableOpacity
+                  onPress={closePropertyModal}
+                  style={{
+                    padding: designTokens.spacing.xs,
+                    borderRadius: designTokens.borderRadius.full,
+                    backgroundColor: designTokens.colors.background,
+                  }}
+                >
+                  <X size={20} color={designTokens.colors.textSecondary} />
+                </TouchableOpacity>
               </View>
-            </View>
 
-            {/* Pricing */}
-            <View style={{ marginBottom: designTokens.spacing.md }}>
-              <Text style={{
-                fontSize: designTokens.typography.xs,
-                fontWeight: '600',
-                color: designTokens.colors.textSecondary,
-                textTransform: 'uppercase',
-                marginBottom: designTokens.spacing.sm,
-                letterSpacing: 0.5,
-              }}>
-                Pricing
-              </Text>
+              {/* Property Image */}
               <View style={{
-                backgroundColor: 'white',
-                borderRadius: 8,
-                padding: designTokens.spacing.sm,
+                width: '100%',
+                height: 200,
+                backgroundColor: designTokens.colors.background,
               }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
-                    Monthly Rent
-                  </Text>
-                  <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '700', color: designTokens.colors.primary }}>
-                    {formatCurrency(listing.monthlyRent || 0)}
-                  </Text>
-                </View>
-                {listing.securityDeposit > 0 && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
-                      Security Deposit
-                    </Text>
-                    <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '600', color: designTokens.colors.success }}>
-                      {formatCurrency(listing.securityDeposit)}
-                    </Text>
+                {selectedProperty.coverPhoto ? (
+                  <Image
+                    source={{ uri: selectedProperty.coverPhoto }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={{
+                    width: '100%',
+                    height: '100%',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}>
+                    <Home size={48} color={designTokens.colors.textMuted} />
                   </View>
                 )}
               </View>
-            </View>
 
-            {/* Tenant Information */}
-            {tenants.length > 0 && (
-              <View style={{ marginBottom: designTokens.spacing.md }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                  <Users size={14} color={designTokens.colors.primary} />
+              {/* Content */}
+              <View style={{ padding: designTokens.spacing.lg }}>
+                {/* Property Title */}
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.xl,
+                    fontWeight: '700',
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: designTokens.spacing.xs,
+                  }}>
+                    {selectedProperty.businessName || selectedProperty.propertyType || 'Property'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.md }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Bed size={14} color={designTokens.colors.textSecondary} />
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        {selectedProperty.rooms || 0} beds
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Bath size={14} color={designTokens.colors.textSecondary} />
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        {selectedProperty.bathrooms || 0} baths
+                      </Text>
+                    </View>
+                    <View style={{
+                      backgroundColor: getStatusColor(selectedProperty.availabilityStatus || 'available') + '20',
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 6,
+                    }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        fontWeight: '600',
+                        color: getStatusColor(selectedProperty.availabilityStatus || 'available'),
+                        textTransform: 'uppercase',
+                      }}>
+                        {selectedProperty.availabilityStatus || 'available'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Property Details */}
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
                   <Text style={{
                     fontSize: designTokens.typography.xs,
                     fontWeight: '600',
                     color: designTokens.colors.textSecondary,
                     textTransform: 'uppercase',
-                    marginLeft: 6,
+                    marginBottom: designTokens.spacing.sm,
                     letterSpacing: 0.5,
                   }}>
-                    Tenant Information ({tenants.length})
+                    Property Details
                   </Text>
-                </View>
-                {tenants.map((booking, index) => (
-                  <View
-                    key={booking.id}
-                    style={{
-                      backgroundColor: 'white',
-                      borderRadius: 8,
-                      padding: designTokens.spacing.sm,
-                      marginBottom: index < tenants.length - 1 ? designTokens.spacing.xs : 0,
-                      borderLeftWidth: 3,
-                      borderLeftColor: getBookingStatusColor(booking.status),
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                          <User size={14} color={designTokens.colors.primary} />
-                          <Text style={{
-                            fontSize: designTokens.typography.sm,
-                            fontWeight: '600',
-                            color: designTokens.colors.textPrimary,
-                            marginLeft: 6,
-                          }}>
-                            {booking.tenantName}
-                          </Text>
-                        </View>
-                        {booking.tenantEmail && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                            <Mail size={12} color={designTokens.colors.textSecondary} />
-                            <Text style={{
-                              marginLeft: 4,
-                              fontSize: designTokens.typography.xs,
-                              color: designTokens.colors.textPrimary,
-                              flex: 1,
-                            }} numberOfLines={1}>
-                              {booking.tenantEmail}
-                            </Text>
-                          </View>
-                        )}
-                        {booking.tenantPhone && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                            <Phone size={12} color={designTokens.colors.textSecondary} />
-                            <Text style={{
-                              marginLeft: 4,
-                              fontSize: designTokens.typography.xs,
-                              color: designTokens.colors.textPrimary,
-                            }}>
-                              {booking.tenantPhone}
-                            </Text>
-                          </View>
-                        )}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                          <Calendar size={12} color={designTokens.colors.textSecondary} />
-                          <Text style={{
-                            marginLeft: 4,
-                            fontSize: designTokens.typography.xs,
-                            color: designTokens.colors.textSecondary,
-                          }}>
-                            {formatDate(booking.startDate)} - {formatDate(booking.endDate)}
-                          </Text>
-                        </View>
-                      </View>
+                  <View style={{
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: 12,
+                    padding: designTokens.spacing.md,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
+                      <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.textSecondary }}>
+                        Property Type
+                      </Text>
+                      <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '600', color: designTokens.colors.textPrimary }}>
+                        {selectedProperty.propertyType}
+                      </Text>
                     </View>
-                    <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, flexWrap: 'wrap' }}>
-                      <View style={{
-                        backgroundColor: getBookingStatusColor(booking.status) + '20',
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                        borderRadius: 4,
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
+                      <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.textSecondary }}>
+                        Rental Type
+                      </Text>
+                      <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '600', color: designTokens.colors.textPrimary }}>
+                        {selectedProperty.rentalType}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: designTokens.spacing.xs }}>
+                      <MapPin size={14} color={designTokens.colors.textSecondary} />
+                      <Text style={{
+                        marginLeft: designTokens.spacing.xs,
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                        flex: 1,
                       }}>
-                        <Text style={{
-                          fontSize: 9,
-                          fontWeight: '600',
-                          color: getBookingStatusColor(booking.status),
-                          textTransform: 'uppercase',
-                        }}>
-                          {booking.status}
-                        </Text>
-                      </View>
-                      <View style={{
-                        backgroundColor: getPaymentStatusColor(booking.paymentStatus) + '20',
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                        borderRadius: 4,
-                      }}>
-                        <Text style={{
-                          fontSize: 9,
-                          fontWeight: '600',
-                          color: getPaymentStatusColor(booking.paymentStatus),
-                          textTransform: 'uppercase',
-                        }}>
-                          {booking.paymentStatus}
-                        </Text>
-                      </View>
+                        {selectedProperty.address || 'Address not specified'}
+                      </Text>
                     </View>
                   </View>
-                ))}
-              </View>
-            )}
+                </View>
 
-            {/* Owner Information */}
-            <View>
-              <Text style={{
-                fontSize: designTokens.typography.xs,
-                fontWeight: '600',
-                color: designTokens.colors.textSecondary,
-                textTransform: 'uppercase',
-                marginBottom: designTokens.spacing.sm,
-                letterSpacing: 0.5,
-              }}>
-                Owner Information
-              </Text>
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 8,
-                padding: designTokens.spacing.sm,
-              }}>
-                <Text style={{
-                  fontSize: designTokens.typography.sm,
-                  fontWeight: '600',
-                  color: designTokens.colors.textPrimary,
-                  marginBottom: 4,
-                }}>
-                  {listing.ownerName || 'Unknown Owner'}
-                </Text>
-                {listing.businessName && (
+                {/* Pricing */}
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
                   <Text style={{
                     fontSize: designTokens.typography.xs,
+                    fontWeight: '600',
+                    color: designTokens.colors.textSecondary,
+                    textTransform: 'uppercase',
+                    marginBottom: designTokens.spacing.sm,
+                    letterSpacing: 0.5,
+                  }}>
+                    Pricing
+                  </Text>
+                  <View style={{
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: 12,
+                    padding: designTokens.spacing.md,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
+                      <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.textSecondary }}>
+                        Monthly Rent
+                      </Text>
+                      <Text style={{ fontSize: designTokens.typography.lg, fontWeight: '700', color: designTokens.colors.primary }}>
+                        {formatCurrency(selectedProperty.monthlyRent || 0)}
+                      </Text>
+                    </View>
+                    {selectedProperty.securityDeposit > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.textSecondary }}>
+                          Security Deposit
+                        </Text>
+                        <Text style={{ fontSize: designTokens.typography.base, fontWeight: '600', color: designTokens.colors.success }}>
+                          {formatCurrency(selectedProperty.securityDeposit)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Tenant Information */}
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between',
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Users size={14} color={designTokens.colors.primary} />
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        fontWeight: '600',
+                        color: designTokens.colors.textSecondary,
+                        textTransform: 'uppercase',
+                        marginLeft: designTokens.spacing.xs,
+                        letterSpacing: 0.5,
+                      }}>
+                        Tenants ({tenants.length})
+                      </Text>
+                    </View>
+                  </View>
+                  {tenants.length > 0 ? (
+                    <View style={{ gap: designTokens.spacing.xs }}>
+                      {tenants.map((booking, index) => (
+                        <View
+                          key={booking.id}
+                          style={{
+                            backgroundColor: designTokens.colors.background,
+                            borderRadius: 8,
+                            padding: designTokens.spacing.sm,
+                            borderLeftWidth: 3,
+                            borderLeftColor: getBookingStatusColor(booking.status),
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.xs }}>
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                <User size={12} color={designTokens.colors.primary} />
+                                <Text style={{
+                                  fontSize: designTokens.typography.sm,
+                                  fontWeight: '600',
+                                  color: designTokens.colors.textPrimary,
+                                  marginLeft: designTokens.spacing.xs,
+                                }} numberOfLines={1}>
+                                  {booking.tenantName}
+                                </Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm, flexWrap: 'wrap' }}>
+                                {booking.tenantEmail && (
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Mail size={10} color={designTokens.colors.textSecondary} />
+                                    <Text style={{
+                                      fontSize: designTokens.typography.xs,
+                                      color: designTokens.colors.textSecondary,
+                                    }} numberOfLines={1}>
+                                      {booking.tenantEmail}
+                                    </Text>
+                                  </View>
+                                )}
+                                {booking.tenantPhone && (
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Phone size={10} color={designTokens.colors.textSecondary} />
+                                    <Text style={{
+                                      fontSize: designTokens.typography.xs,
+                                      color: designTokens.colors.textSecondary,
+                                    }}>
+                                      {booking.tenantPhone}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: designTokens.spacing.sm }}>
+                                <Calendar size={10} color={designTokens.colors.textSecondary} />
+                                <Text style={{
+                                  fontSize: designTokens.typography.xs,
+                                  color: designTokens.colors.textSecondary,
+                                }}>
+                                  {formatDate(booking.startDate)} - {formatDate(booking.endDate)}
+                                </Text>
+                              </View>
+                            </View>
+                            <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', marginLeft: designTokens.spacing.xs }}>
+                              <View style={{
+                                backgroundColor: getBookingStatusColor(booking.status) + '20',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                              }}>
+                                <Text style={{
+                                  fontSize: designTokens.typography.xs,
+                                  fontWeight: '600',
+                                  color: getBookingStatusColor(booking.status),
+                                  textTransform: 'uppercase',
+                                }}>
+                                  {booking.status}
+                                </Text>
+                              </View>
+                              <View style={{
+                                backgroundColor: getPaymentStatusColor(booking.paymentStatus) + '20',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                              }}>
+                                <Text style={{
+                                  fontSize: designTokens.typography.xs,
+                                  fontWeight: '600',
+                                  color: getPaymentStatusColor(booking.paymentStatus),
+                                  textTransform: 'uppercase',
+                                }}>
+                                  {booking.paymentStatus}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={{
+                      backgroundColor: designTokens.colors.background,
+                      borderRadius: 8,
+                      padding: designTokens.spacing.md,
+                      alignItems: 'center',
+                    }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                        fontStyle: 'italic',
+                      }}>
+                        No tenants currently assigned
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Owner Information */}
+                <View>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    fontWeight: '600',
+                    color: designTokens.colors.textSecondary,
+                    textTransform: 'uppercase',
+                    marginBottom: designTokens.spacing.sm,
+                    letterSpacing: 0.5,
+                  }}>
+                    Owner Information
+                  </Text>
+                  <View style={{
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: 12,
+                    padding: designTokens.spacing.md,
+                  }}>
+                <Text style={{
+                  fontSize: designTokens.typography.base,
+                  fontWeight: '600',
+                  color: designTokens.colors.textPrimary,
+                  marginBottom: designTokens.spacing.xs,
+                }}>
+                  {selectedProperty.ownerName || 'Unknown Owner'}
+                </Text>
+                {selectedProperty.businessName && (
+                  <Text style={{
+                    fontSize: designTokens.typography.sm,
                     color: designTokens.colors.textSecondary,
                     marginBottom: designTokens.spacing.xs,
                   }}>
-                    {listing.businessName}
+                    {selectedProperty.businessName}
                   </Text>
                 )}
-                {listing.contactNumber && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                    <Phone size={12} color={designTokens.colors.textSecondary} />
+                {selectedProperty.contactNumber && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
+                    <Phone size={14} color={designTokens.colors.textSecondary} />
                     <Text style={{
-                      marginLeft: 4,
-                      fontSize: designTokens.typography.xs,
+                      marginLeft: designTokens.spacing.xs,
+                      fontSize: designTokens.typography.sm,
                       color: designTokens.colors.textPrimary,
                     }}>
-                      {listing.contactNumber}
+                      {selectedProperty.contactNumber}
                     </Text>
                   </View>
                 )}
-                {listing.email && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Mail size={12} color={designTokens.colors.textSecondary} />
+                {selectedProperty.email && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
+                    <Mail size={14} color={designTokens.colors.textSecondary} />
                     <Text style={{
-                      marginLeft: 4,
-                      fontSize: designTokens.typography.xs,
+                      marginLeft: designTokens.spacing.xs,
+                      fontSize: designTokens.typography.sm,
                       color: designTokens.colors.textPrimary,
                       flex: 1,
                     }} numberOfLines={1}>
-                      {listing.email}
+                      {selectedProperty.email}
                     </Text>
                   </View>
                 )}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: designTokens.spacing.xs }}>
-                  <Calendar size={12} color={designTokens.colors.textSecondary} />
+                  <Calendar size={14} color={designTokens.colors.textSecondary} />
                   <Text style={{
-                    marginLeft: 4,
+                    marginLeft: designTokens.spacing.xs,
                     fontSize: designTokens.typography.xs,
                     color: designTokens.colors.textMuted,
                   }}>
-                    Published: {formatDate(listing.publishedAt || '')}
+                    Published: {formatDate(selectedProperty.publishedAt || '')}
                   </Text>
                 </View>
               </View>
             </View>
+              </View>
+            </ScrollView>
           </View>
-        )}
-      </View>
+        </View>
+      </Modal>
     );
   };
 
@@ -691,14 +959,15 @@ export default function PropertiesPage() {
         </View>
       ) : (
         <FlatList
-          data={listings}
-          renderItem={renderProperty}
-          keyExtractor={(item) => item.id}
+          data={ownerGroups}
+          renderItem={renderOwnerGroup}
+          keyExtractor={(item) => item.ownerId}
           contentContainerStyle={{ paddingVertical: designTokens.spacing.md }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           showsVerticalScrollIndicator={false}
         />
       )}
+      {renderPropertyModal()}
     </View>
   );
 }

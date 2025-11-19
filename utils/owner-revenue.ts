@@ -88,15 +88,63 @@ export async function getMonthlyRevenueOverview(
         return false;
       }
     );
-    const pendingPayments = allPendingPayments.reduce(
+    
+    // Also include pending payments from approved bookings that haven't been paid yet
+    // These are initial booking payments that are still pending
+    const pendingBookingPayments = allBookings.filter(
+      (b) => {
+        // Only count approved bookings with pending payment status
+        if (b.ownerId === ownerId && b.status === 'approved' && b.paymentStatus === 'pending') {
+          // Check if the booking start date is in the current or next month
+          if (b.startDate) {
+            const bookingStartDate = new Date(b.startDate);
+            const bookingMonth = new Date(bookingStartDate.getFullYear(), bookingStartDate.getMonth(), 1);
+            const isCurrentOrNextMonth = bookingMonth >= currentMonth && bookingMonth < twoMonthsFromNow;
+            return isCurrentOrNextMonth;
+          }
+          // If no start date, include it (shouldn't happen but handle gracefully)
+          return true;
+        }
+        return false;
+      }
+    );
+    
+    // Calculate total pending payments from rent payments
+    const pendingRentPayments = allPendingPayments.reduce(
       (sum, p) => sum + (p.totalAmount || 0),
       0
     );
+    
+    // Calculate total pending payments from bookings
+    const pendingBookingPaymentsAmount = pendingBookingPayments.reduce(
+      (sum, b) => sum + (b.totalAmount || 0),
+      0
+    );
+    
+    // Total pending payments = rent payments + booking payments
+    const pendingPayments = pendingRentPayments + pendingBookingPaymentsAmount;
     
     // For month-specific pending count, use only payments for the target month
     const pendingPaymentList = monthPayments.filter(
       (p) =>
         p.status === 'pending' || p.status === 'pending_owner_confirmation'
+    );
+    
+    // Also count pending bookings for the target month
+    const targetMonthDate = new Date(targetMonth + '-01');
+    const nextTargetMonth = new Date(targetMonthDate.getFullYear(), targetMonthDate.getMonth() + 1, 1);
+    const pendingBookingsForMonth = allBookings.filter(
+      (b) => {
+        if (b.ownerId === ownerId && b.status === 'approved' && b.paymentStatus === 'pending') {
+          if (b.startDate) {
+            const bookingStartDate = new Date(b.startDate);
+            const bookingMonth = new Date(bookingStartDate.getFullYear(), bookingStartDate.getMonth(), 1);
+            return bookingMonth >= targetMonthDate && bookingMonth < nextTargetMonth;
+          }
+          return false;
+        }
+        return false;
+      }
     );
 
     // Completed payments count (number of ALL paid payments, not just current month)
@@ -116,10 +164,11 @@ export async function getMonthlyRevenueOverview(
     );
 
     // Payment counts for additional insights
+    // Include both rent payments and booking payments in the counts
     const paymentCounts = {
-      total: monthPayments.length,
+      total: monthPayments.length + pendingBookingsForMonth.length,
       paid: paidPayments.length,
-      pending: pendingPaymentList.length,
+      pending: pendingPaymentList.length + pendingBookingsForMonth.length,
       overdue: overduePaymentList.length,
     };
 
@@ -129,6 +178,9 @@ export async function getMonthlyRevenueOverview(
       monthPaidPaymentsCount: paidPayments.length,
       allPendingPaymentsCount: allPendingPayments.length,
       monthPendingPaymentsCount: pendingPaymentList.length,
+      pendingBookingPaymentsCount: pendingBookingPayments.length,
+      pendingBookingPaymentsAmount,
+      pendingRentPayments,
       pendingPayments,
       completedPayments,
       overduePayments,

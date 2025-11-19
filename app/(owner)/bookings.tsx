@@ -21,7 +21,6 @@ import {
   Phone, 
   Mail, 
   Home, 
-  DollarSign, 
   Wallet,
   MessageSquare,
   ArrowLeft,
@@ -497,7 +496,22 @@ export default function BookingsPage() {
                         </View>
                       )}
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                        <DollarSign size={14} color={designTokens.colors.textSecondary} />
+                        <View style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 14,
+                          backgroundColor: designTokens.colors.primary + '15',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}>
+                          <Text style={{
+                            fontSize: 12,
+                            fontWeight: '700',
+                            color: designTokens.colors.primary,
+                          }}>
+                            ₱
+                          </Text>
+                        </View>
                         <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
                           Monthly: ₱{booking.monthlyRent ? String(booking.monthlyRent.toLocaleString()) : '0'}
                         </Text>

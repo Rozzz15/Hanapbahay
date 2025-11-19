@@ -489,7 +489,7 @@ export default function BrgyDashboard() {
               screenWidth < 400 && { flex: 0 }
             ]}>
               <View style={[styles.heroEyebrowContainer, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: designTokens.spacing.sm }}>
                   {barangayLogo ? (
                     <Image
                       source={{ uri: barangayLogo }}
@@ -516,7 +516,6 @@ export default function BrgyDashboard() {
                   activeOpacity={0.85}
                 >
                   <LogOut size={18} color={designTokens.colors.primary} />
-                  <Text style={styles.heroButtonText}>Logout</Text>
                 </TouchableOpacity>
               </View>
               <Text style={styles.heroSubtitle}>
@@ -1012,18 +1011,17 @@ const styles = StyleSheet.create<DashboardStyles>({
     letterSpacing: -0.5,
   },
   heroButton: {
-    paddingHorizontal: designTokens.spacing.lg,
-    paddingVertical: designTokens.spacing.sm,
+    padding: designTokens.spacing.sm,
     borderRadius: designTokens.borderRadius.full,
     backgroundColor: designTokens.colors.white,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: designTokens.spacing.xs,
     ...designTokens.shadows.sm,
     position: 'relative',
     zIndex: 20,
     flexShrink: 0,
+    minWidth: 36,
+    minHeight: 36,
   },
   heroButtonText: {
     color: designTokens.colors.primary,

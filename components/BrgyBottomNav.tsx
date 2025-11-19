@@ -4,7 +4,6 @@ import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { 
   LayoutDashboard, 
-  Users, 
   Home, 
   FileText, 
   Settings 
@@ -18,13 +17,6 @@ const navigationItems = [
     icon: LayoutDashboard,
     path: '/(brgy)/dashboard',
     color: '#3B82F6'
-  },
-  {
-    id: 'residents',
-    label: 'Residents',
-    icon: Users,
-    path: '/(brgy)/residents',
-    color: '#10B981'
   },
   {
     id: 'properties',
@@ -73,13 +65,23 @@ export default function BrgyBottomNav() {
             key={item.id}
             style={[
               styles.navItem,
-              active && styles.navItemActive
+              active && {
+                backgroundColor: item.color + '20',
+                borderRadius: 10,
+                paddingVertical: 8,
+                paddingHorizontal: 6,
+                borderWidth: 1,
+                borderColor: item.color + '40',
+              }
             ]}
             onPress={() => handleNavigation(item.path)}
           >
             <View style={[
               styles.navIcon,
-              { backgroundColor: active ? item.color : 'transparent' }
+              { 
+                backgroundColor: active ? item.color : 'transparent',
+                transform: active ? [{ scale: 1.1 }] : [{ scale: 1 }]
+              }
             ]}>
               <Icon 
                 size={18} 
@@ -88,7 +90,11 @@ export default function BrgyBottomNav() {
             </View>
             <Text style={[
               styles.navLabel,
-              active && { color: item.color, fontWeight: '600' as const }
+              active && { 
+                color: item.color, 
+                fontWeight: '700' as const,
+                fontSize: 11,
+              }
             ]}>
               {item.label}
             </Text>

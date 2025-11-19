@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { sharedStyles, designTokens } from '../../styles/owner-dashboard-styles';
 import { db } from '../../utils/db';
 import { DbUserRecord, BookingRecord, PublishedListingRecord } from '../../types';
-import { Mail, Phone, Calendar, MapPin, CreditCard, CheckCircle, ChevronDown, ChevronUp, Users, User, ArrowUpDown, Filter } from 'lucide-react-native';
+import { Mail, Phone, Calendar, MapPin, CreditCard, CheckCircle, ChevronDown, ChevronUp, Users, User, ArrowUpDown, Filter, Home } from 'lucide-react-native';
 import TenantInfoModal from '../../components/TenantInfoModal';
 import { Image } from 'react-native';
 
@@ -22,17 +22,37 @@ interface ResidentInfo {
   earliestBookingDate?: string;
 }
 
+interface PropertyGroup {
+  propertyId: string;
+  propertyTitle: string;
+  propertyAddress: string;
+  propertyType?: string;
+  ownerName?: string;
+  residents: ResidentInfo[];
+}
+
+interface OwnerGroup {
+  ownerId: string;
+  ownerName: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
+  residents: ResidentInfo[];
+}
+
 export default function ResidentsPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [residents, setResidents] = useState<ResidentInfo[]>([]);
+  const [propertyGroups, setPropertyGroups] = useState<PropertyGroup[]>([]);
+  const [ownerGroups, setOwnerGroups] = useState<OwnerGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedProperty, setExpandedProperty] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<ResidentInfo | null>(null);
   const [tenantModalVisible, setTenantModalVisible] = useState(false);
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
-  const [sortBy, setSortBy] = useState<'name' | 'date' | 'propertyType' | 'property'>('property');
+  const [sortBy, setSortBy] = useState<'name' | 'date' | 'propertyType' | 'property' | 'owner'>('property');
   const [showSortMenu, setShowSortMenu] = useState(false);
 
   useEffect(() => {
@@ -132,9 +152,84 @@ export default function ResidentsPage() {
       }
 
       setResidents(residentsList);
+
+      // Group residents by property
+      const propertyMap = new Map<string, PropertyGroup>();
+      
+      residentsList.forEach(resident => {
+        resident.bookings.forEach(booking => {
+          const property = allListings.find(l => l.id === booking.propertyId);
+          if (!property) return;
+
+          const propertyId = booking.propertyId;
+          if (!propertyMap.has(propertyId)) {
+            propertyMap.set(propertyId, {
+              propertyId,
+              propertyTitle: booking.propertyTitle || property.propertyType || 'Unknown Property',
+              propertyAddress: booking.propertyAddress || property.address || 'Address not specified',
+              propertyType: property.propertyType,
+              ownerName: booking.ownerName || property.ownerName || 'Unknown Owner',
+              residents: []
+            });
+          }
+
+          const group = propertyMap.get(propertyId)!;
+          // Only add resident if not already in this property group
+          if (!group.residents.find(r => r.userId === resident.userId)) {
+            group.residents.push(resident);
+          }
+        });
+      });
+
+      // Convert map to array and sort
+      const groupsArray = Array.from(propertyMap.values()).sort((a, b) => {
+        return a.propertyTitle.localeCompare(b.propertyTitle);
+      });
+
+      setPropertyGroups(groupsArray);
+
+      // Group residents by owner
+      const ownerMap = new Map<string, OwnerGroup>();
+      
+      residentsList.forEach(resident => {
+        resident.bookings.forEach(booking => {
+          const property = allListings.find(l => l.id === booking.propertyId);
+          if (!property) return;
+
+          const ownerId = booking.ownerId;
+          const ownerName = booking.ownerName || 'Unknown Owner';
+          
+          if (!ownerMap.has(ownerId)) {
+            // Get owner details from property listing
+            const ownerUser = allUsers.find(u => u.id === ownerId);
+            ownerMap.set(ownerId, {
+              ownerId,
+              ownerName,
+              ownerEmail: booking.ownerEmail || property.email,
+              ownerPhone: booking.ownerPhone || property.contactNumber || ownerUser?.phone,
+              residents: []
+            });
+          }
+
+          const group = ownerMap.get(ownerId)!;
+          // Only add resident if not already in this owner group
+          if (!group.residents.find(r => r.userId === resident.userId)) {
+            group.residents.push(resident);
+          }
+        });
+      });
+
+      // Convert map to array and sort by owner name
+      const ownerGroupsArray = Array.from(ownerMap.values()).sort((a, b) => {
+        return a.ownerName.localeCompare(b.ownerName);
+      });
+
+      setOwnerGroups(ownerGroupsArray);
     } catch (error) {
       console.error('Error loading residents:', error);
       setResidents([]);
+      setPropertyGroups([]);
+      setOwnerGroups([]);
     } finally {
       setLoading(false);
     }
@@ -162,6 +257,10 @@ export default function ResidentsPage() {
       maximumFractionDigits: 0,
     }).format(amount);
     return `₱${formatted}`;
+  };
+
+  const toggleExpandProperty = (propertyId: string) => {
+    setExpandedProperty(expandedProperty === propertyId ? null : propertyId);
   };
 
   const toggleExpand = (userId: string) => {
@@ -215,6 +314,332 @@ export default function ResidentsPage() {
       default:
         return sorted;
     }
+  };
+
+  const renderOwnerGroup = ({ item: group }: { item: OwnerGroup }) => {
+    return (
+      <View
+        style={{
+          marginBottom: designTokens.spacing.md,
+          marginHorizontal: designTokens.spacing.lg,
+        }}
+      >
+        {/* Owner Category Header */}
+        <View
+          style={{
+            paddingVertical: designTokens.spacing.xs,
+            paddingHorizontal: designTokens.spacing.sm,
+            backgroundColor: designTokens.colors.primary + '15',
+            borderRadius: 6,
+            marginBottom: designTokens.spacing.xs,
+            borderLeftWidth: 3,
+            borderLeftColor: designTokens.colors.primary,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.xs, width: '100%' }}>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '30',
+              padding: 4,
+              borderRadius: 4,
+              marginRight: designTokens.spacing.sm,
+              flexShrink: 0,
+            }}>
+              <User size={12} color={designTokens.colors.primary} />
+            </View>
+            <Text style={{
+              fontSize: designTokens.typography.base,
+              fontWeight: '700',
+              color: designTokens.colors.textPrimary,
+              flex: 1,
+              minWidth: 0,
+              marginRight: designTokens.spacing.xs,
+            }} numberOfLines={1}>
+              {group.ownerName}
+            </Text>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '30',
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: 12,
+              flexShrink: 0,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                fontWeight: '700',
+                color: designTokens.colors.primary,
+              }}>
+                {group.residents.length}
+              </Text>
+            </View>
+          </View>
+          {(group.ownerEmail || group.ownerPhone) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 24, flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
+              {group.ownerEmail && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 }}>
+                  <Mail size={10} color={designTokens.colors.textSecondary} />
+                  <Text style={{
+                    marginLeft: designTokens.spacing.xs,
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }} numberOfLines={1}>
+                    {group.ownerEmail}
+                  </Text>
+                </View>
+              )}
+              {group.ownerPhone && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 }}>
+                  <Phone size={10} color={designTokens.colors.textSecondary} />
+                  <Text style={{
+                    marginLeft: designTokens.spacing.xs,
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }}>
+                    {group.ownerPhone}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Residents List - Always Visible */}
+        <View>
+          {group.residents.map((resident, index) => (
+            <View key={resident.userId} style={{ marginBottom: designTokens.spacing.xs }}>
+              {renderResidentCard(resident, false)}
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const renderPropertyGroup = ({ item: group }: { item: PropertyGroup }) => {
+    return (
+      <View
+        style={{
+          marginBottom: designTokens.spacing.lg,
+          marginHorizontal: designTokens.spacing.lg,
+        }}
+      >
+        {/* Property Category Header */}
+        <View
+          style={{
+            paddingVertical: designTokens.spacing.sm,
+            paddingHorizontal: designTokens.spacing.md,
+            backgroundColor: designTokens.colors.primary + '15',
+            borderRadius: 8,
+            marginBottom: designTokens.spacing.sm,
+            borderLeftWidth: 4,
+            borderLeftColor: designTokens.colors.primary,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '30',
+              padding: 4,
+              borderRadius: 4,
+              marginRight: designTokens.spacing.sm,
+            }}>
+              <Home size={12} color={designTokens.colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{
+                fontSize: designTokens.typography.base,
+                fontWeight: '700',
+                color: designTokens.colors.textPrimary,
+              }} numberOfLines={1}>
+                {group.propertyTitle}
+              </Text>
+              {group.ownerName && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                  <User size={10} color={designTokens.colors.textSecondary} />
+                  <Text style={{
+                    marginLeft: designTokens.spacing.xs,
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }} numberOfLines={1}>
+                    {group.ownerName}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '30',
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderRadius: 12,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                fontWeight: '700',
+                color: designTokens.colors.primary,
+              }}>
+                {group.residents.length} {group.residents.length === 1 ? 'resident' : 'residents'}
+              </Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 24 }}>
+            <MapPin size={10} color={designTokens.colors.textSecondary} />
+            <Text style={{
+              marginLeft: designTokens.spacing.xs,
+              fontSize: designTokens.typography.xs,
+              color: designTokens.colors.textSecondary,
+              flex: 1,
+            }} numberOfLines={1}>
+              {group.propertyAddress}
+            </Text>
+          </View>
+        </View>
+
+        {/* Residents List - Always Visible */}
+        <View>
+          {group.residents.map((resident, index) => (
+            <View key={resident.userId} style={{ marginBottom: designTokens.spacing.xs }}>
+              {renderResidentCard(resident, false)}
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const renderResidentCard = (resident: ResidentInfo, showBorder: boolean = true) => {
+    const isExpanded = expandedResident === resident.userId;
+    
+    return (
+      <View
+        style={{
+          backgroundColor: designTokens.colors.background,
+          borderRadius: 8,
+          marginBottom: showBorder ? designTokens.spacing.sm : 0,
+          borderWidth: 1,
+          borderColor: designTokens.colors.borderLight,
+          overflow: 'hidden',
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => toggleExpand(resident.userId)}
+          activeOpacity={0.7}
+          style={{
+            padding: designTokens.spacing.sm,
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          {/* Avatar */}
+          <TouchableOpacity
+            onPress={() => openTenantModal(resident)}
+            activeOpacity={0.7}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: designTokens.colors.primary + '20',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginRight: designTokens.spacing.sm,
+              overflow: 'hidden',
+            }}
+          >
+            {resident.profilePhoto && !imageErrors.has(resident.userId) ? (
+              <Image
+                source={{ uri: resident.profilePhoto }}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                }}
+                onError={() => {
+                  setImageErrors(prev => new Set(prev).add(resident.userId));
+                }}
+              />
+            ) : (
+              <Text style={{
+                fontSize: 16,
+                fontWeight: '700',
+                color: designTokens.colors.primary,
+              }}>
+                {resident.name.charAt(0).toUpperCase()}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Main Info */}
+          <View style={{ flex: 1 }}>
+            <Text style={{
+              fontSize: designTokens.typography.sm,
+              fontWeight: '600',
+              color: designTokens.colors.textPrimary,
+              marginBottom: 2,
+            }} numberOfLines={1}>
+              {resident.name}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+              <Mail size={10} color={designTokens.colors.textSecondary} />
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                color: designTokens.colors.textSecondary,
+              }} numberOfLines={1}>
+                {resident.email}
+              </Text>
+            </View>
+            {resident.phone && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: designTokens.spacing.sm }}>
+                <Phone size={10} color={designTokens.colors.textSecondary} />
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textSecondary,
+                }}>
+                  {resident.phone}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Expand Icon */}
+          {isExpanded ? (
+            <ChevronUp size={16} color={designTokens.colors.textSecondary} />
+          ) : (
+            <ChevronDown size={16} color={designTokens.colors.textSecondary} />
+          )}
+        </TouchableOpacity>
+
+        {/* Expanded Details */}
+        {isExpanded && (
+          <View style={{
+            borderTopWidth: 1,
+            borderTopColor: designTokens.colors.borderLight,
+            padding: designTokens.spacing.sm,
+            backgroundColor: 'white',
+          }}>
+            <TouchableOpacity
+              onPress={() => openTenantModal(resident)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                paddingVertical: designTokens.spacing.xs,
+                backgroundColor: designTokens.colors.primary + '15',
+                borderRadius: 6,
+                marginBottom: designTokens.spacing.sm,
+              }}
+              activeOpacity={0.7}
+            >
+              <User size={12} color={designTokens.colors.primary} />
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                fontWeight: '600',
+                color: designTokens.colors.primary,
+              }}>
+                View Full Profile
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
   };
 
   const renderResident = ({ item: resident }: { item: ResidentInfo }) => {
@@ -569,6 +994,7 @@ export default function ResidentsPage() {
                   sortBy === 'name' ? 'Name (A-Z)' :
                   sortBy === 'date' ? 'Date (Newest)' :
                   sortBy === 'propertyType' ? 'Property Type' :
+                  sortBy === 'owner' ? 'By Owner' :
                   'By Property'
                 }
               </Text>
@@ -694,6 +1120,8 @@ export default function ResidentsPage() {
               }}
               style={{
                 padding: designTokens.spacing.md,
+                borderBottomWidth: 1,
+                borderBottomColor: designTokens.colors.borderLight,
                 backgroundColor: sortBy === 'property' ? designTokens.colors.primary + '10' : 'transparent',
               }}
               activeOpacity={0.7}
@@ -704,6 +1132,25 @@ export default function ResidentsPage() {
                 color: sortBy === 'property' ? designTokens.colors.primary : designTokens.colors.textPrimary,
               }}>
                 Group by Property
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setSortBy('owner');
+                setShowSortMenu(false);
+              }}
+              style={{
+                padding: designTokens.spacing.md,
+                backgroundColor: sortBy === 'owner' ? designTokens.colors.primary + '10' : 'transparent',
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                fontWeight: sortBy === 'owner' ? '600' : '400',
+                color: sortBy === 'owner' ? designTokens.colors.primary : designTokens.colors.textPrimary,
+              }}>
+                Group by Owner
               </Text>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -747,6 +1194,24 @@ export default function ResidentsPage() {
             Residents will appear here once they have approved bookings for properties in your barangay.
           </Text>
         </View>
+      ) : sortBy === 'property' ? (
+        <FlatList
+          data={propertyGroups}
+          renderItem={renderPropertyGroup}
+          keyExtractor={(item) => item.propertyId}
+          contentContainerStyle={{ paddingVertical: designTokens.spacing.md }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          showsVerticalScrollIndicator={false}
+        />
+      ) : sortBy === 'owner' ? (
+        <FlatList
+          data={ownerGroups}
+          renderItem={renderOwnerGroup}
+          keyExtractor={(item) => item.ownerId}
+          contentContainerStyle={{ paddingVertical: designTokens.spacing.md }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          showsVerticalScrollIndicator={false}
+        />
       ) : (
         <FlatList
           data={getSortedResidents()}
