@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, ViewStyle, TextStyle } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, ViewStyle, TextStyle, ImageStyle, useWindowDimensions, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,10 @@ import {
   getBrgyDashboardStats,
   type BrgyDashboardStats
 } from '../../utils/brgy-dashboard';
+import {
+  getComplaintsByBarangay,
+  getNewComplaintsCount,
+} from '../../utils/tenant-complaints';
 import { 
   Users, 
   Home, 
@@ -19,7 +23,12 @@ import {
   AlertCircle,
   TrendingUp,
   ClipboardList,
-  BarChart3
+  BarChart3,
+  AlertTriangle,
+  List,
+  Sparkles,
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -31,6 +40,7 @@ const windowWidth = Dimensions.get('window').width;
 export default function BrgyDashboard() {
   const { user, signOut } = useAuth();
   const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
   const [activeSection, setActiveSection] = useState('overview');
   const [stats, setStats] = useState<BrgyDashboardStats>({
     totalResidents: 0,
@@ -42,7 +52,9 @@ export default function BrgyDashboard() {
   const [loading, setLoading] = useState(true);
   const [barangayName, setBarangayName] = useState<string>('');
   const [officialName, setOfficialName] = useState<string>('');
+  const [barangayLogo, setBarangayLogo] = useState<string | null>(null);
   const [pendingApplicationsCount, setPendingApplicationsCount] = useState(0);
+  const [newComplaintsCount, setNewComplaintsCount] = useState(0);
 
   // Define loadStats first (before loadDashboardData)
   const loadStats = useCallback(async () => {
@@ -58,6 +70,10 @@ export default function BrgyDashboard() {
       if (userRecord?.name) {
         setOfficialName(userRecord.name);
       }
+      
+      // Load barangay logo from user record
+      const logo = (userRecord as any)?.barangayLogo || null;
+      setBarangayLogo(logo);
       
       // Get all users
       const allUsers = await db.list<DbUserRecord>('users');
@@ -146,6 +162,10 @@ export default function BrgyDashboard() {
         app => app.status === 'pending' && app.barangay.toUpperCase() === barangay.toUpperCase()
       );
       setPendingApplicationsCount(pendingApps.length);
+
+      // Get new complaints count
+      const newComplaints = await getNewComplaintsCount(barangay);
+      setNewComplaintsCount(newComplaints);
     } catch (error) {
       console.error('Error loading stats:', error);
     }
@@ -235,6 +255,28 @@ export default function BrgyDashboard() {
     );
   };
 
+  // Helper function to get default logo based on barangay name
+  const getDefaultLogo = (barangayName: string | null | undefined) => {
+    if (!barangayName) return null;
+    
+    const barangayLower = barangayName.toLowerCase();
+    
+    switch (barangayLower) {
+      case 'talolong':
+        return require('../../assets/images/talolong.jpg');
+      case 'burgos':
+        return require('../../assets/images/burgos.jpg');
+      case 'magsaysay':
+        return require('../../assets/images/magsaysay.jpg');
+      case 'gomez':
+        return require('../../assets/images/gomez.jpg');
+      case 'rizal':
+        return require('../../assets/images/rizal.jpg');
+      default:
+        return null;
+    }
+  };
+
   const renderOverview = () => {
     if (!user) {
       return null;
@@ -245,7 +287,7 @@ export default function BrgyDashboard() {
     const quickStats = [
       { label: 'Residents', value: stats.totalResidents, note: 'With completed payments' },
       { label: 'Properties', value: stats.totalProperties, note: 'Available homes' },
-      { label: 'Active Listings', value: stats.totalListings, note: 'Live on the app' },
+      { label: 'Active Properties', value: stats.totalListings, note: 'Live on the app' },
       { label: 'Bookings', value: stats.activeBookings, note: 'On-going rentals' },
     ];
 
@@ -269,22 +311,13 @@ export default function BrgyDashboard() {
         iconStyle: iconBackgrounds.green,
       },
       {
-        title: 'Published Listings',
+        title: 'Published Properties',
         value: stats.totalListings,
         subtext: 'Live inventory',
-        trend: stats.totalListings > 0 ? 'Ready for tenant discovery' : 'Publish new listings',
+        trend: stats.totalListings > 0 ? 'Ready for tenant discovery' : 'Publish new properties',
         trendColor: '#1D4ED8',
         icon: <BarChart3 size={18} color="#1D4ED8" />,
         iconStyle: iconBackgrounds.blue,
-      },
-      {
-        title: 'Barangay Coverage',
-        value: barangayName ? 1 : 0,
-        subtext: barangayLabel,
-        trend: 'Official account verified',
-        trendColor: '#6B7280',
-        icon: <Calendar size={18} color="#6B7280" />,
-        iconStyle: iconBackgrounds.purple,
       },
     ];
 
@@ -336,6 +369,25 @@ export default function BrgyDashboard() {
         iconBackground: iconBackgrounds.orange,
         route: '/(brgy)/reports',
       },
+      {
+        label: 'Complaints',
+        description: newComplaintsCount > 0
+          ? `${newComplaintsCount} new complaint${newComplaintsCount > 1 ? 's' : ''}`
+          : 'Review tenant complaints',
+        icon: <AlertTriangle size={24} color="#EF4444" />,
+        iconBackground: iconBackgrounds.red,
+        route: '/(brgy)/complaints',
+        badge: newComplaintsCount > 0 ? newComplaintsCount : undefined,
+        highlight: newComplaintsCount > 0,
+        useGradient: false,
+      },
+      {
+        label: 'Move-in / Move-out Monitoring',
+        description: 'Track tenant relocations',
+        icon: <ArrowRight size={24} color="#6366F1" />,
+        iconBackground: iconBackgrounds.blue,
+        route: '/(brgy)/move-monitoring',
+      },
     ];
 
     const actionAlertsTotal = actionItems.reduce(
@@ -345,6 +397,42 @@ export default function BrgyDashboard() {
     const hasActionAlerts = actionAlertsTotal > 0;
 
     const statsSummary = quickStats;
+    
+    // Define stat card configurations with icons and gradients
+    const statCards = [
+      {
+        label: 'Residents',
+        gradient: designTokens.gradients.success,
+        iconBg: iconBackgrounds.green,
+        icon: Users,
+        iconColor: '#10B981',
+        route: '/(brgy)/residents',
+      },
+      {
+        label: 'Properties',
+        gradient: designTokens.gradients.info,
+        iconBg: iconBackgrounds.blue,
+        icon: Home,
+        iconColor: '#3B82F6',
+        route: '/(brgy)/properties',
+      },
+      {
+        label: 'Active Properties',
+        gradient: designTokens.gradients.teal,
+        iconBg: iconBackgrounds.teal,
+        icon: List,
+        iconColor: '#14B8A6',
+        route: '/(brgy)/properties',
+      },
+      {
+        label: 'Bookings',
+        gradient: designTokens.gradients.warning,
+        iconBg: iconBackgrounds.orange,
+        icon: Calendar,
+        iconColor: '#F59E0B',
+        route: '/(brgy)/properties',
+      },
+    ];
 
     const alertItems = [
       {
@@ -356,6 +444,14 @@ export default function BrgyDashboard() {
         icon: <Bell size={16} color="#F59E0B" />,
       },
       {
+        label: 'New Complaints',
+        value: newComplaintsCount,
+        status: newComplaintsCount > 0 ? 'Requires attention' : 'No new complaints',
+        accent: '#EF4444',
+        priority: newComplaintsCount > 0,
+        icon: <AlertTriangle size={16} color="#EF4444" />,
+      },
+      {
         label: 'Active Bookings',
         value: stats.activeBookings,
         status: stats.activeBookings > 0 ? 'Residents currently renting' : 'No rentals in progress',
@@ -364,7 +460,7 @@ export default function BrgyDashboard() {
         icon: <Calendar size={16} color="#0EA5E9" />,
       },
       {
-        label: 'Published Listings',
+        label: 'Published Properties',
         value: stats.totalListings,
         status: stats.totalListings > 0 ? 'Live inventory available' : 'Publish more homes',
         accent: '#6366F1',
@@ -375,7 +471,7 @@ export default function BrgyDashboard() {
 
     const chartSeries = [
       { label: 'Bookings', value: stats.activeBookings, color: '#6366F1' },
-      { label: 'Listings', value: stats.totalListings, color: '#0EA5E9' },
+      { label: 'Properties', value: stats.totalListings, color: '#0EA5E9' },
       { label: 'Residents', value: stats.totalResidents, color: '#10B981' },
     ];
     const chartMax = Math.max(...chartSeries.map(s => s.value), 1);
@@ -384,22 +480,53 @@ export default function BrgyDashboard() {
     return (
       <View style={sharedStyles.pageContainer}>
         <View style={[styles.card, styles.heroCard]}>
-          <View style={styles.heroHeader}>
-            <View>
-              <Text style={styles.heroEyebrow}>Barangay Account</Text>
-              <Text style={styles.heroTitle}>Welcome back, {officialName || user?.name || 'Barangay Official'}</Text>
+          <View style={[
+            styles.heroHeader,
+            screenWidth < 400 && { flexDirection: 'column', alignItems: 'stretch' }
+          ]}>
+            <View style={[
+              styles.heroHeaderLeft,
+              screenWidth < 400 && { flex: 0 }
+            ]}>
+              <View style={[styles.heroEyebrowContainer, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  {barangayLogo ? (
+                    <Image
+                      source={{ uri: barangayLogo }}
+                      style={styles.barangayLogo}
+                      resizeMode="cover"
+                    />
+                  ) : (() => {
+                    const defaultLogo = getDefaultLogo(barangayName);
+                    return defaultLogo ? (
+                      <Image
+                        source={defaultLogo}
+                        style={styles.barangayLogo}
+                        resizeMode="contain"
+                      />
+                    ) : null;
+                  })()}
+                  <Text style={styles.heroEyebrow}>
+                    {barangayName ? `Barangay ${barangayName}` : 'Barangay Account'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.heroButton}
+                  onPress={handleLogout}
+                  activeOpacity={0.85}
+                >
+                  <LogOut size={18} color={designTokens.colors.primary} />
+                  <Text style={styles.heroButtonText}>Logout</Text>
+                </TouchableOpacity>
+              </View>
               <Text style={styles.heroSubtitle}>
                 Managing rentals for {barangayLabel}.
               </Text>
+              <View style={styles.welcomeBackContainer}>
+                <Text style={styles.welcomeBackText}>Welcome back,</Text>
+                <Text style={styles.welcomeBackName}>{officialName || user?.name || 'Barangay Official'}</Text>
+              </View>
             </View>
-            <TouchableOpacity
-              style={styles.heroButton}
-              onPress={handleLogout}
-              activeOpacity={0.85}
-            >
-              <LogOut size={18} color={designTokens.colors.primary} />
-              <Text style={styles.heroButtonText}>Logout</Text>
-            </TouchableOpacity>
           </View>
           <LinearGradient
             colors={designTokens.gradients.primary as [string, string]}
@@ -410,22 +537,68 @@ export default function BrgyDashboard() {
           />
         </View>
 
-        <View style={styles.cardGrid}>
-          <View style={[styles.card, styles.statsCard]}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Key Stats</Text>
-              <Text style={styles.cardSubtitle}>Live barangay overview</Text>
+        {/* Key Stats Section */}
+        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+            <View>
+              <Text style={sharedStyles.sectionTitle}>Key Stats</Text>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                color: designTokens.colors.textSecondary,
+                marginTop: designTokens.spacing.xs,
+              }}>
+                Live barangay overview
+              </Text>
             </View>
-            <View style={styles.statGrid}>
-              {statsSummary.map((item) => (
-                <View key={item.label} style={styles.statCell}>
-                  <Text style={styles.statValue}>{item.value}</Text>
-                  <Text style={styles.statLabel}>{item.label}</Text>
-                  <Text style={styles.statNote}>{item.note}</Text>
-                </View>
-              ))}
+            <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+              <BarChart3 size={18} color="#3B82F6" />
             </View>
           </View>
+          <View style={sharedStyles.grid}>
+            {statCards.map((cardConfig, index) => {
+              const stat = statsSummary.find(s => s.label === cardConfig.label);
+              const IconComponent = cardConfig.icon;
+              
+              return (
+                <TouchableOpacity
+                  key={cardConfig.label}
+                  style={sharedStyles.gridItem}
+                  onPress={() => router.push(cardConfig.route as any)}
+                  activeOpacity={0.7}
+                >
+                  <View style={sharedStyles.statCard}>
+                    <LinearGradient
+                      colors={cardConfig.gradient as any}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[sharedStyles.statCardGradient, { height: 4 }]}
+                    />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
+                      <View style={[sharedStyles.statIcon, cardConfig.iconBg]}>
+                        <IconComponent size={20} color={cardConfig.iconColor} />
+                      </View>
+                    </View>
+                    <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
+                      {stat?.label || cardConfig.label}
+                    </Text>
+                    <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
+                      {stat?.value || 0}
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.textMuted,
+                      marginTop: designTokens.spacing.xs,
+                    }}>
+                      {stat?.note || ''}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.cardGrid}>
 
           <View style={[styles.card, styles.alertsCard]}>
             <View style={styles.cardHeader}>
@@ -481,109 +654,204 @@ export default function BrgyDashboard() {
           </LinearGradient>
         </View>
 
-        <View style={[styles.card, styles.performanceCard]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Performance Snapshot</Text>
-            <Text style={styles.cardSubtitle}>Key operational health</Text>
+        {/* Operational Overview Section */}
+        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+            <View>
+              <Text style={sharedStyles.sectionTitle}>Operational Overview</Text>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                color: designTokens.colors.textSecondary,
+                marginTop: designTokens.spacing.xs,
+              }}>
+                Key performance indicators and operational metrics
+              </Text>
+            </View>
+            <View style={[sharedStyles.statIcon, iconBackgrounds.purple]}>
+              <TrendingUp size={18} color="#8B5CF6" />
+            </View>
           </View>
-          <View style={styles.metricGrid}>
+          <View style={sharedStyles.grid}>
             {insightCards.map((card) => (
-              <View key={card.title} style={styles.metricCard}>
-                <View style={[styles.metricIconWrapper, card.iconStyle]}>
-                  {card.icon}
+              <View key={card.title} style={sharedStyles.gridItem}>
+                <View style={sharedStyles.statCard}>
+                  <LinearGradient
+                    colors={
+                      card.title === 'Active Bookings' ? designTokens.gradients.success as any :
+                      card.title === 'Approved Owners' ? designTokens.gradients.purple as any :
+                      card.title === 'Published Properties' ? designTokens.gradients.info as any :
+                      ['#6B7280', '#9CA3AF'] as any
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[sharedStyles.statCardGradient, { height: 4 }]}
+                  />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
+                    <View style={[sharedStyles.statIcon, card.iconStyle]}>
+                      {card.icon}
+                    </View>
+                  </View>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
+                    {card.title}
+                  </Text>
+                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: designTokens.spacing.xs }]}>
+                    {card.value}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textMuted,
+                    marginBottom: designTokens.spacing.xs,
+                  }}>
+                    {card.subtext}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: card.trendColor,
+                    fontWeight: designTokens.typography.semibold as TextStyle['fontWeight'],
+                    marginTop: designTokens.spacing.xs,
+                  }}>
+                    {card.trend}
+                  </Text>
                 </View>
-                <Text style={styles.metricLabel}>{card.title}</Text>
-                <Text style={styles.metricValue}>{card.value}</Text>
-                <Text style={styles.metricSubtext}>{card.subtext}</Text>
-                <Text style={[styles.metricTrend, { color: card.trendColor }]}>
-                  {card.trend}
-                </Text>
               </View>
             ))}
           </View>
         </View>
 
-        <View style={[styles.card, styles.quickActionsListCard]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Quick Actions</Text>
-            <Text style={styles.cardSubtitle}>
-              {hasActionAlerts ? 'Handle pending reviews' : 'You’re up to date'}
-            </Text>
-          </View>
-          <View style={styles.quickActionList}>
-            {actionItems.map((item) => (
-              <TouchableOpacity
-                key={item.label}
-                style={[
-                  styles.quickActionRow,
-                  item.highlight && styles.quickActionRowActive,
-                ]}
-                onPress={() => router.push(item.route as any)}
-                activeOpacity={0.85}
-              >
-                <View style={[
-                  styles.quickActionCircle,
-                  !item.useGradient && item.iconBackground
-                ]}>
-                  {item.useGradient ? (
-                    <LinearGradient
-                      colors={designTokens.gradients.primary as [string, string]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.quickActionGradientFill}
-                    >
-                      {item.icon}
-                    </LinearGradient>
-                  ) : (
-                    item.icon
-                  )}
-                  {item.badge && (
-                    <View style={styles.quickActionListBadge}>
-                      <Text style={styles.quickActionBadgeText}>
-                        {item.badge > 99 ? '99+' : item.badge}
+        {/* Operations & Management Section */}
+        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            marginBottom: designTokens.spacing.lg,
+            paddingBottom: designTokens.spacing.md,
+            borderBottomWidth: 2,
+            borderBottomColor: designTokens.colors.borderLight,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { marginRight: designTokens.spacing.md, position: 'relative' }]}>
+                <Sparkles size={20} color="#F59E0B" />
+                {hasActionAlerts && (
+                  <View style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    backgroundColor: designTokens.colors.error,
+                    borderRadius: 8,
+                    width: 16,
+                    height: 16,
+                    borderWidth: 2,
+                    borderColor: designTokens.colors.white,
+                  }} />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>Operations & Management</Text>
+                  {hasActionAlerts && (
+                    <View style={{
+                      backgroundColor: designTokens.colors.error,
+                      borderRadius: 12,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      minWidth: 24,
+                      height: 20,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}>
+                      <Text style={{ color: designTokens.colors.white, fontSize: 10, fontWeight: '700' }}>
+                        {actionAlertsTotal}
                       </Text>
                     </View>
                   )}
                 </View>
-                <View style={styles.quickActionContent}>
-                  <Text style={styles.quickActionTitle}>{item.label}</Text>
-                  <Text style={styles.quickActionDescription}>{item.description}</Text>
-                </View>
-                <Text style={styles.quickActionChevron}>›</Text>
-              </TouchableOpacity>
-            ))}
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  marginTop: designTokens.spacing.xs,
+                }}>
+                  {hasActionAlerts
+                    ? `${actionAlertsTotal} item${actionAlertsTotal > 1 ? 's' : ''} need attention`
+                    : 'Quick actions and daily operations'}
+                </Text>
+              </View>
+            </View>
           </View>
-        </View>
 
-        <View style={[styles.card, styles.focusCard]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Barangay Focus</Text>
-            <Text style={styles.cardSubtitle}>Weekly reminders</Text>
-          </View>
-          <View style={styles.focusRow}>
-            <View style={styles.focusItem}>
-              <AlertCircle size={18} color={designTokens.colors.warning} />
-              <View style={styles.focusText}>
-                <Text style={styles.focusTitle}>Tenant Experience</Text>
-                <Text style={styles.focusSubtitle}>Keep response times under 24 hrs</Text>
-              </View>
+          {/* Horizontal Scrollable Operations Grid */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingRight: designTokens.spacing.lg }}
+          >
+            <View style={{ flexDirection: 'row', gap: designTokens.spacing.md }}>
+              {actionItems.map((item) => (
+                <TouchableOpacity 
+                  key={item.label}
+                  style={{
+                    width: 160,
+                    padding: designTokens.spacing.lg,
+                    backgroundColor: item.highlight ? designTokens.colors.warningLight : designTokens.colors.white,
+                    borderRadius: designTokens.borderRadius.lg,
+                    borderWidth: item.highlight ? 2 : 1,
+                    borderColor: item.highlight ? designTokens.colors.warning : designTokens.colors.borderLight,
+                    ...designTokens.shadows.sm,
+                    position: 'relative',
+                  }}
+                  onPress={() => router.push(item.route as any)}
+                  activeOpacity={0.7}
+                >
+                  {item.useGradient ? (
+                    <LinearGradient
+                      colors={designTokens.gradients.primary as any}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: designTokens.borderRadius.md,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: designTokens.spacing.md,
+                      }}
+                    >
+                      {item.icon}
+                    </LinearGradient>
+                  ) : (
+                    <View style={[sharedStyles.statIcon, item.iconBackground, { marginBottom: designTokens.spacing.md, position: 'relative' }]}>
+                      {item.icon}
+                      {item.badge && (
+                        <View style={{
+                          position: 'absolute',
+                          top: -4,
+                          right: -4,
+                          backgroundColor: item.highlight ? designTokens.colors.error : designTokens.colors.info,
+                          borderRadius: 12,
+                          minWidth: 24,
+                          height: 24,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          paddingHorizontal: 6,
+                          borderWidth: 2,
+                          borderColor: designTokens.colors.white,
+                        }}>
+                          <Text style={{ color: designTokens.colors.white, fontSize: 10, fontWeight: '700' }}>
+                            {item.badge > 99 ? '99+' : item.badge}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                  <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 4 }]}>
+                    {item.label}
+                  </Text>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
+                    {item.description}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
-            <View style={styles.focusItem}>
-              <Calendar size={18} color={designTokens.colors.info} />
-              <View style={styles.focusText}>
-                <Text style={styles.focusTitle}>Upcoming reviews</Text>
-                <Text style={styles.focusSubtitle}>Schedule property checks weekly</Text>
-              </View>
-            </View>
-          </View>
-          <View style={styles.badgeRow}>
-            <View style={[styles.badge, styles.badgeSuccess]}>
-              <Text style={styles.badgeText}>Verified Barangay Account</Text>
-            </View>
-            <View style={[styles.badge, styles.badgeOutline]}>
-              <Text style={styles.badgeText}>Theme synced with tenant & owner apps</Text>
-            </View>
-          </View>
+          </ScrollView>
         </View>
       </View>
     );
@@ -610,9 +878,15 @@ type DashboardStyles = {
   card: ViewStyle;
   heroCard: ViewStyle;
   heroHeader: ViewStyle;
+  heroHeaderLeft: ViewStyle;
+  heroEyebrowContainer: ViewStyle;
+  barangayLogo: ImageStyle;
   heroEyebrow: TextStyle;
   heroTitle: TextStyle;
   heroSubtitle: TextStyle;
+  welcomeBackContainer: ViewStyle;
+  welcomeBackText: TextStyle;
+  welcomeBackName: TextStyle;
   heroButton: ViewStyle;
   heroButtonText: TextStyle;
   heroGradient: ViewStyle;
@@ -623,6 +897,7 @@ type DashboardStyles = {
   statsCard: ViewStyle;
   statGrid: ViewStyle;
   statCell: ViewStyle;
+  statCellContent: ViewStyle;
   statValue: TextStyle;
   statLabel: TextStyle;
   statNote: TextStyle;
@@ -661,28 +936,17 @@ type DashboardStyles = {
   quickActionTitle: TextStyle;
   quickActionDescription: TextStyle;
   quickActionChevron: TextStyle;
-  focusCard: ViewStyle;
-  focusRow: ViewStyle;
-  focusItem: ViewStyle;
-  focusText: ViewStyle;
-  focusTitle: TextStyle;
-  focusSubtitle: TextStyle;
-  badgeRow: ViewStyle;
-  badge: ViewStyle;
-  badgeSuccess: ViewStyle;
-  badgeOutline: ViewStyle;
-  badgeText: TextStyle;
 };
 
 const styles = StyleSheet.create<DashboardStyles>({
   card: {
     backgroundColor: designTokens.colors.white,
-    borderRadius: 14,
-    padding: designTokens.spacing['2xl'],
+    borderRadius: 16,
+    padding: designTokens.spacing.xl,
     borderWidth: 1,
     borderColor: designTokens.colors.borderLight,
     ...designTokens.shadows.sm,
-    marginBottom: designTokens.spacing['2xl'],
+    marginBottom: designTokens.spacing.xl,
   },
   heroCard: {
     position: 'relative',
@@ -691,15 +955,33 @@ const styles = StyleSheet.create<DashboardStyles>({
   heroHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: designTokens.spacing.lg,
+    gap: designTokens.spacing.md,
     alignItems: 'flex-start',
+    position: 'relative',
+    zIndex: 10,
+  },
+  heroHeaderLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heroEyebrowContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: designTokens.spacing.sm,
+    marginBottom: designTokens.spacing.xs,
+  },
+  barangayLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
   heroEyebrow: {
     fontSize: designTokens.typography.xs,
     textTransform: 'uppercase',
     letterSpacing: 1,
     color: designTokens.colors.textMuted,
-    marginBottom: designTokens.spacing.xs,
+    flex: 1,
   },
   heroTitle: {
     fontSize: designTokens.typography['2xl'],
@@ -711,6 +993,24 @@ const styles = StyleSheet.create<DashboardStyles>({
     fontSize: designTokens.typography.sm,
     color: designTokens.colors.textSecondary,
   },
+  welcomeBackContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    marginTop: designTokens.spacing.sm,
+    gap: designTokens.spacing.xs,
+  },
+  welcomeBackText: {
+    fontSize: designTokens.typography.xl,
+    color: designTokens.colors.textSecondary,
+    fontWeight: designTokens.typography.medium as TextStyle['fontWeight'],
+  },
+  welcomeBackName: {
+    fontSize: designTokens.typography['3xl'],
+    color: designTokens.colors.textPrimary,
+    fontWeight: designTokens.typography.bold as TextStyle['fontWeight'],
+    letterSpacing: -0.5,
+  },
   heroButton: {
     paddingHorizontal: designTokens.spacing.lg,
     paddingVertical: designTokens.spacing.sm,
@@ -718,8 +1018,12 @@ const styles = StyleSheet.create<DashboardStyles>({
     backgroundColor: designTokens.colors.white,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: designTokens.spacing.xs,
     ...designTokens.shadows.sm,
+    position: 'relative',
+    zIndex: 20,
+    flexShrink: 0,
   },
   heroButtonText: {
     color: designTokens.colors.primary,
@@ -729,11 +1033,11 @@ const styles = StyleSheet.create<DashboardStyles>({
   heroGradient: {
     ...StyleSheet.absoluteFillObject,
     opacity: 0.08,
-    borderRadius: 14,
+    borderRadius: 16,
   },
   cardGrid: {
-    gap: designTokens.spacing['2xl'],
-    marginBottom: designTokens.spacing['2xl'],
+    gap: designTokens.spacing.lg,
+    marginBottom: designTokens.spacing.xl,
   },
   cardHeader: {
     marginBottom: designTokens.spacing.lg,
@@ -752,28 +1056,37 @@ const styles = StyleSheet.create<DashboardStyles>({
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: designTokens.spacing.lg,
+    gap: designTokens.spacing.md,
   },
   statCell: {
-    flexBasis: '48%',
+    flex: 1,
+    minWidth: '47%',
+    maxWidth: '48%',
+  },
+  statCellContent: {
     backgroundColor: designTokens.colors.background,
     borderRadius: 12,
     padding: designTokens.spacing.lg,
+    borderWidth: 1,
+    borderColor: designTokens.colors.borderLight,
   },
   statValue: {
     fontSize: designTokens.typography['2xl'],
     fontWeight: designTokens.typography.bold as TextStyle['fontWeight'],
     color: designTokens.colors.textPrimary,
+    marginBottom: designTokens.spacing.xs,
+    lineHeight: 32,
   },
   statLabel: {
     fontSize: designTokens.typography.sm,
-    color: designTokens.colors.textSecondary,
-    marginTop: designTokens.spacing.xs,
+    fontWeight: designTokens.typography.semibold as TextStyle['fontWeight'],
+    color: designTokens.colors.textPrimary,
+    marginBottom: designTokens.spacing.xs,
   },
   statNote: {
     fontSize: designTokens.typography.xs,
-    color: designTokens.colors.textMuted,
-    marginTop: 2,
+    color: designTokens.colors.textSecondary,
+    lineHeight: 16,
   },
   alertsCard: {},
   alertList: {
@@ -786,6 +1099,8 @@ const styles = StyleSheet.create<DashboardStyles>({
     flexDirection: 'row',
     alignItems: 'center',
     gap: designTokens.spacing.md,
+    borderWidth: 1,
+    borderColor: designTokens.colors.borderLight,
   },
   alertItemActive: {
     backgroundColor: designTokens.colors.warningLight,
@@ -850,6 +1165,8 @@ const styles = StyleSheet.create<DashboardStyles>({
     borderRadius: 12,
     padding: designTokens.spacing.lg,
     backgroundColor: designTokens.colors.background,
+    borderWidth: 1,
+    borderColor: designTokens.colors.borderLight,
   },
   metricIconWrapper: {
     width: 40,
@@ -888,6 +1205,8 @@ const styles = StyleSheet.create<DashboardStyles>({
     borderRadius: 12,
     padding: designTokens.spacing.md,
     backgroundColor: designTokens.colors.background,
+    borderWidth: 1,
+    borderColor: designTokens.colors.borderLight,
   },
   quickActionRowActive: {
     backgroundColor: designTokens.colors.warningLight,
@@ -946,50 +1265,5 @@ const styles = StyleSheet.create<DashboardStyles>({
     fontSize: 20,
     color: designTokens.colors.textMuted,
     marginLeft: designTokens.spacing.sm,
-  },
-  focusCard: {},
-  focusRow: {
-    gap: designTokens.spacing.md,
-  },
-  focusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: designTokens.spacing.md,
-  },
-  focusText: {
-    flex: 1,
-  },
-  focusTitle: {
-    fontSize: designTokens.typography.base,
-    fontWeight: designTokens.typography.semibold as TextStyle['fontWeight'],
-    color: designTokens.colors.textPrimary,
-  },
-  focusSubtitle: {
-    fontSize: designTokens.typography.xs,
-    color: designTokens.colors.textSecondary,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: designTokens.spacing.sm,
-    marginTop: designTokens.spacing.lg,
-  },
-  badge: {
-    paddingHorizontal: designTokens.spacing.md,
-    paddingVertical: designTokens.spacing.xs,
-    borderRadius: designTokens.borderRadius.full,
-  },
-  badgeSuccess: {
-    backgroundColor: designTokens.colors.successLight,
-  },
-  badgeOutline: {
-    borderWidth: 1,
-    borderColor: designTokens.colors.border,
-    backgroundColor: designTokens.colors.white,
-  },
-  badgeText: {
-    fontSize: designTokens.typography.xs,
-    color: designTokens.colors.textSecondary,
-    fontWeight: designTokens.typography.medium as TextStyle['fontWeight'],
   },
 });

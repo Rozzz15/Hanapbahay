@@ -2346,7 +2346,7 @@ const styles = StyleSheet.create({
   },
   ratingBadge: {
     position: 'absolute',
-    top: 12,
+    bottom: 12,
     right: 12,
     flexDirection: 'row',
     alignItems: 'center',

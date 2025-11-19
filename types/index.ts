@@ -453,3 +453,24 @@ export interface TenantPaymentMethod {
   createdAt: string;
   updatedAt: string;
 }
+
+// Tenant Complaint Models
+export interface TenantComplaintRecord {
+  id: string;
+  tenantId: string;
+  propertyId: string;
+  bookingId?: string; // Optional: link to booking if tenant has active booking
+  category: 'noise_complaint' | 'landlord_abuse' | 'unsanitary_conditions' | 'illegal_activities' | 'maintenance_neglect' | 'payment_dispute' | 'safety_concern' | 'neighbor_conflict';
+  description: string;
+  photos: string[]; // Array of photo URIs
+  videos: string[]; // Array of video URIs
+  isAnonymous: boolean;
+  status: 'submitted' | 'received_by_brgy' | 'under_review' | 'for_mediation' | 'resolved' | 'closed';
+  urgency: 'low' | 'medium' | 'high' | 'urgent';
+  barangayNotes?: string; // Notes added by barangay officials
+  settlementDocuments?: string[]; // Array of document URIs uploaded by barangay
+  resolvedAt?: string;
+  closedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}

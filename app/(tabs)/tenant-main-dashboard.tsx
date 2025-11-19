@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Clock,
   AlertCircle,
+  AlertTriangle,
   CheckCircle,
   XCircle,
   Coins,
@@ -40,6 +41,12 @@ import {
   Edit,
   X,
   Share2,
+  Wrench,
+  Camera,
+  Video,
+  Plus,
+  Trash2,
+  History,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getBookingsByTenant } from '../../utils/booking';
@@ -67,6 +74,7 @@ import { PublishedListingRecord, PaymentAccount } from '../../types';
 import BookingStatusModal from '@/components/BookingStatusModal';
 import { Platform } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
+import * as FileSystem from 'expo-file-system/legacy';
 import { getQRCodeProps, generatePaymentQRCodeString } from '../../utils/qr-code-generator';
 import { addCustomEventListener } from '../../utils/custom-events';
 import {
@@ -82,9 +90,16 @@ import {
   cancelMaintenanceRequest,
 } from '../../utils/maintenance-requests';
 import { MaintenanceRequestRecord } from '../../types';
-import { Wrench, Camera, Video, Plus, Trash2 } from 'lucide-react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import PayMongoPayment from '../../components/PayMongoPayment';
+import {
+  getComplaintsByTenant,
+  getComplaintCategoryLabel,
+  getStatusLabel,
+  getUrgencyColor,
+  createTenantComplaint,
+} from '../../utils/tenant-complaints';
+import { TenantComplaintRecord } from '../../types';
 
 export default function TenantMainDashboard() {
   const { user } = useAuth();
@@ -140,6 +155,20 @@ export default function TenantMainDashboard() {
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showPaymongoModal, setShowPaymongoModal] = useState(false);
+  const [complaints, setComplaints] = useState<TenantComplaintRecord[]>([]);
+  const [showComplaintHistory, setShowComplaintHistory] = useState(false);
+  const [selectedComplaintForHistory, setSelectedComplaintForHistory] = useState<TenantComplaintRecord | null>(null);
+  const [showComplaintDetailModal, setShowComplaintDetailModal] = useState(false);
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
+  const [complaintForm, setComplaintForm] = useState({
+    category: '' as TenantComplaintRecord['category'] | '',
+    description: '',
+    isAnonymous: false,
+    urgency: 'medium' as TenantComplaintRecord['urgency'],
+    photos: [] as string[],
+    videos: [] as string[],
+  });
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
 
   const loadProfilePhoto = useCallback(async () => {
     if (!user?.id) return;
@@ -274,6 +303,14 @@ export default function TenantMainDashboard() {
           setPendingMaintenanceCount(pendingCount);
         } catch (error) {
           console.error('❌ Error loading maintenance requests:', error);
+        }
+
+        // Load complaints
+        try {
+          const tenantComplaints = await getComplaintsByTenant(user.id);
+          setComplaints(tenantComplaints);
+        } catch (error) {
+          console.error('❌ Error loading complaints:', error);
         }
 
     } catch (error) {
@@ -516,6 +553,128 @@ export default function TenantMainDashboard() {
       videos: prev.videos.filter((_, i) => i !== index),
     }));
   }, []);
+
+  const handlePickComplaintPhoto = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newPhotos = result.assets.map(asset => asset.uri);
+        setComplaintForm(prev => ({
+          ...prev,
+          photos: [...prev.photos, ...newPhotos],
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking photo:', error);
+      Alert.alert('Error', 'Failed to pick photo. Please try again.');
+    }
+  }, []);
+
+  const handlePickComplaintVideo = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your videos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setComplaintForm(prev => ({
+          ...prev,
+          videos: [...prev.videos, result.assets[0].uri],
+        }));
+      }
+    } catch (error) {
+      console.error('Error picking video:', error);
+      Alert.alert('Error', 'Failed to pick video. Please try again.');
+    }
+  }, []);
+
+  const handleRemoveComplaintPhoto = useCallback((index: number) => {
+    setComplaintForm(prev => ({
+      ...prev,
+      photos: prev.photos.filter((_, i) => i !== index),
+    }));
+  }, []);
+
+  const handleRemoveComplaintVideo = useCallback((index: number) => {
+    setComplaintForm(prev => ({
+      ...prev,
+      videos: prev.videos.filter((_, i) => i !== index),
+    }));
+  }, []);
+
+  const handleSubmitComplaint = useCallback(async () => {
+    if (!activeBooking || !user?.id || !property) return;
+
+    if (!complaintForm.category) {
+      Alert.alert('Required', 'Please select a complaint category.');
+      return;
+    }
+
+    if (!complaintForm.description.trim()) {
+      Alert.alert('Required', 'Please provide a description of the complaint.');
+      return;
+    }
+
+    try {
+      setSubmittingComplaint(true);
+
+      await createTenantComplaint({
+        tenantId: user.id,
+        propertyId: property.id,
+        bookingId: activeBooking.id,
+        category: complaintForm.category,
+        description: complaintForm.description.trim(),
+        photos: complaintForm.photos,
+        videos: complaintForm.videos,
+        isAnonymous: complaintForm.isAnonymous,
+        urgency: complaintForm.urgency,
+      });
+
+      Alert.alert(
+        'Complaint Submitted',
+        'Your complaint has been submitted to the barangay. You can track its progress in the Complaint Tracking section.',
+        [{ text: 'OK' }]
+      );
+
+      // Reset form and close modal
+      setComplaintForm({
+        category: '' as TenantComplaintRecord['category'] | '',
+        description: '',
+        isAnonymous: false,
+        urgency: 'medium',
+        photos: [],
+        videos: [],
+      });
+      setShowComplaintModal(false);
+
+      // Reload complaints
+      const tenantComplaints = await getComplaintsByTenant(user.id);
+      setComplaints(tenantComplaints);
+    } catch (error) {
+      console.error('Error submitting complaint:', error);
+      Alert.alert('Error', 'Failed to submit complaint. Please try again.');
+    } finally {
+      setSubmittingComplaint(false);
+    }
+  }, [activeBooking, user, property, complaintForm]);
 
   const handleSubmitMaintenanceRequest = useCallback(async () => {
     if (!activeBooking || !user?.id) return;
@@ -764,13 +923,20 @@ export default function TenantMainDashboard() {
                           if (selectedPayments.size === 1) {
                             setTimeout(async () => {
                               try {
-                                const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-                                if (success) {
-                                  Alert.alert('Success', 'Payment recorded successfully!');
-                                  setShowPaymentModal(false);
-                                  setSelectedPayment(null);
-                                  setSelectedPaymentMethod(null);
-                                  await loadDashboardData();
+                                const allPayments = [
+                                  ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                                  ...futurePayments.filter(p => selectedPayments.has(p.id))
+                                ];
+                                const paymentToProcess = allPayments[0];
+                                if (paymentToProcess) {
+                                  const success = await markRentPaymentAsPaid(paymentToProcess.id, paymentMethodName);
+                                  if (success) {
+                                    Alert.alert('Success', 'Payment recorded successfully!');
+                                    setShowPaymentModal(false);
+                                    setSelectedPayment(null);
+                                    setSelectedPaymentMethod(null);
+                                    await loadDashboardData();
+                                  }
                                 }
                               } catch (error) {
                                 console.error('Error confirming payment:', error);
@@ -841,13 +1007,20 @@ export default function TenantMainDashboard() {
                           if (selectedPayments.size === 1) {
                   setTimeout(async () => {
                     try {
-                      const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-                      if (success) {
-                        Alert.alert('Success', 'Payment recorded successfully!');
-                        setShowPaymentModal(false);
-                        setSelectedPayment(null);
-                        setSelectedPaymentMethod(null);
-                        await loadDashboardData();
+                      const allPayments = [
+                        ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                        ...futurePayments.filter(p => selectedPayments.has(p.id))
+                      ];
+                      const paymentToProcess = allPayments[0];
+                      if (paymentToProcess) {
+                        const success = await markRentPaymentAsPaid(paymentToProcess.id, paymentMethodName);
+                        if (success) {
+                          Alert.alert('Success', 'Payment recorded successfully!');
+                          setShowPaymentModal(false);
+                          setSelectedPayment(null);
+                          setSelectedPaymentMethod(null);
+                          await loadDashboardData();
+                        }
                       }
                     } catch (error) {
                       console.error('Error confirming payment:', error);
@@ -971,13 +1144,20 @@ export default function TenantMainDashboard() {
                           if (selectedPayments.size === 1) {
                     setTimeout(async () => {
                       try {
-                        const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-                        if (success) {
-                          Alert.alert('Success', 'Payment recorded successfully!');
-                          setShowPaymentModal(false);
-                          setSelectedPayment(null);
-                          setSelectedPaymentMethod(null);
-                          await loadDashboardData();
+                        const allPayments = [
+                          ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                          ...futurePayments.filter(p => selectedPayments.has(p.id))
+                        ];
+                        const paymentToProcess = allPayments[0];
+                        if (paymentToProcess) {
+                          const success = await markRentPaymentAsPaid(paymentToProcess.id, paymentMethodName);
+                          if (success) {
+                            Alert.alert('Success', 'Payment recorded successfully!');
+                            setShowPaymentModal(false);
+                            setSelectedPayment(null);
+                            setSelectedPaymentMethod(null);
+                            await loadDashboardData();
+                          }
                         }
                       } catch (error) {
                         console.error('Error confirming payment:', error);
@@ -1041,13 +1221,20 @@ export default function TenantMainDashboard() {
                           if (selectedPayments.size === 1) {
                 setTimeout(async () => {
                   try {
-                    const success = await markRentPaymentAsPaid(selectedPayment.id, paymentMethodName);
-                    if (success) {
-                      Alert.alert('Success', 'Payment recorded successfully!');
-                      setShowPaymentModal(false);
-                      setSelectedPayment(null);
-                      setSelectedPaymentMethod(null);
-                      await loadDashboardData();
+                    const allPayments = [
+                      ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
+                      ...futurePayments.filter(p => selectedPayments.has(p.id))
+                    ];
+                    const paymentToProcess = allPayments[0];
+                    if (paymentToProcess) {
+                      const success = await markRentPaymentAsPaid(paymentToProcess.id, paymentMethodName);
+                      if (success) {
+                        Alert.alert('Success', 'Payment recorded successfully!');
+                        setShowPaymentModal(false);
+                        setSelectedPayment(null);
+                        setSelectedPaymentMethod(null);
+                        await loadDashboardData();
+                      }
                     }
                   } catch (error) {
                     console.error('Error confirming payment:', error);
@@ -1141,6 +1328,105 @@ export default function TenantMainDashboard() {
     setSelectedReceipt(receipt);
     setShowReceiptModal(true);
   }, [activeBooking]);
+
+  const handleDownloadComplaint = useCallback(async (complaint: TenantComplaintRecord) => {
+    if (!user || !activeBooking || !property) return;
+
+    try {
+      // Generate complaint document content
+      const complaintContent = `COMPLAINT REPORT
+================================
+
+COMPLAINT ID: ${complaint.id}
+DATE SUBMITTED: ${new Date(complaint.createdAt).toLocaleString()}
+
+TENANT INFORMATION:
+-------------------
+Name: ${user.name || 'N/A'}
+Email: ${user.email || 'N/A'}
+${complaint.isAnonymous ? '(Submitted Anonymously)' : ''}
+
+PROPERTY INFORMATION:
+---------------------
+Address: ${property.address || 'N/A'}
+Property Type: ${property.propertyType || 'N/A'}
+
+COMPLAINT DETAILS:
+------------------
+Category: ${getComplaintCategoryLabel(complaint.category)}
+Urgency: ${complaint.urgency.toUpperCase()}
+Status: ${getStatusLabel(complaint.status)}
+
+Description:
+${complaint.description}
+
+${complaint.photos.length > 0 ? `\nATTACHED PHOTOS: ${complaint.photos.length} photo(s)` : ''}
+${complaint.videos.length > 0 ? `ATTACHED VIDEOS: ${complaint.videos.length} video(s)` : ''}
+
+${complaint.barangayNotes ? `\nBARANGAY NOTES:\n${complaint.barangayNotes}` : ''}
+
+${complaint.settlementDocuments && complaint.settlementDocuments.length > 0 
+  ? `\nSETTLEMENT DOCUMENTS: ${complaint.settlementDocuments.length} document(s) attached` 
+  : ''}
+
+TIMELINE:
+---------
+Submitted: ${new Date(complaint.createdAt).toLocaleString()}
+${complaint.resolvedAt ? `Resolved: ${new Date(complaint.resolvedAt).toLocaleString()}` : ''}
+${complaint.closedAt ? `Closed: ${new Date(complaint.closedAt).toLocaleString()}` : ''}
+Last Updated: ${new Date(complaint.updatedAt).toLocaleString()}
+
+================================
+Generated on: ${new Date().toLocaleString()}
+HanapBahay Complaint System
+`;
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const filename = `complaint_${complaint.id.slice(-8)}_${timestamp}.txt`;
+
+      if (Platform.OS === 'web') {
+        // Web platform: Download as text file
+        const blob = new Blob([complaintContent], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        
+        Alert.alert('Success', 'Complaint report downloaded successfully!');
+      } else {
+        // Mobile platform: Save to file system and share
+        const fileUri = FileSystem.documentDirectory + filename;
+        
+        try {
+          await FileSystem.writeAsStringAsync(fileUri, complaintContent, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+
+          // Share the file
+          const Sharing = await import('expo-sharing');
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(fileUri, {
+              mimeType: 'text/plain',
+              dialogTitle: 'Download Complaint Report',
+            });
+            Alert.alert('Success', 'Complaint report ready to save! Use the share menu to save to Downloads or Files.');
+          } else {
+            Alert.alert('Success', `Complaint report saved to: ${fileUri}`);
+          }
+        } catch (error) {
+          console.error('Error saving complaint file:', error);
+          Alert.alert('Error', 'Failed to save complaint report. Please try again.');
+        }
+      }
+    } catch (error) {
+      console.error('Error downloading complaint:', error);
+      Alert.alert('Error', 'Failed to download complaint report. Please try again.');
+    }
+  }, [user, activeBooking, property]);
 
   const formatDate = (dateString: string) => {
     try {
@@ -1503,6 +1789,83 @@ export default function TenantMainDashboard() {
           </View>
         </View>
 
+        {/* Compact Payment Details Card */}
+        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
+          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+            <View style={[
+              sharedStyles.card,
+              isNextDueOverdue && { borderWidth: 2, borderColor: designTokens.colors.error }
+            ]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                <View style={[sharedStyles.statIcon, isNextDueOverdue ? iconBackgrounds.red : iconBackgrounds.green, { width: 32, height: 32 }]}>
+                  <CreditCard size={16} color={isNextDueOverdue ? "#EF4444" : "#10B981"} />
+                </View>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Payment Details</Text>
+              </View>
+              <View>
+                <View style={sharedStyles.grid}>
+                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Amount Due</Text>
+                    <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base }]}>
+                      ₱{rentHistory.nextDueAmount.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
+                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Due Date</Text>
+                    <Text style={[sharedStyles.statValue, isNextDueOverdue && { color: designTokens.colors.error }, { fontSize: designTokens.typography.sm }]}>
+                      {formatDate(rentHistory.nextDueDate)}
+                    </Text>
+                  </View>
+                  {nextMonthPaymentDate && (
+                    <View style={[sharedStyles.gridItem, { width: '100%', marginTop: designTokens.spacing.xs }]}>
+                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Next Month</Text>
+                      <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.sm }]}>
+                        {formatDate(nextMonthPaymentDate.toISOString().split('T')[0])}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                
+                {isNextDueOverdue && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: designTokens.spacing.xs,
+                    backgroundColor: designTokens.colors.errorLight,
+                    padding: designTokens.spacing.sm,
+                    borderRadius: designTokens.borderRadius.md,
+                    marginTop: designTokens.spacing.sm,
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <AlertCircle size={16} color="#EF4444" style={{ marginTop: 2 }} />
+                    <Text style={{
+                      flex: 1,
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.error,
+                      lineHeight: 16,
+                    }}>
+                      {getDaysOverdue(rentHistory.nextDueDate)} days overdue. Pay immediately to avoid late fees.
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                  <TouchableOpacity
+                    style={[sharedStyles.primaryButton, isNextDueOverdue && { backgroundColor: designTokens.colors.error }, { flex: 1, paddingVertical: 10 }]}
+                    onPress={handlePayRent}
+                    activeOpacity={0.8}
+                  >
+                    <Coins size={16} color="#FFFFFF" />
+                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Pay Now</Text>
+                  </TouchableOpacity>
+
+                </View>
+
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Compact Maintenance Requests */}
         <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
           <View style={sharedStyles.card}>
@@ -1681,6 +2044,162 @@ export default function TenantMainDashboard() {
           </View>
         </View>
 
+        {/* Complaints Section - Similar to Maintenance Requests */}
+        <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
+          <View style={sharedStyles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={[sharedStyles.statIcon, iconBackgrounds.red, { width: 32, height: 32 }]}>
+                  <AlertTriangle size={16} color="#EF4444" />
+                </View>
+                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Complaints</Text>
+              </View>
+              {complaints.filter(c => c.status === 'submitted' || c.status === 'received_by_brgy' || c.status === 'under_review').length > 0 && (
+                <View style={{
+                  backgroundColor: designTokens.colors.error,
+                  borderRadius: 12,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    fontWeight: designTokens.typography.bold as any,
+                    color: '#FFFFFF',
+                  }}>
+                    {complaints.filter(c => c.status === 'submitted' || c.status === 'received_by_brgy' || c.status === 'under_review').length}
+                  </Text>
+                </View>
+              )}
+            </View>
+            
+            <View style={{ gap: designTokens.spacing.sm }}>
+              {complaints.length > 0 ? (
+                <>
+                  {complaints.slice(0, 3).map((complaint) => (
+                    <TouchableOpacity
+                      key={complaint.id}
+                      onPress={() => {
+                        setSelectedComplaintForHistory(complaint);
+                        setShowComplaintDetailModal(true);
+                      }}
+                      activeOpacity={0.7}
+                      style={[sharedStyles.listItem, { marginBottom: 0, paddingVertical: 10 }]}
+                    >
+                      <View style={[sharedStyles.listItemIcon, 
+                        complaint.status === 'resolved' ? iconBackgrounds.green :
+                        complaint.status === 'closed' ? iconBackgrounds.gray :
+                        complaint.status === 'for_mediation' ? iconBackgrounds.orange :
+                        iconBackgrounds.blue,
+                        { width: 28, height: 28 }
+                      ]}>
+                        {complaint.status === 'resolved' ? (
+                          <CheckCircle size={16} color="#10B981" />
+                        ) : complaint.status === 'closed' ? (
+                          <CheckCircle size={16} color="#6B7280" />
+                        ) : complaint.status === 'for_mediation' ? (
+                          <Clock size={16} color="#F59E0B" />
+                        ) : (
+                          <AlertCircle size={16} color={complaint.urgency === 'urgent' ? "#EF4444" : "#3B82F6"} />
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold as any,
+                          color: designTokens.colors.textPrimary,
+                          marginBottom: 2,
+                        }} numberOfLines={1}>
+                          {getComplaintCategoryLabel(complaint.category)}
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: designTokens.colors.textSecondary,
+                        }}>
+                          {new Date(complaint.createdAt).toLocaleDateString()} • {getStatusLabel(complaint.status)}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: complaint.status === 'resolved' ? designTokens.colors.success :
+                                 complaint.status === 'closed' ? designTokens.colors.textMuted :
+                                 complaint.status === 'for_mediation' ? designTokens.colors.warning :
+                                 designTokens.colors.info,
+                          fontWeight: designTokens.typography.medium as any,
+                          textTransform: 'capitalize',
+                        }}>
+                          {getStatusLabel(complaint.status)}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={async (e) => {
+                            e.stopPropagation();
+                            await handleDownloadComplaint(complaint);
+                          }}
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            backgroundColor: designTokens.colors.background,
+                            borderRadius: 6,
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Download size={14} color={designTokens.colors.primary} />
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                  {complaints.length > 3 && (
+                    <TouchableOpacity
+                      onPress={() => setShowComplaintHistory(true)}
+                      style={{
+                        padding: designTokens.spacing.sm,
+                        alignItems: 'center',
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.primary,
+                        fontWeight: designTokens.typography.semibold as any,
+                      }}>
+                        View All {complaints.length} Complaint{complaints.length > 1 ? 's' : ''} →
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  textAlign: 'center',
+                  paddingVertical: designTokens.spacing.md,
+                }}>
+                  No complaints yet
+                </Text>
+              )}
+              
+              <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.xs }}>
+                <TouchableOpacity
+                  style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: 10, backgroundColor: designTokens.colors.error }]}
+                  onPress={() => setShowComplaintModal(true)}
+                  activeOpacity={0.8}
+                >
+                  <AlertTriangle size={16} color="#FFFFFF" />
+                  <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Submit Complaint</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[sharedStyles.secondaryButton, { flex: 1, paddingVertical: 10 }]}
+                  onPress={() => setShowComplaintHistory(true)}
+                  activeOpacity={0.8}
+                >
+                  <FileText size={16} color={designTokens.colors.info} />
+                  <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>History</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* Compact Payment Reminders */}
         {reminders.length > 0 && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
@@ -1717,83 +2236,6 @@ export default function TenantMainDashboard() {
                     </View>
                   </View>
                 ))}
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Compact Payment Details Card */}
-        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
-          <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
-            <View style={[
-              sharedStyles.card,
-              isNextDueOverdue && { borderWidth: 2, borderColor: designTokens.colors.error }
-            ]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                <View style={[sharedStyles.statIcon, isNextDueOverdue ? iconBackgrounds.red : iconBackgrounds.green, { width: 32, height: 32 }]}>
-                  <CreditCard size={16} color={isNextDueOverdue ? "#EF4444" : "#10B981"} />
-                </View>
-                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Payment Details</Text>
-              </View>
-              <View>
-                <View style={sharedStyles.grid}>
-                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
-                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Amount Due</Text>
-                    <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.base }]}>
-                      ₱{rentHistory.nextDueAmount.toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={[sharedStyles.gridItem, { width: '48%' }]}>
-                    <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Due Date</Text>
-                    <Text style={[sharedStyles.statValue, isNextDueOverdue && { color: designTokens.colors.error }, { fontSize: designTokens.typography.sm }]}>
-                      {formatDate(rentHistory.nextDueDate)}
-                    </Text>
-                  </View>
-                  {nextMonthPaymentDate && (
-                    <View style={[sharedStyles.gridItem, { width: '100%', marginTop: designTokens.spacing.xs }]}>
-                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>Next Month</Text>
-                      <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography.sm }]}>
-                        {formatDate(nextMonthPaymentDate.toISOString().split('T')[0])}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                
-                {isNextDueOverdue && (
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    gap: designTokens.spacing.xs,
-                    backgroundColor: designTokens.colors.errorLight,
-                    padding: designTokens.spacing.sm,
-                    borderRadius: designTokens.borderRadius.md,
-                    marginTop: designTokens.spacing.sm,
-                    marginBottom: designTokens.spacing.sm,
-                  }}>
-                    <AlertCircle size={16} color="#EF4444" style={{ marginTop: 2 }} />
-                    <Text style={{
-                      flex: 1,
-                      fontSize: designTokens.typography.xs,
-                      color: designTokens.colors.error,
-                      lineHeight: 16,
-                    }}>
-                      {getDaysOverdue(rentHistory.nextDueDate)} days overdue. Pay immediately to avoid late fees.
-                    </Text>
-                  </View>
-                )}
-                
-                <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
-                  <TouchableOpacity
-                    style={[sharedStyles.primaryButton, isNextDueOverdue && { backgroundColor: designTokens.colors.error }, { flex: 1, paddingVertical: 10 }]}
-                    onPress={handlePayRent}
-                    activeOpacity={0.8}
-                  >
-                    <Coins size={16} color="#FFFFFF" />
-                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Pay Now</Text>
-                  </TouchableOpacity>
-
-                </View>
-
               </View>
             </View>
           </View>
@@ -3541,9 +3983,875 @@ export default function TenantMainDashboard() {
         </View>
       </Modal>
 
+      {/* Submit Complaint Modal */}
+      <Modal
+        visible={showComplaintModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowComplaintModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Submit Complaint</Text>
+              <TouchableOpacity onPress={() => setShowComplaintModal(false)}>
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              <View style={{ gap: designTokens.spacing.md }}>
+                {/* Complaint Category */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Complaint Category *</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs }}>
+                    {(['noise_complaint', 'landlord_abuse', 'unsanitary_conditions', 'illegal_activities', 'maintenance_neglect', 'payment_dispute', 'safety_concern', 'neighbor_conflict'] as TenantComplaintRecord['category'][]).map((category) => (
+                      <TouchableOpacity
+                        key={category}
+                        style={[
+                          styles.categoryButton,
+                          complaintForm.category === category && styles.categoryButtonSelected
+                        ]}
+                        onPress={() => setComplaintForm(prev => ({ ...prev, category }))}
+                      >
+                        <Text style={[
+                          styles.categoryButtonText,
+                          complaintForm.category === category && styles.categoryButtonTextSelected
+                        ]}>
+                          {getComplaintCategoryLabel(category)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Description */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Description *</Text>
+                  <TextInput
+                    style={[styles.modalInput, { minHeight: 100, textAlignVertical: 'top' }]}
+                    placeholder="Describe the issue in detail..."
+                    value={complaintForm.description}
+                    onChangeText={(text) => setComplaintForm(prev => ({ ...prev, description: text }))}
+                    multiline
+                    numberOfLines={4}
+                    maxLength={500}
+                  />
+                </View>
+
+                {/* Property Info */}
+                {activeBooking && property && (
+                  <View>
+                    <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Property</Text>
+                    <View style={{
+                      padding: designTokens.spacing.md,
+                      backgroundColor: '#F9FAFB',
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: '#E5E7EB',
+                      gap: designTokens.spacing.xs,
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                        <Text style={{ fontSize: 12, color: '#6B7280', width: 100, flexShrink: 0 }}>Property Name:</Text>
+                        <Text style={{ fontSize: 12, color: '#111827', flex: 1 }}>{activeBooking.propertyTitle || property.address}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                        <Text style={{ fontSize: 12, color: '#6B7280', width: 100, flexShrink: 0 }}>Owner Name:</Text>
+                        <Text style={{ fontSize: 12, color: '#111827', flex: 1 }}>{activeBooking.ownerName || 'N/A'}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                        <Text style={{ fontSize: 12, color: '#6B7280', width: 100, flexShrink: 0 }}>Contact Number:</Text>
+                        <Text style={{ fontSize: 12, color: '#111827', flex: 1 }}>{activeBooking.ownerPhone || 'N/A'}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                        <Text style={{ fontSize: 12, color: '#6B7280', width: 100, flexShrink: 0 }}>Email:</Text>
+                        <Text style={{ fontSize: 12, color: '#111827', flex: 1 }}>{activeBooking.ownerEmail || 'N/A'}</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Urgency Level */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Urgency Level</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs }}>
+                    {(['low', 'medium', 'high', 'urgent'] as TenantComplaintRecord['urgency'][]).map((urgency) => {
+                      const urgencyStyle = complaintForm.urgency === urgency ? (
+                        urgency === 'low' ? styles.priorityButtonLow :
+                        urgency === 'medium' ? styles.priorityButtonMedium :
+                        urgency === 'high' ? styles.priorityButtonHigh :
+                        styles.priorityButtonUrgent
+                      ) : null;
+                      
+                      return (
+                        <TouchableOpacity
+                          key={urgency}
+                          style={[
+                            styles.priorityButton,
+                            urgencyStyle
+                          ]}
+                          onPress={() => setComplaintForm(prev => ({ ...prev, urgency }))}
+                        >
+                          <Text style={[
+                            styles.priorityButtonText,
+                            complaintForm.urgency === urgency && styles.priorityButtonTextSelected,
+                            urgencyStyle && {
+                              color: urgency === 'low' ? '#10B981' :
+                                     urgency === 'medium' ? '#F59E0B' :
+                                     urgency === 'high' ? '#EF4444' :
+                                     '#DC2626'
+                            }
+                          ]}>
+                            {urgency.charAt(0).toUpperCase() + urgency.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Photos */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Photos</Text>
+                  <TouchableOpacity
+                    style={styles.mediaButton}
+                    onPress={handlePickComplaintPhoto}
+                  >
+                    <Camera size={18} color={designTokens.colors.primary} />
+                    <Text style={styles.mediaButtonText}>Add Photos</Text>
+                  </TouchableOpacity>
+                  {complaintForm.photos.length > 0 && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                      {complaintForm.photos.map((photo, index) => (
+                        <View key={index} style={styles.mediaPreview}>
+                          <Image source={{ uri: photo }} style={styles.mediaPreviewImage} />
+                          <TouchableOpacity
+                            style={styles.mediaRemoveButton}
+                            onPress={() => handleRemoveComplaintPhoto(index)}
+                          >
+                            <X size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Videos */}
+                <View>
+                  <Text style={[styles.modalText, { marginBottom: designTokens.spacing.xs }]}>Videos</Text>
+                  <TouchableOpacity
+                    style={styles.mediaButton}
+                    onPress={handlePickComplaintVideo}
+                  >
+                    <Video size={18} color={designTokens.colors.primary} />
+                    <Text style={styles.mediaButtonText}>Add Video</Text>
+                  </TouchableOpacity>
+                  {complaintForm.videos.length > 0 && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.sm }}>
+                      {complaintForm.videos.map((video, index) => (
+                        <View key={index} style={styles.mediaPreview}>
+                          <Video size={40} color={designTokens.colors.primary} />
+                          <TouchableOpacity
+                            style={styles.mediaRemoveButton}
+                            onPress={() => handleRemoveComplaintVideo(index)}
+                          >
+                            <X size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Anonymous Toggle */}
+                <View>
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'flex-start',
+                      gap: designTokens.spacing.md,
+                    }}
+                    onPress={() => setComplaintForm(prev => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
+                  >
+                    <View style={[
+                      {
+                        width: 24,
+                        height: 24,
+                        borderRadius: 4,
+                        borderWidth: 2,
+                        borderColor: '#E5E7EB',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 2,
+                      },
+                      complaintForm.isAnonymous && {
+                        backgroundColor: designTokens.colors.primary,
+                        borderColor: designTokens.colors.primary,
+                      }
+                    ]}>
+                      {complaintForm.isAnonymous && <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: 16,
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: 4,
+                      }}>Submit anonymously</Text>
+                      <Text style={{
+                        fontSize: 14,
+                        color: '#6B7280',
+                      }}>
+                        Your name will not be shown to the barangay (if allowed)
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setShowComplaintModal(false);
+                  setComplaintForm({
+                    category: '' as TenantComplaintRecord['category'] | '',
+                    description: '',
+                    isAnonymous: false,
+                    urgency: 'medium',
+                    photos: [],
+                    videos: [],
+                  });
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonConfirm, submittingComplaint && styles.modalButtonDisabled]}
+                onPress={handleSubmitComplaint}
+                disabled={submittingComplaint}
+              >
+                {submittingComplaint ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalButtonConfirmText}>Submit Complaint</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Complaints History Modal */}
+      <Modal
+        visible={showComplaintHistory}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowComplaintHistory(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Complaints History</Text>
+              <TouchableOpacity onPress={() => setShowComplaintHistory(false)}>
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              {complaints.length === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: designTokens.spacing['2xl'] }}>
+                  <AlertTriangle size={48} color={designTokens.colors.textMuted} />
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    color: designTokens.colors.textSecondary,
+                    marginTop: designTokens.spacing.md,
+                  }}>
+                    No complaints yet
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ gap: designTokens.spacing.md }}>
+                  {complaints.map((complaint) => (
+                    <TouchableOpacity
+                      key={complaint.id}
+                      onPress={() => {
+                        setSelectedComplaintForHistory(complaint);
+                        setShowComplaintDetailModal(true);
+                        setShowComplaintHistory(false);
+                      }}
+                      activeOpacity={0.7}
+                      style={[
+                        sharedStyles.card,
+                        {
+                          padding: designTokens.spacing.md,
+                          borderLeftWidth: 4,
+                          borderLeftColor:
+                            complaint.status === 'resolved' ? designTokens.colors.success :
+                            complaint.status === 'closed' ? designTokens.colors.textMuted :
+                            complaint.status === 'for_mediation' ? designTokens.colors.warning :
+                            complaint.urgency === 'urgent' ? designTokens.colors.error :
+                            designTokens.colors.info,
+                        }
+                      ]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: designTokens.spacing.md }}>
+                        <View style={[
+                          sharedStyles.statIcon,
+                          complaint.status === 'resolved' ? iconBackgrounds.green :
+                          complaint.status === 'closed' ? iconBackgrounds.gray :
+                          complaint.status === 'for_mediation' ? iconBackgrounds.orange :
+                          complaint.urgency === 'urgent' ? iconBackgrounds.red :
+                          iconBackgrounds.blue,
+                          { width: 40, height: 40 }
+                        ]}>
+                          {complaint.status === 'resolved' ? (
+                            <CheckCircle size={20} color="#10B981" />
+                          ) : complaint.status === 'closed' ? (
+                            <CheckCircle size={20} color="#6B7280" />
+                          ) : complaint.status === 'for_mediation' ? (
+                            <Clock size={20} color="#F59E0B" />
+                          ) : (
+                            <AlertCircle size={20} color={complaint.urgency === 'urgent' ? "#EF4444" : "#3B82F6"} />
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.xs }}>
+                            <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 0 }]} numberOfLines={2}>
+                              {getComplaintCategoryLabel(complaint.category)}
+                            </Text>
+                            <View style={[
+                              sharedStyles.statusBadge,
+                              complaint.status === 'resolved' ? { backgroundColor: designTokens.colors.successLight } :
+                              complaint.status === 'closed' ? { backgroundColor: designTokens.colors.textMuted + '20' } :
+                              complaint.status === 'for_mediation' ? { backgroundColor: designTokens.colors.warningLight } :
+                              complaint.urgency === 'urgent' ? { backgroundColor: designTokens.colors.errorLight } :
+                              { backgroundColor: designTokens.colors.infoLight }
+                            ]}>
+                              <Text style={[
+                                sharedStyles.statusText,
+                                complaint.status === 'resolved' ? { color: designTokens.colors.success } :
+                                complaint.status === 'closed' ? { color: designTokens.colors.textMuted } :
+                                complaint.status === 'for_mediation' ? { color: designTokens.colors.warning } :
+                                complaint.urgency === 'urgent' ? { color: designTokens.colors.error } :
+                                { color: designTokens.colors.info }
+                              ]}>
+                                {getStatusLabel(complaint.status)}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs }]} numberOfLines={3}>
+                            {complaint.description}
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm, flexWrap: 'wrap', marginBottom: designTokens.spacing.xs }}>
+                            <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 0 }]}>
+                              Urgency: {complaint.urgency.toUpperCase()}
+                            </Text>
+                            {(complaint.photos.length > 0 || complaint.videos.length > 0) && (
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 0, color: designTokens.colors.info }]}>
+                                📷 {complaint.photos.length} photo{complaint.photos.length > 1 ? 's' : ''}
+                                {complaint.videos.length > 0 && ` • 🎥 ${complaint.videos.length} video${complaint.videos.length > 1 ? 's' : ''}`}
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: designTokens.spacing.xs }]}>
+                            Submitted: {new Date(complaint.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </Text>
+                          {complaint.resolvedAt && (
+                            <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, color: designTokens.colors.success }]}>
+                              Resolved: {new Date(complaint.resolvedAt).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </Text>
+                          )}
+                          {complaint.barangayNotes && (
+                            <View style={{
+                              marginTop: designTokens.spacing.xs,
+                              padding: designTokens.spacing.sm,
+                              backgroundColor: designTokens.colors.infoLight,
+                              borderRadius: designTokens.borderRadius.md,
+                            }}>
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs, marginBottom: 4, fontWeight: designTokens.typography.semibold as any }]}>
+                                Barangay Notes:
+                              </Text>
+                              <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.xs }]}>
+                                {complaint.barangayNotes}
+                              </Text>
+                            </View>
+                          )}
+                          <TouchableOpacity
+                            onPress={async (e) => {
+                              e.stopPropagation();
+                              await handleDownloadComplaint(complaint);
+                            }}
+                            style={{
+                              marginTop: designTokens.spacing.sm,
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              backgroundColor: designTokens.colors.background,
+                              borderRadius: designTokens.borderRadius.md,
+                              alignSelf: 'flex-start',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: designTokens.spacing.xs,
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Download size={16} color={designTokens.colors.primary} />
+                            <Text style={{
+                              fontSize: designTokens.typography.sm,
+                              color: designTokens.colors.primary,
+                              fontWeight: designTokens.typography.semibold as any,
+                            }}>
+                              Download Report
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setShowComplaintHistory(false)}
+              >
+                <Text style={styles.modalButtonCancelText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Complaint Detail Modal */}
+      <Modal
+        visible={showComplaintDetailModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowComplaintDetailModal(false);
+          setSelectedComplaintForHistory(null);
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'flex-end',
+        }}>
+          <View style={{
+            backgroundColor: designTokens.colors.white,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: Dimensions.get('window').height * 0.9,
+            height: Dimensions.get('window').height * 0.9,
+            ...designTokens.shadows.xl,
+            flexDirection: 'column',
+          }}>
+            {selectedComplaintForHistory ? (
+              <>
+                {/* Header */}
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: designTokens.spacing.xl,
+                  borderBottomWidth: 1,
+                  borderBottomColor: designTokens.colors.border,
+                  flexShrink: 0,
+                }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: designTokens.typography['2xl'],
+                      fontWeight: designTokens.typography.bold as any,
+                      color: designTokens.colors.textPrimary,
+                      marginBottom: designTokens.spacing.xs,
+                    }}>
+                      {getComplaintCategoryLabel(selectedComplaintForHistory.category)}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm, flexWrap: 'wrap' }}>
+                      <View style={[
+                        sharedStyles.statusBadge,
+                        selectedComplaintForHistory.status === 'resolved' ? { backgroundColor: designTokens.colors.successLight } :
+                        selectedComplaintForHistory.status === 'closed' ? { backgroundColor: designTokens.colors.textMuted + '20' } :
+                        selectedComplaintForHistory.status === 'for_mediation' ? { backgroundColor: designTokens.colors.warningLight } :
+                        selectedComplaintForHistory.urgency === 'urgent' ? { backgroundColor: designTokens.colors.errorLight } :
+                        { backgroundColor: designTokens.colors.infoLight }
+                      ]}>
+                        <Text style={[
+                          sharedStyles.statusText,
+                          selectedComplaintForHistory.status === 'resolved' ? { color: designTokens.colors.success } :
+                          selectedComplaintForHistory.status === 'closed' ? { color: designTokens.colors.textMuted } :
+                          selectedComplaintForHistory.status === 'for_mediation' ? { color: designTokens.colors.warning } :
+                          selectedComplaintForHistory.urgency === 'urgent' ? { color: designTokens.colors.error } :
+                          { color: designTokens.colors.info }
+                        ]}>
+                          {getStatusLabel(selectedComplaintForHistory.status)}
+                        </Text>
+                      </View>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        Urgency: {selectedComplaintForHistory.urgency.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowComplaintDetailModal(false);
+                      setSelectedComplaintForHistory(null);
+                    }}
+                    style={{
+                      padding: designTokens.spacing.sm,
+                      marginLeft: designTokens.spacing.md,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <X size={24} color={designTokens.colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Content */}
+                <ScrollView
+                  style={{
+                    flex: 1,
+                  }}
+                  contentContainerStyle={{
+                    padding: designTokens.spacing.xl,
+                  }}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <View style={{ gap: designTokens.spacing.lg }}>
+                    {/* Description */}
+                    <View>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.sm,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>
+                        Description
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
+                        lineHeight: 22,
+                      }}>
+                        {selectedComplaintForHistory.description}
+                      </Text>
+                    </View>
+
+                    {/* Property Info */}
+                    {property && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold as any,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.sm,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Property
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.base,
+                          color: designTokens.colors.textPrimary,
+                        }}>
+                          {property.address}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Photos */}
+                    {selectedComplaintForHistory.photos.length > 0 && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold as any,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.md,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Photos ({selectedComplaintForHistory.photos.length})
+                        </Text>
+                        {selectedComplaintForHistory.photos.length === 1 ? (
+                          <TouchableOpacity
+                            activeOpacity={0.9}
+                            onPress={() => {
+                              // Open photo viewer
+                              const photoIndex = 0;
+                              setSelectedPhotoIndex(photoIndex);
+                            }}
+                            style={{
+                              width: '100%',
+                              aspectRatio: 1,
+                              borderRadius: 12,
+                              overflow: 'hidden',
+                              backgroundColor: designTokens.colors.borderLight,
+                            }}
+                          >
+                            <Image
+                              source={{ uri: selectedComplaintForHistory.photos[0] }}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                              }}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                        ) : (
+                          <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={true}
+                            contentContainerStyle={{ paddingRight: designTokens.spacing.md }}
+                            style={{ marginTop: designTokens.spacing.xs }}
+                          >
+                            <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
+                              {selectedComplaintForHistory.photos.map((photo, index) => (
+                                <TouchableOpacity
+                                  key={index}
+                                  activeOpacity={0.9}
+                                  onPress={() => {
+                                    setSelectedPhotoIndex(index);
+                                  }}
+                                  style={{
+                                    width: 280,
+                                    height: 280,
+                                    borderRadius: 12,
+                                    overflow: 'hidden',
+                                    backgroundColor: designTokens.colors.borderLight,
+                                  }}
+                                >
+                                  <Image
+                                    source={{ uri: photo }}
+                                    style={{
+                                      width: '100%',
+                                      height: '100%',
+                                    }}
+                                    resizeMode="cover"
+                                  />
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </ScrollView>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Videos */}
+                    {selectedComplaintForHistory.videos.length > 0 && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold as any,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.md,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Videos ({selectedComplaintForHistory.videos.length})
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.base,
+                          color: designTokens.colors.textSecondary,
+                        }}>
+                          {selectedComplaintForHistory.videos.length} video{selectedComplaintForHistory.videos.length > 1 ? 's' : ''} attached
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Barangay Notes */}
+                    {selectedComplaintForHistory.barangayNotes && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold as any,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.sm,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Barangay Notes
+                        </Text>
+                        <View style={{
+                          padding: designTokens.spacing.md,
+                          backgroundColor: designTokens.colors.infoLight,
+                          borderRadius: designTokens.borderRadius.md,
+                        }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            color: designTokens.colors.textPrimary,
+                            lineHeight: 22,
+                          }}>
+                            {selectedComplaintForHistory.barangayNotes}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Settlement Documents */}
+                    {selectedComplaintForHistory.settlementDocuments && selectedComplaintForHistory.settlementDocuments.length > 0 && (
+                      <View>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: designTokens.typography.semibold as any,
+                          color: designTokens.colors.textSecondary,
+                          marginBottom: designTokens.spacing.sm,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}>
+                          Settlement Documents
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.base,
+                          color: designTokens.colors.textPrimary,
+                        }}>
+                          {selectedComplaintForHistory.settlementDocuments.length} document{selectedComplaintForHistory.settlementDocuments.length > 1 ? 's' : ''} uploaded by barangay
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Timeline */}
+                    <View>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.sm,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                      }}>
+                        Timeline
+                      </Text>
+                      <View style={{ gap: designTokens.spacing.xs }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.base,
+                          color: designTokens.colors.textPrimary,
+                        }}>
+                          Submitted: {new Date(selectedComplaintForHistory.createdAt).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </Text>
+                        {selectedComplaintForHistory.resolvedAt && (
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            color: designTokens.colors.success,
+                          }}>
+                            Resolved: {new Date(selectedComplaintForHistory.resolvedAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </Text>
+                        )}
+                        {selectedComplaintForHistory.closedAt && (
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            color: designTokens.colors.textMuted,
+                          }}>
+                            Closed: {new Date(selectedComplaintForHistory.closedAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </Text>
+                        )}
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          color: designTokens.colors.textSecondary,
+                        }}>
+                          Last Updated: {new Date(selectedComplaintForHistory.updatedAt).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </ScrollView>
+
+                {/* Actions */}
+                <View style={{
+                  padding: designTokens.spacing.xl,
+                  borderTopWidth: 1,
+                  borderTopColor: designTokens.colors.border,
+                  gap: designTokens.spacing.sm,
+                  flexShrink: 0,
+                }}>
+                  <TouchableOpacity
+                    style={[sharedStyles.primaryButton]}
+                    onPress={async () => {
+                      await handleDownloadComplaint(selectedComplaintForHistory);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Download size={18} color="#FFFFFF" />
+                    <Text style={sharedStyles.primaryButtonText}>
+                      Download Report
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[sharedStyles.secondaryButton]}
+                    onPress={() => {
+                      setShowComplaintDetailModal(false);
+                      setSelectedComplaintForHistory(null);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={sharedStyles.secondaryButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <View style={{ padding: designTokens.spacing.xl, alignItems: 'center' }}>
+                <Text style={{
+                  fontSize: designTokens.typography.base,
+                  color: designTokens.colors.textSecondary,
+                }}>
+                  Loading...
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Photo Viewer Modal */}
       <Modal
-        visible={selectedPhotoIndex !== null && selectedMaintenanceRequest !== null && selectedMaintenanceRequest.photos.length > 0}
+        visible={selectedPhotoIndex !== null && (
+          (selectedMaintenanceRequest !== null && selectedMaintenanceRequest.photos.length > 0) ||
+          (selectedComplaintForHistory !== null && selectedComplaintForHistory.photos.length > 0)
+        )}
         transparent
         animationType="fade"
         onRequestClose={() => {
@@ -3551,16 +4859,28 @@ export default function TenantMainDashboard() {
           setCurrentPhotoIndex(0);
         }}
       >
-        {selectedPhotoIndex !== null && selectedMaintenanceRequest && selectedMaintenanceRequest.photos.length > 0 && (
-          <PhotoViewerContent
-            photos={selectedMaintenanceRequest.photos}
-            initialIndex={selectedPhotoIndex}
-            onClose={() => {
-              setSelectedPhotoIndex(null);
-              setCurrentPhotoIndex(0);
-            }}
-            onIndexChange={setCurrentPhotoIndex}
-          />
+        {selectedPhotoIndex !== null && (
+          selectedMaintenanceRequest && selectedMaintenanceRequest.photos.length > 0 ? (
+            <PhotoViewerContent
+              photos={selectedMaintenanceRequest.photos}
+              initialIndex={selectedPhotoIndex}
+              onClose={() => {
+                setSelectedPhotoIndex(null);
+                setCurrentPhotoIndex(0);
+              }}
+              onIndexChange={setCurrentPhotoIndex}
+            />
+          ) : selectedComplaintForHistory && selectedComplaintForHistory.photos.length > 0 ? (
+            <PhotoViewerContent
+              photos={selectedComplaintForHistory.photos}
+              initialIndex={selectedPhotoIndex}
+              onClose={() => {
+                setSelectedPhotoIndex(null);
+                setCurrentPhotoIndex(0);
+              }}
+              onIndexChange={setCurrentPhotoIndex}
+            />
+          ) : null
         )}
       </Modal>
 

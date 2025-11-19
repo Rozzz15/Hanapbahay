@@ -18,7 +18,8 @@ import {
   FavoriteRecord,
   PropertyRatingRecord,
   TenantPaymentMethod,
-  RentPaymentRecord
+  RentPaymentRecord,
+  TenantComplaintRecord
 } from '../types';
 
 type CollectionName =
@@ -46,9 +47,10 @@ type CollectionName =
   | 'user_favorites'
   | 'listings'
   | 'tenant_payment_methods'
-  | 'rent_payments';
+  | 'rent_payments'
+  | 'tenant_complaints';
 
-type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | OwnerApplicationRecord | BrgyNotificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord | TenantPaymentMethod | RentPaymentRecord;
+type AnyRecord = DbUserRecord | TenantProfileRecord | OwnerProfileRecord | OwnerVerificationRecord | OwnerApplicationRecord | BrgyNotificationRecord | PaymentProfileRecord | PaymentAccount | UserProfilePhotoRecord | PublishedListingRecord | ConversationRecord | MessageRecord | PropertyPhotoRecord | PropertyVideoRecord | BookingRecord | FavoriteRecord | PropertyRatingRecord | TenantPaymentMethod | RentPaymentRecord | TenantComplaintRecord;
 
 // Type guards for better type safety
 export function isPublishedListingRecord(record: AnyRecord): record is PublishedListingRecord {

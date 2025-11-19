@@ -181,8 +181,17 @@ const saveUsersToStorage = async () => {
 };
 
 // Update a user in the mockUsers Map
-export const updateMockUser = (userId: string, updates: Partial<{ email: string; name: string; phone: string; address: string; barangay: string; roles: string[]; role: string; updatedAt: string }>) => {
+export const updateMockUser = async (userId: string, updates: Partial<{ email: string; name: string; phone: string; address: string; barangay: string; roles: string[]; role: string; updatedAt: string; barangayLogo?: string }>) => {
   console.log('🔄 Updating mock user:', userId, updates);
+  
+  // Ensure users are loaded from storage first
+  try {
+    await loadUsersFromStorage();
+    console.log(`📊 Current database size: ${mockUsers.size} users`);
+  } catch (error) {
+    console.error('❌ Failed to load users from storage:', error);
+    // Continue anyway - user might still be in memory
+  }
   
   // Find the user by id
   for (const [email, userData] of mockUsers.entries()) {
@@ -192,12 +201,13 @@ export const updateMockUser = (userId: string, updates: Partial<{ email: string;
       console.log('✅ Updated mock user:', email, updatedUser);
       
       // Save to persistent storage
-      saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
+      await saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
       return true;
     }
   }
   
-  console.error('❌ User not found in mockUsers:', userId);
+  console.warn('⚠️ User not found in mockUsers:', userId, '- This is okay if user was created in database directly');
+  console.log('📋 Available users:', Array.from(mockUsers.entries()).map(([email, data]) => `${email} (${data.id})`));
   return false;
 };
 

@@ -1,23 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
-import { sharedStyles } from '../../styles/owner-dashboard-styles';
+import { sharedStyles, designTokens } from '../../styles/owner-dashboard-styles';
 import { db } from '../../utils/db';
 import { DbUserRecord } from '../../types';
 import { showAlert } from '../../utils/alert';
-import { User, Lock } from 'lucide-react-native';
+import { User, Lock, LogOut, Settings as SettingsIcon, Eye, EyeOff, ChevronRight, Image as ImageIcon, X } from 'lucide-react-native';
 import { changePassword } from '../../api/auth/change-password';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function SettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, signOut } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [barangay, setBarangay] = useState('');
+  const [barangayLogo, setBarangayLogo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingLogo, setSavingLogo] = useState(false);
   
   // Password change states
   const [showPasswordSection, setShowPasswordSection] = useState(false);
@@ -55,6 +58,8 @@ export default function SettingsPage() {
         setEmail(userRecord.email || '');
         setPhone(userRecord.phone || '');
         setBarangay(userRecord.barangay || '');
+        // Load barangay logo from user record
+        setBarangayLogo((userRecord as any).barangayLogo || null);
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -93,8 +98,9 @@ export default function SettingsPage() {
         email: email.trim(),
         phone: phone.trim(),
         // barangay is fixed and should not be changed
+        barangayLogo: barangayLogo || undefined,
         updatedAt: new Date().toISOString()
-      };
+      } as any;
 
       // Update database
       await db.upsert('users', user.id, updatedUser);
@@ -192,11 +198,136 @@ export default function SettingsPage() {
     }
   };
 
+  const pickLogo = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission Required', 'Please grant permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setBarangayLogo(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking logo:', error);
+      showAlert('Error', 'Failed to pick logo. Please try again.');
+    }
+  };
+
+  const handleSaveLogo = async () => {
+    if (!user?.id || !barangayLogo) return;
+
+    try {
+      setSavingLogo(true);
+      const userRecord = await db.get<DbUserRecord>('users', user.id);
+      
+      if (!userRecord) {
+        showAlert('Error', 'User not found');
+        return;
+      }
+
+      const updatedUser: DbUserRecord = {
+        ...userRecord,
+        barangayLogo: barangayLogo,
+        updatedAt: new Date().toISOString()
+      } as any;
+
+      await db.upsert('users', user.id, updatedUser);
+      
+      // Update mock auth (non-blocking - it's okay if this fails)
+      try {
+        const { updateMockUser } = await import('../../utils/mock-auth');
+        await updateMockUser(user.id, {
+          barangayLogo: barangayLogo,
+          updatedAt: updatedUser.updatedAt,
+        });
+      } catch (mockError) {
+        console.warn('⚠️ Failed to update mock user (non-critical):', mockError);
+        // Continue anyway - database update is what matters
+      }
+      
+      showAlert('Success', 'Logo updated successfully!');
+      
+      // Refresh user context
+      await refreshUser();
+    } catch (error) {
+      console.error('Error saving logo:', error);
+      showAlert('Error', 'Failed to save logo');
+    } finally {
+      setSavingLogo(false);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    showAlert(
+      'Remove Logo',
+      'Are you sure you want to remove the barangay logo?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            if (!user?.id) return;
+            try {
+              setSavingLogo(true);
+              const userRecord = await db.get<DbUserRecord>('users', user.id);
+              
+              if (!userRecord) {
+                showAlert('Error', 'User not found');
+                return;
+              }
+
+              const updatedUser: DbUserRecord = {
+                ...userRecord,
+                barangayLogo: undefined,
+                updatedAt: new Date().toISOString()
+              } as any;
+
+              await db.upsert('users', user.id, updatedUser);
+              
+              // Update mock auth (non-blocking - it's okay if this fails)
+              try {
+                const { updateMockUser } = await import('../../utils/mock-auth');
+                await updateMockUser(user.id, {
+                  barangayLogo: undefined,
+                  updatedAt: updatedUser.updatedAt,
+                });
+              } catch (mockError) {
+                console.warn('⚠️ Failed to update mock user (non-critical):', mockError);
+                // Continue anyway - database update is what matters
+              }
+              
+              setBarangayLogo(null);
+              showAlert('Success', 'Logo removed successfully!');
+              await refreshUser();
+            } catch (error) {
+              console.error('Error removing logo:', error);
+              showAlert('Error', 'Failed to remove logo');
+            } finally {
+              setSavingLogo(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#3B82F6" />
-        <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading settings...</Text>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: designTokens.colors.background }}>
+        <ActivityIndicator size="large" color={designTokens.colors.primary} />
+        <Text style={{ marginTop: designTokens.spacing.md, color: designTokens.colors.textSecondary, fontSize: designTokens.typography.sm }}>
+          Loading settings...
+        </Text>
       </View>
     );
   }
@@ -207,33 +338,46 @@ export default function SettingsPage() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-        {/* Professional Header */}
+      <View style={{ flex: 1, backgroundColor: designTokens.colors.background }}>
+        {/* Modern Header */}
         <View style={{
           backgroundColor: 'white',
-          paddingVertical: 20,
-          paddingHorizontal: 20,
+          paddingVertical: designTokens.spacing.lg,
+          paddingHorizontal: designTokens.spacing.lg,
           borderBottomWidth: 1,
-          borderBottomColor: '#E5E7EB',
+          borderBottomColor: designTokens.colors.borderLight,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.05,
           shadowRadius: 4,
+          zIndex: 10,
+          elevation: 5,
         }}>
-          <Text style={{
-            fontSize: 24,
-            fontWeight: '700',
-            color: '#111827',
-            marginBottom: 4,
-          }}>
-            Settings
-          </Text>
-          <Text style={{
-            fontSize: 14,
-            color: '#6B7280',
-          }}>
-            Manage your barangay account settings
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.md }}>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '20',
+              padding: designTokens.spacing.sm,
+              borderRadius: 8,
+            }}>
+              <SettingsIcon size={20} color={designTokens.colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{
+                fontSize: designTokens.typography.lg,
+                fontWeight: '700',
+                color: designTokens.colors.textPrimary,
+              }}>
+                Settings
+              </Text>
+              <Text style={{
+                fontSize: designTokens.typography.xs,
+                color: designTokens.colors.textSecondary,
+                marginTop: 2,
+              }}>
+                Manage your barangay account settings
+              </Text>
+            </View>
+          </View>
         </View>
 
         <ScrollView 
@@ -241,62 +385,40 @@ export default function SettingsPage() {
           contentContainerStyle={{ paddingBottom: 100 }}
           keyboardShouldPersistTaps="handled"
         >
-        <View style={{ padding: 20 }}>
+        <View style={{ padding: designTokens.spacing.lg }}>
           {/* Profile Information Section */}
-          <View style={{
-            backgroundColor: 'white',
-            borderRadius: 16,
-            padding: 20,
-            marginBottom: 20,
-            borderWidth: 1,
-            borderColor: '#E5E7EB',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-              <View style={{
-                backgroundColor: '#3B82F6',
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: 12,
-              }}>
-                <User size={24} color="white" />
+          <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+              <View style={[sharedStyles.statIcon, { backgroundColor: designTokens.colors.primary + '20' }]}>
+                <User size={20} color={designTokens.colors.primary} />
               </View>
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>
                   Profile Information
                 </Text>
-                <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>
+                <Text style={[sharedStyles.statSubtitle, { marginTop: 2 }]}>
                   Update your personal details
                 </Text>
               </View>
             </View>
 
             {/* Name Field */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: '600',
-                color: '#6B7280',
-                marginBottom: 8,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-              }}>
+            <View style={{ marginBottom: designTokens.spacing.lg }}>
+              <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
                 Official Name (Kapitan)
               </Text>
               <TextInput
                 style={{
-                  backgroundColor: '#F9FAFB',
-                  borderRadius: 12,
-                  padding: 16,
-                  fontSize: 16,
-                  color: '#111827',
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: designTokens.borderRadius.md,
+                  padding: designTokens.spacing.md,
+                  fontSize: designTokens.typography.base,
+                  color: designTokens.colors.textPrimary,
                   borderWidth: 1,
-                  borderColor: '#E5E7EB',
+                  borderColor: designTokens.colors.borderLight,
                 }}
                 placeholder="Enter official name"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={designTokens.colors.textMuted}
                 value={name}
                 onChangeText={setName}
                 autoCapitalize="words"
@@ -304,29 +426,22 @@ export default function SettingsPage() {
             </View>
 
             {/* Email Field */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: '600',
-                color: '#6B7280',
-                marginBottom: 8,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-              }}>
+            <View style={{ marginBottom: designTokens.spacing.lg }}>
+              <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
                 Email Address
               </Text>
               <TextInput
                 style={{
-                  backgroundColor: '#F9FAFB',
-                  borderRadius: 12,
-                  padding: 16,
-                  fontSize: 16,
-                  color: '#111827',
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: designTokens.borderRadius.md,
+                  padding: designTokens.spacing.md,
+                  fontSize: designTokens.typography.base,
+                  color: designTokens.colors.textPrimary,
                   borderWidth: 1,
-                  borderColor: '#E5E7EB',
+                  borderColor: designTokens.colors.borderLight,
                 }}
                 placeholder="Enter email address"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={designTokens.colors.textMuted}
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
@@ -335,79 +450,35 @@ export default function SettingsPage() {
             </View>
 
             {/* Phone Field */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: '600',
-                color: '#6B7280',
-                marginBottom: 8,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-              }}>
+            <View style={{ marginBottom: 0 }}>
+              <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
                 Phone Number
               </Text>
               <TextInput
                 style={{
-                  backgroundColor: '#F9FAFB',
-                  borderRadius: 12,
-                  padding: 16,
-                  fontSize: 16,
-                  color: '#111827',
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: designTokens.borderRadius.md,
+                  padding: designTokens.spacing.md,
+                  fontSize: designTokens.typography.base,
+                  color: designTokens.colors.textPrimary,
                   borderWidth: 1,
-                  borderColor: '#E5E7EB',
+                  borderColor: designTokens.colors.borderLight,
                 }}
                 placeholder="Enter phone number"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={designTokens.colors.textMuted}
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
               />
             </View>
-
-            {/* Barangay Field - Read Only */}
-            <View style={{ marginBottom: 0 }}>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: '600',
-                color: '#6B7280',
-                marginBottom: 8,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-              }}>
-                Barangay Name
-              </Text>
-              <View style={{
-                backgroundColor: '#F3F4F6',
-                borderRadius: 12,
-                padding: 16,
-                borderWidth: 1,
-                borderColor: '#E5E7EB',
-              }}>
-                <Text style={{
-                  fontSize: 16,
-                  color: '#111827',
-                  fontWeight: '600',
-                }}>
-                  {barangay || 'Not Set'}
-                </Text>
-              </View>
-            </View>
           </View>
 
           {/* Save Button */}
           <TouchableOpacity
-            style={{
-              backgroundColor: '#3B82F6',
-              borderRadius: 12,
-              padding: 18,
-              alignItems: 'center',
-              justifyContent: 'center',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              elevation: 3,
-            }}
+            style={[sharedStyles.primaryButton, {
+              marginBottom: designTokens.spacing.lg,
+              paddingVertical: designTokens.spacing.md,
+            }]}
             onPress={handleSave}
             disabled={saving}
             activeOpacity={0.8}
@@ -415,11 +486,7 @@ export default function SettingsPage() {
             {saving ? (
               <ActivityIndicator color="white" />
             ) : (
-              <Text style={{
-                fontSize: 16,
-                fontWeight: '700',
-                color: 'white',
-              }}>
+              <Text style={sharedStyles.primaryButtonText}>
                 Save Changes
               </Text>
             )}
@@ -427,49 +494,198 @@ export default function SettingsPage() {
 
           {/* Info Note */}
           <View style={{
-            backgroundColor: '#EFF6FF',
-            borderRadius: 12,
-            padding: 16,
-            marginTop: 20,
+            backgroundColor: designTokens.colors.primary + '10',
+            borderRadius: designTokens.borderRadius.md,
+            padding: designTokens.spacing.md,
+            marginBottom: designTokens.spacing.lg,
             borderLeftWidth: 4,
-            borderLeftColor: '#3B82F6',
+            borderLeftColor: designTokens.colors.primary,
           }}>
             <Text style={{
-              fontSize: 13,
-              color: '#1E40AF',
+              fontSize: designTokens.typography.sm,
+              color: designTokens.colors.primary,
               lineHeight: 20,
             }}>
               💡 <Text style={{ fontWeight: '600' }}>Note:</Text> Changes to your name will be reflected throughout the app, including the dashboard display.
             </Text>
           </View>
 
-          {/* Password Change Section */}
-          <View style={{
-            backgroundColor: 'white',
-            borderRadius: 16,
-            padding: 20,
-            marginTop: 20,
-            borderWidth: 1,
-            borderColor: '#E5E7EB',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-              <View style={{
-                backgroundColor: '#EF4444',
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: 12,
-              }}>
-                <Lock size={24} color="white" />
+          {/* Barangay Logo Section */}
+          <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+              <View style={[sharedStyles.statIcon, { backgroundColor: designTokens.colors.primary + '20' }]}>
+                <ImageIcon size={20} color={designTokens.colors.primary} />
               </View>
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
-                  Change Password
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>
+                  Barangay Logo
                 </Text>
-                <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>
-                  Update your account password
+                <Text style={[sharedStyles.statSubtitle, { marginTop: 2 }]}>
+                  Update your barangay logo
+                </Text>
+              </View>
+            </View>
+
+            {/* Current Logo Display */}
+            {barangayLogo ? (
+              <View style={{ marginBottom: designTokens.spacing.lg }}>
+                <View style={{
+                  alignItems: 'center',
+                  marginBottom: designTokens.spacing.md,
+                }}>
+                  <View style={{
+                    position: 'relative',
+                    width: 120,
+                    height: 120,
+                    borderRadius: 60,
+                    overflow: 'hidden',
+                    borderWidth: 3,
+                    borderColor: designTokens.colors.primary,
+                    backgroundColor: designTokens.colors.background,
+                    ...designTokens.shadows.md,
+                  }}>
+                    <Image
+                      source={{ uri: barangayLogo }}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                    <TouchableOpacity
+                      onPress={handleRemoveLogo}
+                      style={{
+                        position: 'absolute',
+                        top: 4,
+                        right: 4,
+                        backgroundColor: '#EF4444',
+                        borderRadius: 12,
+                        width: 24,
+                        height: 24,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        ...designTokens.shadows.sm,
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <X size={14} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={pickLogo}
+                  style={{
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: designTokens.borderRadius.md,
+                    paddingVertical: designTokens.spacing.md,
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: designTokens.colors.borderLight,
+                    marginBottom: designTokens.spacing.sm,
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: '600',
+                    color: designTokens.colors.textPrimary,
+                  }}>
+                    Change Logo
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSaveLogo}
+                  disabled={savingLogo}
+                  style={{
+                    backgroundColor: designTokens.colors.primary,
+                    borderRadius: designTokens.borderRadius.md,
+                    paddingVertical: designTokens.spacing.md,
+                    alignItems: 'center',
+                    opacity: savingLogo ? 0.7 : 1,
+                    ...designTokens.shadows.sm,
+                  }}
+                  activeOpacity={0.8}
+                >
+                  {savingLogo ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text style={{
+                      fontSize: designTokens.typography.base,
+                      fontWeight: '600',
+                      color: 'white',
+                    }}>
+                      Save Logo
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View>
+                <View style={{
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: designTokens.borderRadius.lg,
+                  padding: designTokens.spacing['2xl'],
+                  marginBottom: designTokens.spacing.md,
+                  borderWidth: 2,
+                  borderColor: designTokens.colors.borderLight,
+                  borderStyle: 'dashed',
+                }}>
+                  <ImageIcon size={48} color={designTokens.colors.textMuted} />
+                  <Text style={{
+                    fontSize: designTokens.typography.sm,
+                    color: designTokens.colors.textSecondary,
+                    marginTop: designTokens.spacing.md,
+                    textAlign: 'center',
+                  }}>
+                    No logo uploaded
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textMuted,
+                    marginTop: designTokens.spacing.xs,
+                    textAlign: 'center',
+                  }}>
+                    Upload a square image for best results
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={pickLogo}
+                  style={{
+                    backgroundColor: designTokens.colors.primary,
+                    borderRadius: designTokens.borderRadius.md,
+                    paddingVertical: designTokens.spacing.md,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: designTokens.spacing.sm,
+                    ...designTokens.shadows.sm,
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <ImageIcon size={18} color="white" />
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: '600',
+                    color: 'white',
+                  }}>
+                    Upload Logo
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* Password Change Section */}
+          <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.lg }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+              <View style={[sharedStyles.statIcon, { backgroundColor: designTokens.colors.primary + '20' }]}>
+                <Lock size={20} color={designTokens.colors.primary} />
+              </View>
+              <View style={{ flex: 1, marginLeft: designTokens.spacing.md }}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>
+                  Security
+                </Text>
+                <Text style={[sharedStyles.statSubtitle, { marginTop: 2 }]}>
+                  Change your account password
                 </Text>
               </View>
             </View>
@@ -478,14 +694,21 @@ export default function SettingsPage() {
               <TouchableOpacity
                 onPress={() => setShowPasswordSection(true)}
                 style={{
-                  backgroundColor: '#EF4444',
-                  borderRadius: 12,
-                  padding: 16,
+                  backgroundColor: designTokens.colors.primary,
+                  borderRadius: designTokens.borderRadius.md,
+                  paddingVertical: designTokens.spacing.md,
+                  paddingHorizontal: designTokens.spacing.lg,
                   alignItems: 'center',
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: designTokens.spacing.sm,
+                  ...designTokens.shadows.sm,
                 }}
+                activeOpacity={0.8}
               >
+                <Lock size={18} color="white" />
                 <Text style={{
-                  fontSize: 16,
+                  fontSize: designTokens.typography.base,
                   fontWeight: '600',
                   color: 'white',
                 }}>
@@ -494,140 +717,161 @@ export default function SettingsPage() {
               </TouchableOpacity>
             ) : (
               <View>
+                {/* Divider */}
+                <View style={{
+                  height: 1,
+                  backgroundColor: designTokens.colors.borderLight,
+                  marginBottom: designTokens.spacing.lg,
+                }} />
+
                 {/* Current Password */}
-                <View style={{ marginBottom: 16 }}>
-                  <Text style={{
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: '#6B7280',
-                    marginBottom: 8,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                  }}>
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.sm }]}>
                     Current Password
                   </Text>
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    backgroundColor: '#F9FAFB',
-                    borderRadius: 12,
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: designTokens.borderRadius.md,
                     borderWidth: 1,
-                    borderColor: '#E5E7EB',
+                    borderColor: designTokens.colors.borderLight,
+                    ...designTokens.shadows.sm,
                   }}>
                     <TextInput
                       style={{
                         flex: 1,
-                        padding: 16,
-                        fontSize: 16,
-                        color: '#111827',
+                        padding: designTokens.spacing.md,
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
                       }}
-                      placeholder="Enter current password"
-                      placeholderTextColor="#9CA3AF"
+                      placeholder="Enter your current password"
+                      placeholderTextColor={designTokens.colors.textMuted}
                       value={currentPassword}
                       onChangeText={setCurrentPassword}
                       secureTextEntry={!showCurrentPassword}
+                      autoCapitalize="none"
                     />
                     <TouchableOpacity
                       onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-                      style={{ padding: 16 }}
+                      style={{ 
+                        padding: designTokens.spacing.md,
+                        paddingRight: designTokens.spacing.md,
+                      }}
+                      activeOpacity={0.7}
                     >
-                      <Text style={{ color: '#3B82F6', fontWeight: '600' }}>
-                        {showCurrentPassword ? 'Hide' : 'Show'}
-                      </Text>
+                      {showCurrentPassword ? (
+                        <EyeOff size={20} color={designTokens.colors.textSecondary} />
+                      ) : (
+                        <Eye size={20} color={designTokens.colors.textSecondary} />
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 {/* New Password */}
-                <View style={{ marginBottom: 16 }}>
-                  <Text style={{
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: '#6B7280',
-                    marginBottom: 8,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                  }}>
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.sm }]}>
                     New Password
                   </Text>
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    backgroundColor: '#F9FAFB',
-                    borderRadius: 12,
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: designTokens.borderRadius.md,
                     borderWidth: 1,
-                    borderColor: '#E5E7EB',
+                    borderColor: designTokens.colors.borderLight,
+                    ...designTokens.shadows.sm,
                   }}>
                     <TextInput
                       style={{
                         flex: 1,
-                        padding: 16,
-                        fontSize: 16,
-                        color: '#111827',
+                        padding: designTokens.spacing.md,
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
                       }}
-                      placeholder="Enter new password"
-                      placeholderTextColor="#9CA3AF"
+                      placeholder="Enter your new password"
+                      placeholderTextColor={designTokens.colors.textMuted}
                       value={newPassword}
                       onChangeText={setNewPassword}
                       secureTextEntry={!showNewPassword}
+                      autoCapitalize="none"
                     />
                     <TouchableOpacity
                       onPress={() => setShowNewPassword(!showNewPassword)}
-                      style={{ padding: 16 }}
+                      style={{ 
+                        padding: designTokens.spacing.md,
+                        paddingRight: designTokens.spacing.md,
+                      }}
+                      activeOpacity={0.7}
                     >
-                      <Text style={{ color: '#3B82F6', fontWeight: '600' }}>
-                        {showNewPassword ? 'Hide' : 'Show'}
-                      </Text>
+                      {showNewPassword ? (
+                        <EyeOff size={20} color={designTokens.colors.textSecondary} />
+                      ) : (
+                        <Eye size={20} color={designTokens.colors.textSecondary} />
+                      )}
                     </TouchableOpacity>
                   </View>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textMuted,
+                    marginTop: designTokens.spacing.xs,
+                  }}>
+                    Password must be at least 6 characters long
+                  </Text>
                 </View>
 
                 {/* Confirm Password */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: '#6B7280',
-                    marginBottom: 8,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                  }}>
+                <View style={{ marginBottom: designTokens.spacing.lg }}>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.sm }]}>
                     Confirm New Password
                   </Text>
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    backgroundColor: '#F9FAFB',
-                    borderRadius: 12,
+                    backgroundColor: designTokens.colors.background,
+                    borderRadius: designTokens.borderRadius.md,
                     borderWidth: 1,
-                    borderColor: '#E5E7EB',
+                    borderColor: designTokens.colors.borderLight,
+                    ...designTokens.shadows.sm,
                   }}>
                     <TextInput
                       style={{
                         flex: 1,
-                        padding: 16,
-                        fontSize: 16,
-                        color: '#111827',
+                        padding: designTokens.spacing.md,
+                        fontSize: designTokens.typography.base,
+                        color: designTokens.colors.textPrimary,
                       }}
-                      placeholder="Confirm new password"
-                      placeholderTextColor="#9CA3AF"
+                      placeholder="Confirm your new password"
+                      placeholderTextColor={designTokens.colors.textMuted}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
                       secureTextEntry={!showConfirmPassword}
+                      autoCapitalize="none"
                     />
                     <TouchableOpacity
                       onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                      style={{ padding: 16 }}
+                      style={{ 
+                        padding: designTokens.spacing.md,
+                        paddingRight: designTokens.spacing.md,
+                      }}
+                      activeOpacity={0.7}
                     >
-                      <Text style={{ color: '#3B82F6', fontWeight: '600' }}>
-                        {showConfirmPassword ? 'Hide' : 'Show'}
-                      </Text>
+                      {showConfirmPassword ? (
+                        <EyeOff size={20} color={designTokens.colors.textSecondary} />
+                      ) : (
+                        <Eye size={20} color={designTokens.colors.textSecondary} />
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 {/* Action Buttons */}
-                <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ 
+                  flexDirection: 'row', 
+                  gap: designTokens.spacing.md,
+                  marginTop: designTokens.spacing.md,
+                }}>
                   <TouchableOpacity
                     onPress={() => {
                       setShowPasswordSection(false);
@@ -637,17 +881,21 @@ export default function SettingsPage() {
                     }}
                     style={{
                       flex: 1,
-                      backgroundColor: '#F3F4F6',
-                      borderRadius: 12,
-                      padding: 16,
+                      backgroundColor: designTokens.colors.background,
+                      borderRadius: designTokens.borderRadius.md,
+                      paddingVertical: designTokens.spacing.md,
                       alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: designTokens.colors.borderLight,
+                      ...designTokens.shadows.sm,
                     }}
                     disabled={changingPassword}
+                    activeOpacity={0.7}
                   >
                     <Text style={{
-                      fontSize: 16,
+                      fontSize: designTokens.typography.base,
                       fontWeight: '600',
-                      color: '#6B7280',
+                      color: designTokens.colors.textSecondary,
                     }}>
                       Cancel
                     </Text>
@@ -657,28 +905,85 @@ export default function SettingsPage() {
                     disabled={changingPassword}
                     style={{
                       flex: 1,
-                      backgroundColor: '#EF4444',
-                      borderRadius: 12,
-                      padding: 16,
+                      backgroundColor: designTokens.colors.primary,
+                      borderRadius: designTokens.borderRadius.md,
+                      paddingVertical: designTokens.spacing.md,
                       alignItems: 'center',
                       opacity: changingPassword ? 0.7 : 1,
+                      ...designTokens.shadows.sm,
                     }}
+                    activeOpacity={0.8}
                   >
                     {changingPassword ? (
                       <ActivityIndicator color="white" />
                     ) : (
                       <Text style={{
-                        fontSize: 16,
+                        fontSize: designTokens.typography.base,
                         fontWeight: '600',
                         color: 'white',
                       }}>
-                        Change Password
+                        Update Password
                       </Text>
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
             )}
+          </View>
+
+          {/* Logout Section */}
+          <View style={[sharedStyles.card]}>
+            <TouchableOpacity
+              onPress={async () => {
+                showAlert(
+                  'Logout',
+                  'Are you sure you want to logout?',
+                  [
+                    { 
+                      text: 'Cancel', 
+                      style: 'cancel',
+                      onPress: () => console.log('❌ Logout cancelled')
+                    },
+                    { 
+                      text: 'Logout', 
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          console.log('🚪 User confirmed logout from settings, starting signOut...');
+                          await signOut();
+                          console.log('✅ SignOut completed successfully');
+                          router.replace('/login');
+                        } catch (error) {
+                          console.error('❌ Logout error:', error);
+                          showAlert('Logout Error', 'Failed to logout. Please try again.');
+                        }
+                      }
+                    }
+                  ]
+                );
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#FEF2F2',
+                borderRadius: designTokens.borderRadius.md,
+                padding: designTokens.spacing.md,
+                borderWidth: 1,
+                borderColor: '#FECACA',
+                gap: designTokens.spacing.sm,
+              }}
+              activeOpacity={0.7}
+            >
+              <LogOut size={20} color="#EF4444" />
+              <Text style={{
+                fontSize: designTokens.typography.base,
+                fontWeight: '600',
+                color: '#EF4444',
+              }}>
+                Logout
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>

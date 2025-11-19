@@ -221,6 +221,16 @@ export default function TabLayout() {
                         },
                         tabBarShowLabel: false,
                     }}>
+            {/* Tab Navigation Order:
+                1. Home (index) - Always visible
+                2. Message (chat) - Always visible
+                3. Tenant Main Dashboard - Only visible when tenant has active rental (approved AND paid booking)
+                4. Bookings - Always visible
+                5. Profile - Always visible
+                
+                Without active rental: Home, Message, Bookings, Profile (4 tabs)
+                With active rental: Home, Message, Tenant Main Dashboard, Bookings, Profile (5 tabs)
+            */}
             <Tabs.Screen
                 name="index"
                 options={{
@@ -264,14 +274,14 @@ export default function TabLayout() {
                     tabBarActiveTintColor: '#10B981',
                 }}
             />
-            {/* Only show active rental dashboard tab for tenants with approved AND paid bookings */}
-            {/* Hide completely when not needed to prevent blank space */}
+            {/* Tenant Main Dashboard - Only show when tenant has active rental (approved AND paid booking) */}
             <Tabs.Screen
                 name="tenant-main-dashboard"
                 options={{
+                    // Hide tab completely when tenant doesn't have active rental
                     href: checkedActiveRental && hasActiveRental && user?.id && !user?.roles?.includes('owner') && !user?.roles?.includes('brgy_official') 
                         ? '/(tabs)/tenant-main-dashboard' 
-                        : null, // Hide tab completely when condition is false
+                        : null,
                     tabBarIcon: ({ color, focused }) => (
                         <View style={{ width: 22, height: 22, justifyContent: 'center', alignItems: 'center' }}>
                             <Building2 size={22} color={focused ? '#10B981' : '#9ca3af'} />
@@ -328,10 +338,23 @@ export default function TabLayout() {
                     tabBarActiveTintColor: '#10B981',
                 }}
             />
+            {/* Hidden routes - not shown in tab bar */}
             <Tabs.Screen
                 name="favorites"
                 options={{
                     href: null, // Hide from tab bar
+                }}
+            />
+            <Tabs.Screen
+                name="submit-complaint"
+                options={{
+                    href: null, // Hide from tab bar - only accessible from tenant dashboard
+                }}
+            />
+            <Tabs.Screen
+                name="complaint-tracking"
+                options={{
+                    href: null, // Hide from tab bar - only accessible from tenant dashboard
                 }}
             />
                 </Tabs>

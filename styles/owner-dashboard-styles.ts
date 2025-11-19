@@ -475,6 +475,7 @@ export const iconBackgrounds = {
   red: { backgroundColor: designTokens.colors.iconRed },
   teal: { backgroundColor: designTokens.colors.iconTeal },
   purple: { backgroundColor: '#F3E8FF' },
+  gray: { backgroundColor: '#F3F4F6' },
 };
 
 // Status Colors
