@@ -66,12 +66,12 @@ export default function BrgyBottomNav() {
             style={[
               styles.navItem,
               active && {
-                backgroundColor: item.color + '20',
+                backgroundColor: '#10B981' + '20',
                 borderRadius: 10,
                 paddingVertical: 8,
                 paddingHorizontal: 6,
                 borderWidth: 1,
-                borderColor: item.color + '40',
+                borderColor: '#10B981' + '40',
               }
             ]}
             onPress={() => handleNavigation(item.path)}
@@ -79,7 +79,7 @@ export default function BrgyBottomNav() {
             <View style={[
               styles.navIcon,
               { 
-                backgroundColor: active ? item.color : 'transparent',
+                backgroundColor: active ? '#10B981' : 'transparent',
                 transform: active ? [{ scale: 1.1 }] : [{ scale: 1 }]
               }
             ]}>
@@ -91,7 +91,7 @@ export default function BrgyBottomNav() {
             <Text style={[
               styles.navLabel,
               active && { 
-                color: item.color, 
+                color: '#10B981', 
                 fontWeight: '700' as const,
                 fontSize: 11,
               }

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, Alert, Modal, StyleSheet, Dimensions, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, Alert, Modal, StyleSheet, Dimensions, Platform, ActivityIndicator, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, clearCache } from '../../utils/db';
-import { OwnerApplicationRecord, BrgyNotificationRecord, OwnerApplicationDocument } from '../../types';
+import { OwnerApplicationRecord, BrgyNotificationRecord, OwnerApplicationDocument, DbUserRecord, PublishedListingRecord } from '../../types';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
+import { loadUserProfilePhoto } from '../../utils/user-profile-photos';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, cancelAnimation, runOnJS } from 'react-native-reanimated';
@@ -20,7 +21,9 @@ import {
   AlertCircle,
   Download,
   ZoomIn,
-  X
+  X,
+  Bell,
+  Building
 } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -33,6 +36,11 @@ export default function OwnerApplications() {
   const [selectedApplication, setSelectedApplication] = useState<OwnerApplicationRecord | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [barangay, setBarangay] = useState('');
+  const [approvedApplicationsData, setApprovedApplicationsData] = useState<Array<{
+    application: OwnerApplicationRecord;
+    profilePhoto: string | null;
+    propertyCount: number;
+  }>>([]);
   const [selectedDocument, setSelectedDocument] = useState<OwnerApplicationDocument | { uri: string; name: string } | null>(null);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -75,6 +83,36 @@ export default function OwnerApplications() {
       );
 
       setApplications(barangayApplications);
+
+      // Load data for approved applications (profile photos and property counts)
+      const approvedApps = barangayApplications.filter(app => app.status === 'approved');
+      const allUsers = await db.list<DbUserRecord>('users');
+      const allListings = await db.list<PublishedListingRecord>('published_listings');
+      
+      const approvedData = await Promise.all(
+        approvedApps.map(async (application) => {
+          const owner = allUsers.find(u => u.id === application.userId);
+          const ownerProperties = allListings.filter(l => l.userId === application.userId);
+          
+          // Load profile photo
+          let profilePhoto: string | null = null;
+          if (owner) {
+            try {
+              profilePhoto = await loadUserProfilePhoto(owner.id);
+            } catch (photoError) {
+              console.warn(`⚠️ Could not load profile photo for owner ${owner.id}:`, photoError);
+            }
+          }
+          
+          return {
+            application,
+            profilePhoto,
+            propertyCount: ownerProperties.length,
+          };
+        })
+      );
+      
+      setApprovedApplicationsData(approvedData);
     } catch (error) {
       console.error('Error loading applications:', error);
       if (Platform.OS === 'web') {
@@ -450,6 +488,100 @@ export default function OwnerApplications() {
     }
   };
 
+  const renderApprovedApplication = (data: { application: OwnerApplicationRecord; profilePhoto: string | null; propertyCount: number }, index: number) => {
+    const { application, profilePhoto, propertyCount } = data;
+    return (
+      <TouchableOpacity
+        key={application.id}
+        style={[sharedStyles.listItem, { marginBottom: 16 }]}
+        onPress={() => openModal(application)}
+        activeOpacity={0.7}
+      >
+        <View style={{ position: 'relative' }}>
+          {profilePhoto ? (
+            <Image
+              source={{ uri: profilePhoto }}
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                borderWidth: 2,
+                borderColor: '#10B981',
+              }}
+              resizeMode="cover"
+              onError={(error) => {
+                console.error('Profile photo load error in list:', error);
+              }}
+            />
+          ) : (
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: designTokens.colors.primary + '20',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 2,
+              borderColor: '#10B981',
+            }}>
+              <Text style={{
+                fontSize: 24,
+                fontWeight: 'bold',
+                color: designTokens.colors.primary,
+              }}>
+                {application.name.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          {/* Verified badge */}
+          <View style={{
+            position: 'absolute',
+            bottom: -2,
+            right: -2,
+            width: 20,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: '#10B981',
+            borderWidth: 2,
+            borderColor: '#FFFFFF',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+            <CheckCircle size={12} color="#FFFFFF" />
+          </View>
+        </View>
+        <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
+          <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
+            {application.name}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+            <Mail size={14} color="#6B7280" />
+            <Text style={[sharedStyles.statSubtitle, { fontSize: 13 }]}>
+              {application.email}
+            </Text>
+          </View>
+          {application.contactNumber && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+              <Phone size={14} color="#6B7280" />
+              <Text style={[sharedStyles.statSubtitle, { fontSize: 13 }]}>
+                {application.contactNumber}
+              </Text>
+            </View>
+          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Building size={14} color="#10B981" />
+              <Text style={[sharedStyles.statSubtitle, { color: '#10B981', fontWeight: '600' }]}>
+                {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+      </TouchableOpacity>
+    );
+  };
+
   const renderApplication = (application: OwnerApplicationRecord, index: number) => (
     <TouchableOpacity
       key={application.id}
@@ -510,6 +642,44 @@ export default function OwnerApplications() {
             </View>
           </View>
 
+          {/* Summary Box for Pending Applications */}
+          {pendingApplications.length > 0 && (
+            <View style={[sharedStyles.card, { 
+              backgroundColor: '#FFFBEB', 
+              borderColor: '#F59E0B', 
+              borderWidth: 1,
+              marginBottom: designTokens.spacing.lg 
+            }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.md, flex: 1 }}>
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
+                    <Bell size={20} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[sharedStyles.statLabel, { color: '#92400E', marginBottom: 4 }]}>
+                      {pendingApplications.length} Pending Application{pendingApplications.length > 1 ? 's' : ''}
+                    </Text>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: 12, color: '#92400E' }]}>
+                      Awaiting your review and approval
+                    </Text>
+                  </View>
+                </View>
+                <View style={{
+                  backgroundColor: '#F59E0B',
+                  borderRadius: 20,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  minWidth: 50,
+                  alignItems: 'center',
+                }}>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 18 }}>
+                    {pendingApplications.length}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Pending Applications */}
           {pendingApplications.length === 0 ? (
             <View style={sharedStyles.card}>
@@ -533,11 +703,11 @@ export default function OwnerApplications() {
           )}
 
           {/* Approved Applications */}
-          {applications.filter(app => app.status === 'approved').length > 0 && (
-            <View style={sharedStyles.section}>
+          {approvedApplicationsData.length > 0 && (
+            <View style={[sharedStyles.section, { marginTop: designTokens.spacing['2xl'] }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <Text style={sharedStyles.sectionTitle}>
-                  Approved Applications ({applications.filter(app => app.status === 'approved').length})
+                  Approved Applications ({approvedApplicationsData.length})
                 </Text>
                 <TouchableOpacity 
                   onPress={() => router.push('/(brgy)/approved-owners' as any)}
@@ -547,10 +717,9 @@ export default function OwnerApplications() {
                   <Text style={{ fontSize: 16, color: '#3B82F6' }}>›</Text>
                 </TouchableOpacity>
               </View>
-              {applications
-                .filter(app => app.status === 'approved')
-                .slice(0, 3) // Show only recent 3
-                .map((app, index) => renderApplication(app, index))}
+              {approvedApplicationsData
+                .slice(0, 2) // Show only recent 2
+                .map((data, index) => renderApprovedApplication(data, index))}
             </View>
           )}
 
@@ -649,13 +818,88 @@ export default function OwnerApplications() {
                     <User size={18} color="#6B7280" style={{ marginRight: 12 }} />
                     <Text style={sharedStyles.statLabel}>Name: {selectedApplication.name}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Mail size={18} color="#6B7280" style={{ marginRight: 12 }} />
-                    <Text style={sharedStyles.statLabel}>{selectedApplication.email}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Mail size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                      <Text style={[sharedStyles.statLabel, { flex: 1 }]}>{selectedApplication.email}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        try {
+                          const emailUrl = `mailto:${selectedApplication.email}?subject=Owner Application Inquiry&body=Hello, I would like to discuss your owner application.`;
+                          const canOpen = await Linking.canOpenURL(emailUrl);
+                          if (canOpen) {
+                            await Linking.openURL(emailUrl);
+                          } else {
+                            Alert.alert('Error', 'Unable to open email client');
+                          }
+                        } catch (error) {
+                          console.error('Error opening email:', error);
+                          Alert.alert('Error', 'Unable to open email client');
+                        }
+                      }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        backgroundColor: '#10B981',
+                        borderRadius: 6,
+                        marginLeft: 8
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Email</Text>
+                    </TouchableOpacity>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Phone size={18} color="#6B7280" style={{ marginRight: 12 }} />
-                    <Text style={sharedStyles.statLabel}>{selectedApplication.contactNumber}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Phone size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                      <Text style={[sharedStyles.statLabel, { flex: 1 }]}>{selectedApplication.contactNumber}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        try {
+                          const cleanPhone = selectedApplication.contactNumber.replace(/[\s\-()]/g, '');
+                          const phoneUrl = cleanPhone.startsWith('+') ? `tel:${cleanPhone}` : `tel:+${cleanPhone}`;
+                          
+                          if (Platform.OS === 'web') {
+                            window.location.href = phoneUrl;
+                          } else {
+                            const canOpen = await Linking.canOpenURL(phoneUrl);
+                            if (canOpen) {
+                              await Linking.openURL(phoneUrl);
+                            } else {
+                              const fallbackUrl = `tel:${cleanPhone.replace(/^\+/, '')}`;
+                              const canOpenFallback = await Linking.canOpenURL(fallbackUrl);
+                              if (canOpenFallback) {
+                                await Linking.openURL(fallbackUrl);
+                              } else {
+                                try {
+                                  await Linking.openURL(`tel:${cleanPhone}`);
+                                } catch (fallbackError) {
+                                  Alert.alert('Error', `Unable to open phone dialer. Please copy the number and dial manually.`);
+                                }
+                              }
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Error opening phone:', error);
+                          try {
+                            const cleanPhone = selectedApplication.contactNumber.replace(/[\s\-()]/g, '');
+                            await Linking.openURL(`tel:${cleanPhone}`);
+                          } catch (fallbackError) {
+                            Alert.alert('Error', `Unable to open phone dialer. Please copy the number and dial manually.`);
+                          }
+                        }
+                      }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        backgroundColor: '#3B82F6',
+                        borderRadius: 6,
+                        marginLeft: 8
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Call</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               </View>

@@ -886,9 +886,9 @@ const ProfileScreen = memo(function ProfileScreen() {
                                     </View>
                                 </View>
 
-                                {/* Family Type Selection */}
+                                {/* Tenant Type Selection */}
                                 <View style={styles.inputContainer}>
-                                    <Text style={styles.inputLabel}>Family Type</Text>
+                                    <Text style={styles.inputLabel}>Tenant Type</Text>
                                     <View style={styles.radioGroup}>
                                         <TouchableOpacity
                                             style={[
@@ -987,7 +987,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                         <View style={styles.faqContent}>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>How do I search for properties in HanapBahay?</Text>
-                                <Text style={styles.faqAnswer}>Use the search bar on the dashboard to search by location, property type, or keywords. You can also use the filter button to narrow down by barangay, price range, and property type (house, apartment, condo, bedspace).</Text>
+                                <Text style={styles.faqAnswer}>Use the search bar on the dashboard to search by location, property type, or keywords. You can also use the filter button to narrow down by barangay, price range, and property type (house, apartment, boarding house, bedspace).</Text>
                             </View>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>How do I filter properties by barangay?</Text>
@@ -1007,7 +1007,7 @@ const ProfileScreen = memo(function ProfileScreen() {
                             </View>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>What types of properties are available?</Text>
-                                <Text style={styles.faqAnswer}>HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information.</Text>
+                                <Text style={styles.faqAnswer}>HanapBahay offers houses, apartments, boarding houses, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information.</Text>
                             </View>
                             <View style={styles.faqItem}>
                                 <Text style={styles.faqQuestion}>How do I set my price range?</Text>

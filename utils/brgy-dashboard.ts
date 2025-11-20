@@ -113,12 +113,10 @@ export async function getBrgyListings(barangayName: string): Promise<PublishedLi
     const allListings = await db.list<PublishedListingRecord>('published_listings');
     const allUsers = await db.list<DbUserRecord>('users');
     
-    // Filter ACTIVE listings by barangay (only available, not occupied or reserved)
+    // Filter ALL listings by barangay (include available, occupied, and reserved)
+    // Barangay officials need to see all properties regardless of status for management
     const listingsInBarangay = allListings.filter(listing => {
-      // First check if listing is active (only 'available' status)
-      const isActive = listing.availabilityStatus === 'available';
-      
-      // Check barangay match
+      // Check barangay match (no status filter - show all statuses)
       let isInBarangay = false;
       if (listing.barangay) {
         const listingBarangay = listing.barangay.trim().toUpperCase();
@@ -134,7 +132,7 @@ export async function getBrgyListings(barangayName: string): Promise<PublishedLi
         }
       }
       
-      return isActive && isInBarangay;
+      return isInBarangay;
     });
     
     // Sort by published date (newest first)

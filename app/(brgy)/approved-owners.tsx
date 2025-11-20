@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert, Modal, Image, StyleSheet, Dimensions, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Modal, Image, StyleSheet, Dimensions, Platform, ActivityIndicator, TextInput, Linking } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../utils/db';
 import { DbUserRecord, PublishedListingRecord, OwnerApplicationRecord, OwnerApplicationDocument } from '../../types';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
+import { loadUserProfilePhoto } from '../../utils/user-profile-photos';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, cancelAnimation, runOnJS } from 'react-native-reanimated';
@@ -19,7 +20,8 @@ import {
   Building,
   X,
   FileText,
-  Download
+  Download,
+  Search
 } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -36,6 +38,7 @@ interface ApprovedOwner {
   applicationId?: string;
   reviewedBy?: string;
   address?: string;
+  profilePhoto?: string | null;
 }
 
 export default function ApprovedOwners() {
@@ -56,6 +59,7 @@ export default function ApprovedOwners() {
   const [selectedDocument, setSelectedDocument] = useState<OwnerApplicationDocument | { uri: string; name: string } | null>(null);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadData = useCallback(async () => {
     if (!user?.id) return;
@@ -98,6 +102,14 @@ export default function ApprovedOwners() {
         // Use reviewedAt as the official approval date (when barangay reviewed it)
         const approvalDate = application.reviewedAt || application.createdAt || new Date().toISOString();
         
+        // Load profile photo for this owner
+        let profilePhoto: string | null = null;
+        try {
+          profilePhoto = await loadUserProfilePhoto(owner.id);
+        } catch (photoError) {
+          console.warn(`⚠️ Could not load profile photo for owner ${owner.id}:`, photoError);
+        }
+        
         approvedOwners.push({
           id: owner.id,
           name: application.name || owner.name || 'Unknown',
@@ -110,12 +122,13 @@ export default function ApprovedOwners() {
           applicationId: application.id,
           reviewedBy: application.reviewedBy,
           address: `${application.houseNumber || ''} ${application.street || ''}`.trim() || owner.address || '',
+          profilePhoto: profilePhoto,
         });
       }
 
-      // Sort by approved date (most recent first)
+      // Sort alphabetically by name for better organization
       approvedOwners.sort((a, b) => 
-        new Date(b.approvedDate).getTime() - new Date(a.approvedDate).getTime()
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       );
 
       setOwners(approvedOwners);
@@ -273,41 +286,8 @@ export default function ApprovedOwners() {
           try {
             const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(extension.toLowerCase());
             
-            if (isImage) {
-              // For images, try to save to Photos library using expo-media-library
-              try {
-                const MediaLibrary = await import('expo-media-library');
-                
-                // Request permissions
-                const { status } = await MediaLibrary.requestPermissionsAsync();
-                
-                if (status === 'granted') {
-                  // Save image to Photos library
-                  const asset = await MediaLibrary.createAssetAsync(resultUri);
-                  
-                  // Try to add to a "Downloads" or "HanapBahay" album, or just save to default
-                  try {
-                    await MediaLibrary.createAlbumAsync('HanapBahay', asset, false);
-                    console.log('✅ Image saved to Photos library in HanapBahay album');
-                  } catch (albumError) {
-                    // If album creation fails, the image is still saved to Photos
-                    console.log('✅ Image saved to Photos library');
-                  }
-                  
-                  Alert.alert('Success', 'Image saved to your Photos library!');
-                } else {
-                  // Permission denied, fall back to document directory
-                  throw new Error('Media library permission denied');
-                }
-              } catch (mediaLibraryError) {
-                console.log('⚠️ Media library not available or permission denied, using fallback');
-                // Fallback: Save to document directory and use sharing
-                await saveToDocumentDirectory(resultUri, fileName, extension);
-              }
-            } else {
-              // For PDFs and other files, save to document directory and use sharing
-              await saveToDocumentDirectory(resultUri, fileName, extension);
-            }
+            // For all files, use document directory and sharing (more reliable across platforms)
+            await saveToDocumentDirectory(resultUri, fileName, extension);
           } catch (error) {
             console.error('⚠️ Error saving file:', error);
             // Final fallback: Save to document directory
@@ -316,33 +296,71 @@ export default function ApprovedOwners() {
           
           // Helper function to save to document directory and optionally share
           async function saveToDocumentDirectory(sourceUri: string, fileName: string, fileExtension: string) {
-            const docFileUri = FileSystem.documentDirectory + fileName;
-            
-            // Copy file to document directory
-            if (sourceUri !== docFileUri) {
-              const base64 = await FileSystem.readAsStringAsync(sourceUri, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              await FileSystem.writeAsStringAsync(docFileUri, base64, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-            }
-            
-            // Try to use sharing to make it accessible
             try {
-              const Sharing = await import('expo-sharing');
-              if (await Sharing.isAvailableAsync()) {
-                // Open share sheet so user can save to Downloads/Files
-                await Sharing.shareAsync(docFileUri, {
-                  mimeType: fileExtension === 'pdf' ? 'application/pdf' : `image/${fileExtension}`,
-                  dialogTitle: 'Save Document',
+              // On Android, try to save directly to Downloads folder
+              if (Platform.OS === 'android') {
+                try {
+                  // Use Storage Access Framework for Android 10+ (API 29+)
+                  // For Android, we'll use the share sheet which allows direct save to Downloads
+                  const Sharing = await import('expo-sharing');
+                  if (await Sharing.isAvailableAsync()) {
+                    // Copy to document directory first
+                    const docFileUri = FileSystem.documentDirectory + fileName;
+                    if (sourceUri !== docFileUri) {
+                      const base64 = await FileSystem.readAsStringAsync(sourceUri, {
+                        encoding: FileSystem.EncodingType.Base64,
+                      });
+                      await FileSystem.writeAsStringAsync(docFileUri, base64, {
+                        encoding: FileSystem.EncodingType.Base64,
+                      });
+                    }
+                    
+                    // Share with option to save directly to Downloads
+                    await Sharing.shareAsync(docFileUri, {
+                      mimeType: fileExtension === 'pdf' ? 'application/pdf' : `image/${fileExtension}`,
+                      dialogTitle: 'Save Document',
+                      UTI: fileExtension === 'pdf' ? 'com.adobe.pdf' : `public.${fileExtension}`,
+                    });
+                    Alert.alert('Success', 'File ready to save! Select "Save" or "Save to Files" to save to Downloads.');
+                    return;
+                  }
+                } catch (androidError) {
+                  console.log('Android direct save failed, using fallback:', androidError);
+                }
+              }
+              
+              // Fallback: Save to document directory and share
+              const docFileUri = FileSystem.documentDirectory + fileName;
+              
+              // Copy file to document directory
+              if (sourceUri !== docFileUri) {
+                const base64 = await FileSystem.readAsStringAsync(sourceUri, {
+                  encoding: FileSystem.EncodingType.Base64,
                 });
-                Alert.alert('Success', 'File ready to save! Use the share menu to save to Downloads or Files.');
-              } else {
+                await FileSystem.writeAsStringAsync(docFileUri, base64, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+              }
+              
+              // Use sharing to make it accessible
+              try {
+                const Sharing = await import('expo-sharing');
+                if (await Sharing.isAvailableAsync()) {
+                  // Open share sheet so user can save to Downloads/Files
+                  await Sharing.shareAsync(docFileUri, {
+                    mimeType: fileExtension === 'pdf' ? 'application/pdf' : `image/${fileExtension}`,
+                    dialogTitle: 'Save Document',
+                  });
+                  Alert.alert('Success', 'File ready to save! Use the share menu to save to Downloads or Files.');
+                } else {
+                  Alert.alert('Success', `File saved to app storage: ${docFileUri}`);
+                }
+              } catch (sharingError) {
                 Alert.alert('Success', `File saved to app storage: ${docFileUri}`);
               }
-            } catch (sharingError) {
-              Alert.alert('Success', `File saved to app storage: ${docFileUri}`);
+            } catch (error) {
+              console.error('Error in saveToDocumentDirectory:', error);
+              Alert.alert('Success', `File saved to app storage: ${FileSystem.documentDirectory + fileName}`);
             }
           }
         } catch (error) {
@@ -365,8 +383,58 @@ export default function ApprovedOwners() {
       onPress={() => handleViewOwner(owner)}
       activeOpacity={0.7}
     >
-      <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-        <CheckCircle size={20} color="#10B981" />
+      <View style={{ position: 'relative' }}>
+        {owner.profilePhoto ? (
+          <Image
+            source={{ uri: owner.profilePhoto }}
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              borderWidth: 2,
+              borderColor: '#10B981',
+            }}
+            resizeMode="cover"
+            onError={(error) => {
+              console.error('Profile photo load error in list:', error);
+            }}
+          />
+        ) : (
+          <View style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            backgroundColor: designTokens.colors.primary + '20',
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderWidth: 2,
+            borderColor: '#10B981',
+          }}>
+            <Text style={{
+              fontSize: 24,
+              fontWeight: 'bold',
+              color: designTokens.colors.primary,
+            }}>
+              {owner.name.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        {/* Verified badge */}
+        <View style={{
+          position: 'absolute',
+          bottom: -2,
+          right: -2,
+          width: 20,
+          height: 20,
+          borderRadius: 10,
+          backgroundColor: '#10B981',
+          borderWidth: 2,
+          borderColor: '#FFFFFF',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <CheckCircle size={12} color="#FFFFFF" />
+        </View>
       </View>
       <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
         <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
@@ -427,6 +495,45 @@ export default function ApprovedOwners() {
             </View>
           </View>
 
+          {/* Search Bar */}
+          {owners.length > 0 && (
+            <View style={{ marginBottom: designTokens.spacing.lg }}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: designTokens.colors.background,
+                borderRadius: designTokens.borderRadius.md,
+                paddingHorizontal: designTokens.spacing.sm,
+                paddingVertical: 8,
+                borderWidth: 1,
+                borderColor: designTokens.colors.borderLight,
+              }}>
+                <Search size={16} color={designTokens.colors.textMuted} />
+                <TextInput
+                  style={{
+                    flex: 1,
+                    marginLeft: designTokens.spacing.xs,
+                    fontSize: designTokens.typography.sm,
+                    color: designTokens.colors.textPrimary,
+                    paddingVertical: 0,
+                  }}
+                  placeholder="Search owners..."
+                  placeholderTextColor={designTokens.colors.textMuted}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setSearchQuery('')}
+                    style={{ padding: 4 }}
+                  >
+                    <X size={16} color={designTokens.colors.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
           {/* Stats Cards */}
           <View style={sharedStyles.section}>
             <Text style={sharedStyles.sectionTitle}>Summary</Text>
@@ -460,26 +567,61 @@ export default function ApprovedOwners() {
           </View>
 
           {/* Owners List */}
-          {owners.length === 0 ? (
-            <View style={sharedStyles.card}>
-              <View style={{ alignItems: 'center', padding: 32 }}>
-                <User size={48} color="#9CA3AF" />
-                <Text style={[sharedStyles.sectionTitle, { marginTop: 16 }]}>
-                  No Approved Owners
-                </Text>
-                <Text style={sharedStyles.statSubtitle}>
-                  No owners have been approved in this barangay yet
-                </Text>
+          {(() => {
+            // Filter owners based on search query
+            const filteredOwners = owners.filter(owner => {
+              if (!searchQuery.trim()) return true;
+              const query = searchQuery.toLowerCase();
+              return (
+                owner.name.toLowerCase().includes(query) ||
+                owner.email.toLowerCase().includes(query) ||
+                (owner.phone && owner.phone.toLowerCase().includes(query))
+              );
+            });
+
+            if (filteredOwners.length === 0 && owners.length > 0) {
+              return (
+                <View style={sharedStyles.card}>
+                  <View style={{ alignItems: 'center', padding: 32 }}>
+                    <Search size={48} color="#9CA3AF" />
+                    <Text style={[sharedStyles.sectionTitle, { marginTop: 16 }]}>
+                      No Owners Found
+                    </Text>
+                    <Text style={sharedStyles.statSubtitle}>
+                      No owners match your search "{searchQuery}"
+                    </Text>
+                  </View>
+                </View>
+              );
+            }
+
+            if (owners.length === 0) {
+              return (
+                <View style={sharedStyles.card}>
+                  <View style={{ alignItems: 'center', padding: 32 }}>
+                    <User size={48} color="#9CA3AF" />
+                    <Text style={[sharedStyles.sectionTitle, { marginTop: 16 }]}>
+                      No Approved Owners
+                    </Text>
+                    <Text style={sharedStyles.statSubtitle}>
+                      No owners have been approved in this barangay yet
+                    </Text>
+                  </View>
+                </View>
+              );
+            }
+
+            return (
+              <View style={sharedStyles.section}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
+                  <Text style={sharedStyles.sectionTitle}>
+                    All Approved Owners ({filteredOwners.length}{searchQuery ? ` of ${owners.length}` : ''})
+                  </Text>
+                </View>
+                {filteredOwners.map((owner, index) => renderOwner(owner, index))}
               </View>
-            </View>
-          ) : (
-            <View style={sharedStyles.section}>
-              <Text style={sharedStyles.sectionTitle}>
-                All Approved Owners ({owners.length})
-              </Text>
-              {owners.map((owner, index) => renderOwner(owner, index))}
-            </View>
-          )}
+            );
+          })()}
         </View>
       </ScrollView>
 
@@ -495,15 +637,15 @@ export default function ApprovedOwners() {
       >
         {selectedOwner && (
           <ScrollView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-            <View style={{ padding: 24 }}>
+            <View style={{ padding: 20 }}>
               {/* Header */}
               <View style={{ 
                 flexDirection: 'row', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
-                marginBottom: 24 
+                marginBottom: 16 
               }}>
-                <Text style={sharedStyles.pageTitle}>Owner Details</Text>
+                <Text style={sharedStyles.pageTitle}>Owner Profile</Text>
                 <TouchableOpacity onPress={() => {
                   setShowOwnerModal(false);
                   setOwnerApplication(null);
@@ -513,14 +655,14 @@ export default function ApprovedOwners() {
               </View>
 
               {/* Approval Status */}
-              <View style={[sharedStyles.card, { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1 }]}>
+              <View style={[sharedStyles.card, { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, marginBottom: 12 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <CheckCircle size={20} color="#10B981" />
                   <Text style={[sharedStyles.statLabel, { color: '#10B981' }]}>
                     Approved Owner Account
                   </Text>
                 </View>
-                <Text style={[sharedStyles.statSubtitle, { marginTop: 8, fontSize: 12 }]}>
+                <Text style={[sharedStyles.statSubtitle, { marginTop: 6, fontSize: 12 }]}>
                   Approved on {new Date(selectedOwner.approvedDate).toLocaleDateString('en-US', { 
                     year: 'numeric', 
                     month: 'long', 
@@ -530,30 +672,156 @@ export default function ApprovedOwners() {
               </View>
 
               {/* Personal Information */}
-              <View style={[sharedStyles.card, { marginTop: 16 }]}>
-                <Text style={sharedStyles.sectionTitle}>Personal Information</Text>
-                <View style={{ gap: 16, marginTop: 12 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <User size={18} color="#6B7280" style={{ marginRight: 12 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Name</Text>
-                      <Text style={sharedStyles.statLabel}>{selectedOwner.name}</Text>
-                    </View>
+              <View style={[sharedStyles.card, { marginTop: 0 }]}>
+                {/* Profile Photo Section at Top */}
+                <View style={{ 
+                  alignItems: 'center', 
+                  paddingBottom: 16,
+                  borderBottomWidth: 1,
+                  borderBottomColor: designTokens.colors.borderLight,
+                  marginBottom: 16
+                }}>
+                  <View style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: 50,
+                    backgroundColor: designTokens.colors.primary + '20',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 8,
+                    borderWidth: 3,
+                    borderColor: designTokens.colors.primary,
+                    overflow: 'hidden',
+                  }}>
+                    {selectedOwner.profilePhoto ? (
+                      <Image
+                        source={{ uri: selectedOwner.profilePhoto }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                        }}
+                        resizeMode="cover"
+                        onError={(error) => {
+                          console.error('Profile photo load error:', error);
+                        }}
+                      />
+                    ) : (
+                      <View style={{
+                        width: '100%',
+                        height: '100%',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        backgroundColor: designTokens.colors.primary + '20',
+                      }}>
+                        <Text style={{
+                          fontSize: 40,
+                          fontWeight: 'bold',
+                          color: designTokens.colors.primary,
+                        }}>
+                          {selectedOwner.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Mail size={18} color="#6B7280" style={{ marginRight: 12 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Email</Text>
-                      <Text style={sharedStyles.statLabel}>{selectedOwner.email}</Text>
+                  <Text style={[sharedStyles.pageTitle, { 
+                    textAlign: 'center',
+                    fontSize: designTokens.typography.xl,
+                  }]}>
+                    {selectedOwner.name}
+                  </Text>
+                </View>
+
+                <Text style={sharedStyles.sectionTitle}>Personal Information</Text>
+                <View style={{ gap: 12, marginTop: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Mail size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Email</Text>
+                        <Text style={sharedStyles.statLabel}>{selectedOwner.email}</Text>
+                      </View>
                     </View>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        try {
+                          const emailUrl = `mailto:${selectedOwner.email}?subject=Owner Inquiry&body=Hello, I would like to discuss your property listings.`;
+                          const canOpen = await Linking.canOpenURL(emailUrl);
+                          if (canOpen) {
+                            await Linking.openURL(emailUrl);
+                          } else {
+                            Alert.alert('Error', 'Unable to open email client');
+                          }
+                        } catch (error) {
+                          console.error('Error opening email:', error);
+                          Alert.alert('Error', 'Unable to open email client');
+                        }
+                      }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        backgroundColor: '#10B981',
+                        borderRadius: 6,
+                        marginLeft: 8
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Email</Text>
+                    </TouchableOpacity>
                   </View>
                   {selectedOwner.phone && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Phone size={18} color="#6B7280" style={{ marginRight: 12 }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Contact Number</Text>
-                        <Text style={sharedStyles.statLabel}>{selectedOwner.phone}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Phone size={18} color="#6B7280" style={{ marginRight: 12 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[sharedStyles.statSubtitle, { fontSize: 11, marginBottom: 2 }]}>Contact Number</Text>
+                          <Text style={sharedStyles.statLabel}>{selectedOwner.phone}</Text>
+                        </View>
                       </View>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          try {
+                            const cleanPhone = selectedOwner.phone.replace(/[\s\-()]/g, '');
+                            const phoneUrl = cleanPhone.startsWith('+') ? `tel:${cleanPhone}` : `tel:+${cleanPhone}`;
+                            
+                            if (Platform.OS === 'web') {
+                              window.location.href = phoneUrl;
+                            } else {
+                              const canOpen = await Linking.canOpenURL(phoneUrl);
+                              if (canOpen) {
+                                await Linking.openURL(phoneUrl);
+                              } else {
+                                const fallbackUrl = `tel:${cleanPhone.replace(/^\+/, '')}`;
+                                const canOpenFallback = await Linking.canOpenURL(fallbackUrl);
+                                if (canOpenFallback) {
+                                  await Linking.openURL(fallbackUrl);
+                                } else {
+                                  try {
+                                    await Linking.openURL(`tel:${cleanPhone}`);
+                                  } catch (fallbackError) {
+                                    Alert.alert('Error', `Unable to open phone dialer. Please copy the number and dial manually.`);
+                                  }
+                                }
+                              }
+                            }
+                          } catch (error) {
+                            console.error('Error opening phone:', error);
+                            try {
+                              const cleanPhone = selectedOwner.phone.replace(/[\s\-()]/g, '');
+                              await Linking.openURL(`tel:${cleanPhone}`);
+                            } catch (fallbackError) {
+                              Alert.alert('Error', `Unable to open phone dialer. Please copy the number and dial manually.`);
+                            }
+                          }
+                        }}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                          backgroundColor: '#3B82F6',
+                          borderRadius: 6,
+                          marginLeft: 8
+                        }}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>Call</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                   {selectedOwner.address && (
@@ -577,22 +845,22 @@ export default function ApprovedOwners() {
 
               {/* Business Documents & Requirements */}
               {(ownerApplication?.documents?.length > 0 || ownerApplication?.govIdUri) && (
-                <View style={[sharedStyles.card, { marginTop: 16 }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <View style={[sharedStyles.card, { marginTop: 12 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <FileText size={18} color="#10B981" />
                     <Text style={sharedStyles.sectionTitle}>Business Documents & Requirements</Text>
                   </View>
                   
                   {/* Display multiple documents if available */}
                   {ownerApplication.documents && ownerApplication.documents.length > 0 ? (
-                    <View style={{ marginTop: 12, gap: 16 }}>
+                    <View style={{ marginTop: 10, gap: 12 }}>
                       {ownerApplication.documents.map((doc, index) => (
-                        <View key={doc.id || index} style={{ marginBottom: 16 }}>
+                        <View key={doc.id || index} style={{ marginBottom: 12 }}>
                           <View style={{ 
                             flexDirection: 'row', 
                             justifyContent: 'space-between', 
                             alignItems: 'center',
-                            marginBottom: 8 
+                            marginBottom: 6 
                           }}>
                             <Text style={{
                               fontSize: 14,
@@ -608,7 +876,7 @@ export default function ApprovedOwners() {
                               source={{ uri: doc.uri }}
                               style={{ 
                                 width: '100%', 
-                                height: 300, 
+                                height: 250, 
                                 borderRadius: 12,
                                 backgroundColor: '#F3F4F6'
                               }}
@@ -631,12 +899,12 @@ export default function ApprovedOwners() {
                   ) : (
                     /* Fallback to govIdUri for backward compatibility */
                     ownerApplication.govIdUri && (
-                      <View style={{ marginTop: 12 }}>
+                      <View style={{ marginTop: 10 }}>
                         <View style={{ 
                           flexDirection: 'row', 
                           justifyContent: 'space-between', 
                           alignItems: 'center',
-                          marginBottom: 8 
+                          marginBottom: 6 
                         }}>
                           <Text style={{
                             fontSize: 14,
@@ -652,7 +920,7 @@ export default function ApprovedOwners() {
                             source={{ uri: ownerApplication.govIdUri }}
                             style={{ 
                               width: '100%', 
-                              height: 300, 
+                              height: 250, 
                               borderRadius: 12,
                               backgroundColor: '#F3F4F6'
                             }}
@@ -666,8 +934,8 @@ export default function ApprovedOwners() {
               )}
 
               {/* Properties List */}
-              <View style={[sharedStyles.card, { marginTop: 16 }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <View style={[sharedStyles.card, { marginTop: 12 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <Text style={sharedStyles.sectionTitle}>Properties</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Building size={16} color="#10B981" />
@@ -680,32 +948,32 @@ export default function ApprovedOwners() {
                 {loadingListings ? (
                   <Text style={sharedStyles.statSubtitle}>Loading properties...</Text>
                 ) : ownerListings.length === 0 ? (
-                  <View style={{ padding: 16, alignItems: 'center' }}>
+                  <View style={{ padding: 12, alignItems: 'center' }}>
                     <Building size={32} color="#9CA3AF" />
-                    <Text style={[sharedStyles.statSubtitle, { marginTop: 8 }]}>
+                    <Text style={[sharedStyles.statSubtitle, { marginTop: 6 }]}>
                       No properties listed yet
                     </Text>
                   </View>
                 ) : (
-                  <View style={{ gap: 12 }}>
+                  <View style={{ gap: 10 }}>
                     {ownerListings.map((listing) => (
                       <View 
                         key={listing.id} 
                         style={{ 
-                          padding: 12, 
+                          padding: 10, 
                           backgroundColor: '#F9FAFB', 
                           borderRadius: 8,
                           borderLeftWidth: 3,
                           borderLeftColor: '#10B981'
                         }}
                       >
-                        <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
-                          {listing.propertyType || 'Property'}
+                        <Text style={[sharedStyles.statLabel, { marginBottom: 3 }]}>
+                          {listing.propertyType === 'Condo' ? 'Boarding House' : (listing.propertyType || 'Property')}
                         </Text>
-                        <Text style={[sharedStyles.statSubtitle, { fontSize: 12, marginBottom: 4 }]}>
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 12, marginBottom: 3 }]}>
                           {listing.address || 'No address'}
                         </Text>
-                        <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
                           <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
                             ₱{listing.monthlyRent?.toLocaleString() || '0'}/month
                           </Text>
@@ -727,9 +995,9 @@ export default function ApprovedOwners() {
               </View>
 
               {/* Account Information */}
-              <View style={[sharedStyles.card, { marginTop: 16 }]}>
+              <View style={[sharedStyles.card, { marginTop: 12 }]}>
                 <Text style={sharedStyles.sectionTitle}>Account Information</Text>
-                <View style={{ gap: 12, marginTop: 12 }}>
+                <View style={{ gap: 10, marginTop: 10 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>Account Created</Text>
                     <Text style={[sharedStyles.statLabel, { fontSize: 12 }]}>

@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, Pressable, View, Text, StyleSheet, KeyboardAvoidingView, Platform, Modal, TextInput, Image } from 'react-native';
+import { ScrollView, Pressable, View, Text, StyleSheet, KeyboardAvoidingView, Platform, Modal, TextInput, Image, Linking, Alert } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import React, { useState, useEffect } from 'react';
 import { loginUser } from '@/api/auth/login';
 import { useAuth } from '@/context/AuthContext';
@@ -7,9 +8,9 @@ import { SignInButton } from '@/components/buttons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from "@/components/ui/toast";
 import { notifications } from "@/utils";
-import { showSimpleAlert } from "@/utils/alert";
+import { showSimpleAlert, showAlert } from "@/utils/alert";
 import { Ionicons } from '@expo/vector-icons';
-import { isOwnerApproved, hasPendingOwnerApplication } from '@/utils/owner-approval';
+import { isOwnerApproved, hasPendingOwnerApplication, getOwnerApplication, getBarangayOfficialContact } from '@/utils/owner-approval';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -253,77 +254,35 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                     return;
                 }
                 
-                // Wait a bit more before redirecting to ensure AuthContext state is updated
-                setTimeout(async () => {
-                    try {
-                        if (Array.isArray(roles) && roles.includes('owner')) {
-                            let ownerId = userId;
-                            
-                            if (!ownerId) {
-                                try {
-                                    const { getAuthUser } = await import('@/utils/auth-user');
-                                    const authUser = await getAuthUser();
-                                    if (authUser?.id) {
-                                        ownerId = authUser.id;
-                                    }
-                                } catch (authError) {
-                                    console.warn('⚠️ Could not get userId from auth context:', authError);
-                                }
-                            }
-                            
-                            if (!ownerId) {
-                                console.error('❌ No owner ID found');
-                                showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
-                                setIsSubmitting(false);
-                                return;
-                            }
-                            
-                            try {
-                                const isApproved = await isOwnerApproved(ownerId);
-                                const hasPending = await hasPendingOwnerApplication(ownerId);
-                                
-                                if (!isApproved) {
-                                    if (hasPending) {
-                                        showSimpleAlert('Application Pending', 'Your owner application is still under review.');
-                                    } else {
-                                        showSimpleAlert('Access Denied', 'Your owner application has not been approved yet.');
-                                    }
-                                    setIsSubmitting(false);
-                                    return;
-                                }
-                                
-                                console.log('✅ Owner approved, redirecting to owner dashboard');
-                                redirectOwnerBasedOnListings(ownerId);
-                            } catch (error) {
-                                console.error('❌ Error checking owner approval:', error);
-                                showSimpleAlert('Error', 'Unable to verify your owner status. Please try again.');
-                                setIsSubmitting(false);
-                                return;
-                            }
-                        } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
-                            console.log('🏛️ Redirecting barangay official to dashboard');
-                            redirectBrgyOfficial();
-                        } else {
-                            console.log('🏠 Redirecting tenant to tabs');
-                            // Pass userId to redirectTenantToTabs to ensure it has the user ID even if state hasn't updated
-                            redirectTenantToTabs(userId);
-                        }
-                        
-                        // Close modal and call success callback
-                        onClose();
-                        if (onLoginSuccess) {
-                            onLoginSuccess();
-                        }
-                    } catch (redirectError) {
-                        console.error('❌ Error during redirect:', redirectError);
-                        // Fallback to tenant tabs if redirect fails
+                // Redirect immediately - approval checks happen in layout/dashboard
+                // This allows UI to show faster while checks happen in background
+                try {
+                    if (Array.isArray(roles) && roles.includes('owner')) {
+                        // Redirect immediately, approval check happens in owner layout
+                        console.log('🏠 Redirecting owner to dashboard...');
+                        redirectOwnerBasedOnListings(userId);
+                    } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
+                        console.log('🏛️ Redirecting barangay official to dashboard');
+                        redirectBrgyOfficial();
+                    } else {
+                        console.log('🏠 Redirecting tenant to tabs');
                         redirectTenantToTabs(userId);
-                        onClose();
-                        if (onLoginSuccess) {
-                            onLoginSuccess();
-                        }
                     }
-                }, 150);
+                    
+                    // Close modal and call success callback
+                    onClose();
+                    if (onLoginSuccess) {
+                        onLoginSuccess();
+                    }
+                } catch (redirectError) {
+                    console.error('❌ Error during redirect:', redirectError);
+                    // Fallback to tenant tabs if redirect fails
+                    redirectTenantToTabs(userId);
+                    onClose();
+                    if (onLoginSuccess) {
+                        onLoginSuccess();
+                    }
+                }
             } else {
                 // Login failed - handle different error types
                 const errorType = (result as any).error || 'UNKNOWN_ERROR';

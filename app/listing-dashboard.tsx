@@ -25,7 +25,7 @@ import SignUpModal from '@/components/SignUpModal';
 
 const { width } = Dimensions.get('window');
 
-type PropertyType = 'all' | 'Condo' | 'Apartment' | 'House' | 'BedSpace';
+type PropertyType = 'all' | 'Boarding House' | 'Apartment' | 'House' | 'BedSpace';
 
 interface ListingDisplay {
   id: string;
@@ -523,12 +523,12 @@ export default function ListingDashboard() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.filterButton, selectedFilter === 'Condo' && styles.filterButtonActive]}
-                onPress={() => setSelectedFilter('Condo')}
+                style={[styles.filterButton, selectedFilter === 'Boarding House' && styles.filterButtonActive]}
+                onPress={() => setSelectedFilter('Boarding House')}
               >
                 <Text style={styles.filterEmoji}></Text>
-                <Text style={[styles.filterButtonText, selectedFilter === 'Condo' && styles.filterButtonTextActive]}>
-                  Condo
+                <Text style={[styles.filterButtonText, selectedFilter === 'Boarding House' && styles.filterButtonTextActive]}>
+                  Boarding House
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity

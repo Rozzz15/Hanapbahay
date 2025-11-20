@@ -11,7 +11,7 @@ const FAQModal: React.FC<FAQModalProps> = ({ visible, onClose }) => {
     const faqItems = [
         {
             question: "How do I search for properties in HanapBahay?",
-            answer: "Use the search bar on the dashboard to search by location, property type, or keywords. You can also use the filter button to narrow down by barangay, price range, and property type (house, apartment, condo, bedspace)."
+            answer: "Use the search bar on the dashboard to search by location, property type, or keywords. You can also use the filter button to narrow down by barangay, price range, and property type (house, apartment, boarding house, bedspace)."
         },
         {
             question: "How do I filter properties by barangay?",
@@ -31,7 +31,7 @@ const FAQModal: React.FC<FAQModalProps> = ({ visible, onClose }) => {
         },
         {
             question: "What types of properties are available?",
-            answer: "HanapBahay offers houses, apartments, condominiums, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information."
+            answer: "HanapBahay offers houses, apartments, boarding houses, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information."
         },
         {
             question: "How do I set my price range?",

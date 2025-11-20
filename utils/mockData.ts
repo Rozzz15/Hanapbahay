@@ -25,7 +25,7 @@ export const propertyTypes: PropertyType[] = [
   { id: '1', label: 'Any', value: 'any' },
   { id: '2', label: 'House', value: 'house' },
   { id: '3', label: 'Apartment', value: 'apartment' },
-  { id: '4', label: 'Condo', value: 'condo' },
+  { id: '4', label: 'Boarding House', value: 'boarding house' },
   { id: '5', label: 'Bedspace', value: 'bedspace' },
 ];
 

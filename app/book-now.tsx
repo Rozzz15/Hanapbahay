@@ -343,6 +343,8 @@ export default function BookNowScreen() {
   const [specialRequests, setSpecialRequests] = useState('');
   const [selectedRoom, setSelectedRoom] = useState<number | undefined>(undefined);
   const [roomAvailability, setRoomAvailability] = useState<number[]>([]); // Available slots per room
+  const [tenantType, setTenantType] = useState<'individual' | 'family' | 'couple' | 'group' | undefined>(undefined);
+  const [numberOfPeople, setNumberOfPeople] = useState<string>('');
   
   // Calendar modal state
   const [showCalendar, setShowCalendar] = useState(false);
@@ -566,6 +568,8 @@ export default function BookNowScreen() {
     setStartDate('');
     setSpecialRequests('');
     setSelectedDate(new Date());
+    setTenantType(undefined);
+    setNumberOfPeople('');
     setIsProcessing(false);
     setShowSuccessAnimation(false);
     setBookingId('');
@@ -645,6 +649,33 @@ export default function BookNowScreen() {
       return false;
     }
 
+    // Validate tenant type selection
+    if (!tenantType) {
+      Alert.alert('Tenant Type Required', 'Please select your tenant type to continue with your booking.');
+      return false;
+    }
+
+    // Validate number of people for family and group
+    if (tenantType === 'family' || tenantType === 'group') {
+      if (!numberOfPeople || numberOfPeople.trim() === '') {
+        Alert.alert(
+          'Number of People Required',
+          tenantType === 'family' 
+            ? 'Please enter the number of family members.'
+            : 'Please enter the number of people in your group.'
+        );
+        return false;
+      }
+      const numPeople = parseInt(numberOfPeople, 10);
+      if (isNaN(numPeople) || numPeople < 1) {
+        Alert.alert(
+          'Invalid Number',
+          'Please enter a valid number of people (at least 1).'
+        );
+        return false;
+      }
+    }
+
     // Validate room selection if property has room capacities
     if (propertyData?.roomCapacities && propertyData.roomCapacities.length > 0) {
       if (selectedRoom === undefined) {
@@ -722,7 +753,9 @@ export default function BookNowScreen() {
         endDate: startDate, // Same as start date for monthly rental
         duration: 1, // Default to 1 month for monthly rental
         specialRequests: specialRequests || 'Standard booking request',
-        selectedRoom: propertyData.roomCapacities && propertyData.roomCapacities.length > 0 ? selectedRoom : undefined
+        selectedRoom: propertyData.roomCapacities && propertyData.roomCapacities.length > 0 ? selectedRoom : undefined,
+        tenantType: tenantType,
+        numberOfPeople: (tenantType === 'family' || tenantType === 'group') && numberOfPeople ? parseInt(numberOfPeople, 10) : undefined
       };
 
       console.log('🔄 Creating booking with data:', bookingData);
@@ -838,6 +871,82 @@ export default function BookNowScreen() {
           </TouchableOpacity>
             <Text style={styles.inputHint}>Tap to select your move-in date</Text>
         </View>
+
+        {/* Tenant Type Selection */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Tenant Type *</Text>
+          <Text style={styles.inputHint}>Select the type of tenant you are</Text>
+          <View style={styles.tenantTypeContainer}>
+            {(['individual', 'family', 'couple', 'group'] as const).map((type) => {
+              const isSelected = tenantType === type;
+              const labels: Record<typeof type, string> = {
+                individual: 'Individual',
+                family: 'Family',
+                couple: 'Couple',
+                group: 'Group/Shared'
+              };
+              
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[
+                    styles.tenantTypeOption,
+                    isSelected && styles.tenantTypeOptionSelected
+                  ]}
+                  onPress={() => {
+                    setTenantType(type);
+                    // Clear number of people if switching away from family/group
+                    if (type !== 'family' && type !== 'group') {
+                      setNumberOfPeople('');
+                    }
+                  }}
+                >
+                  <View style={[
+                    styles.tenantTypeRadio,
+                    isSelected && styles.tenantTypeRadioSelected
+                  ]}>
+                    {isSelected && <View style={styles.tenantTypeRadioInner} />}
+                  </View>
+                  <Text style={[
+                    styles.tenantTypeText,
+                    isSelected && styles.tenantTypeTextSelected
+                  ]}>
+                    {labels[type]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Number of People Input - Only show for Family and Group/Shared */}
+        {(tenantType === 'family' || tenantType === 'group') && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>
+              {tenantType === 'family' ? 'Number of Family Members *' : 'Number of People in Group *'}
+            </Text>
+            <Text style={styles.inputHint}>
+              {tenantType === 'family' 
+                ? 'Enter the total number of family members who will be staying'
+                : 'Enter the total number of people in your group'}
+            </Text>
+            <TextInput
+              style={styles.numberInput}
+              value={numberOfPeople}
+              onChangeText={(text) => {
+                // Only allow numbers
+                const numericValue = text.replace(/[^0-9]/g, '');
+                if (numericValue === '' || parseInt(numericValue, 10) > 0) {
+                  setNumberOfPeople(numericValue);
+                }
+              }}
+              placeholder={tenantType === 'family' ? 'e.g., 4' : 'e.g., 3'}
+              placeholderTextColor="#9CA3AF"
+              keyboardType="number-pad"
+              maxLength={3}
+            />
+          </View>
+        )}
 
         {/* Room Selection - Only show if property has room capacities */}
         {propertyData.roomCapacities && propertyData.roomCapacities.length > 0 && (() => {
@@ -1688,5 +1797,66 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  tenantTypeContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 8,
+  },
+  tenantTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    flex: 1,
+    minWidth: '45%',
+  },
+  tenantTypeOptionSelected: {
+    borderColor: '#3B82F6',
+    backgroundColor: '#EFF6FF',
+  },
+  tenantTypeRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tenantTypeRadioSelected: {
+    borderColor: '#3B82F6',
+  },
+  tenantTypeRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#3B82F6',
+  },
+  tenantTypeText: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  tenantTypeTextSelected: {
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  numberInput: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    fontSize: 16,
+    color: '#111827',
+    marginTop: 8,
   },
 });

@@ -1533,24 +1533,23 @@ export default function DashboardScreen() {
     const initializeDashboard = async () => {
       try {
         console.log('🔄 Initializing dashboard - loading published listings...');
-        await loadPublishedListings();
-        // Clean any previously seeded defaults before loading
-        await removeDefaultSeededListings();
-        await cleanupTestData();
+        
+        // Load listings first (most important), then run cleanup in background
+        loadPublishedListings().catch(err => console.error('Error loading listings:', err));
+        
+        // Run cleanup operations in background (non-blocking)
+        Promise.all([
+          removeDefaultSeededListings(),
+          cleanupTestData()
+        ]).catch(err => console.log('Cleanup operations completed (background)'));
+        
+        // Only reload listings if authenticated (avoid duplicate loads)
         if (isAuthenticated && user?.id) {
           console.log('🚀 Initial tenant dashboard load...');
           console.log('👤 User details:', { id: user.id, roles: user.roles, name: user.name });
-          await loadPublishedListings();
+          // Listings already loaded above, no need to reload
         } else {
           console.log('⚠️ Not authenticated or no user ID:', { isAuthenticated, userId: user?.id });
-          
-          // Try to load listings anyway (for demo/fallback purposes)
-          console.log('🔄 Attempting fallback load without authentication...');
-          try {
-            await loadPublishedListings();
-          } catch (fallbackError) {
-            console.error('❌ Fallback load failed:', fallbackError);
-          }
         }
       } catch (error) {
         console.error('❌ Error initializing dashboard:', error);

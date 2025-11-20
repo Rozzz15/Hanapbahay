@@ -148,7 +148,7 @@ export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTen
 }
 
 /**
- * Get total number of active tenants for an owner
+ * Get total number of active tenants for an owner (including family/group members)
  */
 export async function getTotalActiveTenants(ownerId: string): Promise<number> {
   try {
@@ -157,9 +157,35 @@ export async function getTotalActiveTenants(ownerId: string): Promise<number> {
       booking => 
         booking.ownerId === ownerId &&
         booking.status === 'approved' &&
-        booking.paymentStatus === 'paid'
+        booking.paymentStatus === 'paid' &&
+        !booking.isDeleted
     );
-    return activeTenants.length;
+    
+    // Helper function to calculate people count from booking
+    const getPeopleCountFromBooking = (booking: BookingRecord): number => {
+      if (!booking.tenantType) return 1; // Default to 1 if no tenant type
+      
+      switch (booking.tenantType) {
+        case 'individual':
+          return 1;
+        case 'couple':
+          return 2;
+        case 'family':
+        case 'group':
+          // Count tenant (1) + family/group members (numberOfPeople)
+          const members = booking.numberOfPeople || 0;
+          return 1 + members;
+        default:
+          return 1;
+      }
+    };
+    
+    // Calculate total people count including family/group members
+    const totalPeople = activeTenants.reduce((total, booking) => {
+      return total + getPeopleCountFromBooking(booking);
+    }, 0);
+    
+    return totalPeople;
   } catch (error) {
     console.error('❌ Error getting total active tenants:', error);
     return 0;

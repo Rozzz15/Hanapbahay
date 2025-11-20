@@ -128,7 +128,11 @@ export default function ResidentsPage() {
 
           // Get property type from listing
           const property = allListings.find(l => l.id === booking.propertyId);
-          const propertyType = property?.propertyType || 'Unknown';
+          let propertyType = property?.propertyType || 'Unknown';
+          // Normalize "Condo" to "Boarding House" for consistency
+          if (propertyType === 'Condo') {
+            propertyType = 'Boarding House';
+          }
           
           // Get earliest booking date
           const sortedBookings = [...bookings].sort((a, b) => 

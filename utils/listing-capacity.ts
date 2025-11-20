@@ -156,9 +156,92 @@ export async function getAvailableSlots(listing: PublishedListingRecord): Promis
 }
 
 /**
+ * Update listing availability status based on current capacity
+ * Sets status to 'occupied' if at capacity, 'available' if slots are available
+ * This ensures the barangay account can see the correct status
+ */
+export async function updateListingAvailabilityStatus(listingId: string): Promise<void> {
+  try {
+    const listing = await db.get<PublishedListingRecord>('published_listings', listingId);
+    if (!listing) {
+      console.log('⚠️ Listing not found for status update:', listingId);
+      return;
+    }
+
+    const isAtCapacity = await isListingAtCapacity(listing);
+    const newStatus: 'available' | 'occupied' | 'reserved' = isAtCapacity ? 'occupied' : 'available';
+    
+    // Normalize current status for comparison (handle case-insensitive and null/undefined)
+    const currentStatus = listing.availabilityStatus 
+      ? String(listing.availabilityStatus).toLowerCase().trim() 
+      : 'available';
+    const normalizedNewStatus = newStatus.toLowerCase().trim();
+    
+    // Only update if status has changed (case-insensitive comparison)
+    if (currentStatus !== normalizedNewStatus) {
+      const updatedListing: PublishedListingRecord = {
+        ...listing,
+        availabilityStatus: newStatus, // Store as lowercase
+        updatedAt: new Date().toISOString(),
+      };
+      
+      await db.upsert('published_listings', listingId, updatedListing);
+      console.log(`✅ Updated listing ${listingId} availabilityStatus from "${listing.availabilityStatus}" to "${newStatus}"`);
+      console.log(`📊 Listing capacity check: isAtCapacity=${isAtCapacity}, occupiedSlots=${await getOccupiedSlots(listingId)}, capacity=${listing.capacity || 1}`);
+    } else {
+      console.log(`ℹ️ Listing ${listingId} status already correct: "${currentStatus}" (isAtCapacity=${isAtCapacity})`);
+    }
+  } catch (error) {
+    console.error('❌ Error updating listing availability status:', error);
+  }
+}
+
+/**
+ * Sync all listings' availability status based on current capacity
+ * Useful for fixing any listings that are out of sync
+ */
+export async function syncAllListingStatuses(): Promise<void> {
+  try {
+    console.log('🔄 Syncing all listing availability statuses...');
+    const allListings = await db.list<PublishedListingRecord>('published_listings');
+    let updatedCount = 0;
+    
+    for (const listing of allListings) {
+      if (!listing.id) continue;
+      try {
+        const isAtCapacity = await isListingAtCapacity(listing);
+        const newStatus: 'available' | 'occupied' | 'reserved' = isAtCapacity ? 'occupied' : 'available';
+        const currentStatus = listing.availabilityStatus 
+          ? String(listing.availabilityStatus).toLowerCase().trim() 
+          : 'available';
+        const normalizedNewStatus = newStatus.toLowerCase().trim();
+        
+        if (currentStatus !== normalizedNewStatus) {
+          const updatedListing: PublishedListingRecord = {
+            ...listing,
+            availabilityStatus: newStatus,
+            updatedAt: new Date().toISOString(),
+          };
+          await db.upsert('published_listings', listing.id, updatedListing);
+          updatedCount++;
+          console.log(`✅ Synced listing ${listing.id}: ${currentStatus} → ${newStatus}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error syncing listing ${listing.id}:`, error);
+      }
+    }
+    
+    console.log(`✅ Sync complete: Updated ${updatedCount} out of ${allListings.length} listings`);
+  } catch (error) {
+    console.error('❌ Error syncing all listing statuses:', error);
+  }
+}
+
+/**
  * Check if listing has reached capacity and auto-reject pending bookings
  * This should be called when a booking payment status is updated to 'paid'
  * Also checks room-specific capacity if roomCapacities are defined
+ * Also updates the listing's availabilityStatus in the database
  */
 export async function checkAndRejectPendingBookings(listingId: string): Promise<void> {
   try {
@@ -178,10 +261,6 @@ export async function checkAndRejectPendingBookings(listingId: string): Promise<
         booking.propertyId === listingId &&
         booking.status === 'pending'
     );
-    
-    if (pendingBookings.length === 0) {
-      return; // No pending bookings to check
-    }
     
     let rejectedCount = 0;
     
@@ -251,6 +330,34 @@ export async function checkAndRejectPendingBookings(listingId: string): Promise<
     
     if (rejectedCount > 0) {
       console.log(`✅ Rejected ${rejectedCount} pending booking(s) for listing ${listingId}`);
+    }
+    
+    // Update listing availability status based on current capacity
+    // Force update even if status seems correct, to ensure database is in sync
+    await updateListingAvailabilityStatus(listingId);
+    
+    // Double-check: verify the update was successful
+    try {
+      const updatedListing = await db.get<PublishedListingRecord>('published_listings', listingId);
+      if (updatedListing) {
+        const isStillAtCapacity = await isListingAtCapacity(updatedListing);
+        const expectedStatus = isStillAtCapacity ? 'occupied' : 'available';
+        const actualStatus = updatedListing.availabilityStatus?.toLowerCase().trim() || 'available';
+        
+        if (actualStatus !== expectedStatus) {
+          console.warn(`⚠️ Status mismatch detected for listing ${listingId}: expected "${expectedStatus}", got "${actualStatus}". Forcing update...`);
+          // Force update
+          const forceUpdatedListing: PublishedListingRecord = {
+            ...updatedListing,
+            availabilityStatus: expectedStatus,
+            updatedAt: new Date().toISOString(),
+          };
+          await db.upsert('published_listings', listingId, forceUpdatedListing);
+          console.log(`✅ Force-updated listing ${listingId} to "${expectedStatus}"`);
+        }
+      }
+    } catch (verifyError) {
+      console.warn('⚠️ Could not verify listing status update:', verifyError);
     }
   } catch (error) {
     console.error('❌ Error checking and rejecting pending bookings:', error);

@@ -14,7 +14,7 @@ const { height } = Dimensions.get('window');
 
 const propertyTypes: ButtonOption[] = [
   { id: 'any', label: 'Any Type' },
-  { id: 'Condo', label: 'Condo' },
+  { id: 'Boarding House', label: 'Boarding House' },
   { id: 'Apartment', label: 'Apartment' },
   { id: 'House', label: 'House' },
   { id: 'BedSpace', label: 'BedSpace' }

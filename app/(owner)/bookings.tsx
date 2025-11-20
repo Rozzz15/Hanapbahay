@@ -27,7 +27,8 @@ import {
   Trash2,
   LayoutGrid,
   List,
-  LayoutList
+  LayoutList,
+  Users
 } from 'lucide-react-native';
 
 export default function BookingsPage() {
@@ -476,6 +477,19 @@ export default function BookingsPage() {
                           {booking.tenantEmail}
                         </Text>
                       </View>
+                      {booking.tenantType && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: designTokens.spacing.sm }}>
+                          <Users size={14} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
+                            Tenant Type: {booking.tenantType.charAt(0).toUpperCase() + booking.tenantType.slice(1)}
+                            {booking.numberOfPeople && (booking.tenantType === 'family' || booking.tenantType === 'group') && (
+                              <Text style={{ fontWeight: '600' as const }}>
+                                {' '}({booking.numberOfPeople} {booking.numberOfPeople === 1 ? 'person' : 'people'})
+                              </Text>
+                            )}
+                          </Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
 
                     {/* Payment Details */}
@@ -597,6 +611,14 @@ export default function BookingsPage() {
                                     await db.upsert('bookings', booking.id, updatedBooking);
                                     
                                     console.log(`✅ Marked booking as paid: ${booking.id}`);
+                                    
+                                    // Check if listing has reached capacity and update availability status
+                                    try {
+                                      const { checkAndRejectPendingBookings } = await import('../../utils/listing-capacity');
+                                      await checkAndRejectPendingBookings(booking.propertyId);
+                                    } catch (capacityError) {
+                                      console.error('❌ Error checking listing capacity:', capacityError);
+                                    }
                                     
                                     // Create initial payment record for payment history
                                     try {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Pressable, Platform, Alert, Share } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Line, Circle, Polyline, Path } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
@@ -1269,104 +1270,74 @@ export default function ReportsPage() {
   return (
     <View style={sharedStyles.container}>
       <ScrollView style={sharedStyles.scrollView}>
-        <View style={sharedStyles.pageContainer}>
-          {/* Modern Header with Gradient */}
+        <View style={[sharedStyles.pageContainer, { 
+          paddingHorizontal: designTokens.spacing.xl + designTokens.spacing.sm,
+          paddingTop: designTokens.spacing.lg,
+          paddingBottom: designTokens.spacing.xl,
+        }]}>
+          {/* Clean Modern Header */}
           <View style={{
-            marginBottom: designTokens.spacing.xl,
-            borderRadius: 20,
-            overflow: 'hidden',
-            ...designTokens.shadows.lg,
+            marginBottom: designTokens.spacing['2xl'],
+            paddingBottom: designTokens.spacing.lg,
+            borderBottomWidth: 1,
+            borderBottomColor: designTokens.colors.borderLight,
           }}>
-            <LinearGradient
-              colors={designTokens.gradients.primary as any}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{
-                padding: designTokens.spacing.xl,
-              }}
-            >
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.md }}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                    <View style={[sharedStyles.statIcon, iconBackgrounds.white, { marginRight: designTokens.spacing.sm }]}>
-                      <BarChart3 size={24} color={designTokens.colors.primary} />
-                    </View>
-                    <Text style={{
-                      fontSize: designTokens.typography['2xl'],
-                      fontWeight: designTokens.typography.bold as any,
-                      color: designTokens.colors.white,
-                    }}>
-                      Reports & Analytics
-                    </Text>
-                  </View>
-                  <Text style={{
-                    fontSize: designTokens.typography.sm,
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    marginLeft: 48,
-                  }}>
-                    Comprehensive insights for {userBarangay || 'your barangay'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={loadAnalytics}
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    padding: designTokens.spacing.sm,
-                    borderRadius: designTokens.borderRadius.full,
-                    borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.3)',
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <RefreshCw size={18} color="white" />
-                </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{
+                  fontSize: designTokens.typography['3xl'],
+                  fontWeight: designTokens.typography.bold as any,
+                  color: designTokens.colors.textPrimary,
+                  letterSpacing: -0.5,
+                  marginBottom: designTokens.spacing.xs,
+                }}>
+                  Reports & Analytics
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography.base,
+                  color: designTokens.colors.textSecondary,
+                  fontWeight: designTokens.typography.medium as any,
+                }}>
+                  {userBarangay || 'Your Barangay'} • Comprehensive Insights
+                </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setShowExportModal(true)}
+                onPress={loadAnalytics}
                 style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.15)',
-                  paddingVertical: designTokens.spacing.sm,
-                  paddingHorizontal: designTokens.spacing.md,
-                  borderRadius: designTokens.borderRadius.md,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  backgroundColor: designTokens.colors.background,
+                  padding: designTokens.spacing.md,
+                  borderRadius: designTokens.borderRadius.lg,
                   borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                  borderColor: designTokens.colors.borderLight,
                 }}
-                activeOpacity={0.8}
+                activeOpacity={0.7}
               >
-                <Download size={16} color="white" />
-                <Text style={{
-                  color: designTokens.colors.white,
-                  fontSize: designTokens.typography.sm,
-                  fontWeight: designTokens.typography.semibold as any,
-                  marginLeft: designTokens.spacing.xs,
-                }}>
-                  Export Report
-                </Text>
+                <RefreshCw size={20} color={designTokens.colors.primary} />
               </TouchableOpacity>
-            </LinearGradient>
+            </View>
           </View>
 
-          {/* 1. DEMOGRAPHICS - Organized Section */}
+          {/* 1. DEMOGRAPHICS - Clean Section */}
           <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
-            {/* Section Header */}
+            {/* Clean Section Header */}
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              marginBottom: designTokens.spacing.lg,
-              paddingBottom: designTokens.spacing.md,
-              borderBottomWidth: 2,
-              borderBottomColor: designTokens.colors.borderLight,
+              marginBottom: designTokens.spacing.xl,
+              paddingLeft: designTokens.spacing.sm,
             }}>
-              <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginRight: designTokens.spacing.md }]}>
-                <Users size={20} color="#3B82F6" />
-              </View>
+              <View style={{
+                width: 4,
+                height: 24,
+                backgroundColor: '#3B82F6',
+                borderRadius: 2,
+                marginRight: designTokens.spacing.md,
+              }} />
               <Text style={{
                 fontSize: designTokens.typography.xl,
                 fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
+                letterSpacing: -0.3,
               }}>
                 Demographics
               </Text>
@@ -1379,129 +1350,122 @@ export default function ReportsPage() {
               gap: designTokens.spacing.md,
               marginBottom: designTokens.spacing.lg,
             }}>
-              {/* Total Owners Card */}
+              {/* Total Owners Card - Modern */}
               <View style={{
                 flex: 1,
                 minWidth: '47%',
                 backgroundColor: designTokens.colors.white,
-                borderRadius: 16,
-                padding: designTokens.spacing.lg,
+                borderRadius: 12,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
                 borderWidth: 1,
                 borderColor: designTokens.colors.borderLight,
-                ...designTokens.shadows.sm,
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-                    <Building2 size={18} color="#3B82F6" />
-                  </View>
-                  <Text style={{
-                    fontSize: designTokens.typography.xs,
-                    color: designTokens.colors.textSecondary,
-                    marginLeft: designTokens.spacing.xs,
-                    fontWeight: designTokens.typography.medium as any,
-                  }}>
-                    Total Owners
-                  </Text>
-                </View>
                 <Text style={{
-                  fontSize: designTokens.typography['2xl'],
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textSecondary,
+                  marginBottom: designTokens.spacing.xs,
+                  fontWeight: designTokens.typography.medium as any,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  Total Owners
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography['3xl'],
                   fontWeight: designTokens.typography.bold as any,
-                  color: '#3B82F6',
+                  color: designTokens.colors.textPrimary,
+                  letterSpacing: -1,
                 }}>
                   {analytics?.ownerAnalytics?.totalOwners ?? 0}
                 </Text>
               </View>
 
-              {/* Total Residents Card */}
+              {/* Total Residents Card - Modern */}
               <View style={{
                 flex: 1,
                 minWidth: '47%',
                 backgroundColor: designTokens.colors.white,
-                borderRadius: 16,
-                padding: designTokens.spacing.lg,
+                borderRadius: 12,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
                 borderWidth: 1,
                 borderColor: designTokens.colors.borderLight,
-                ...designTokens.shadows.sm,
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.pink]}>
-                    <Users size={18} color="#EC4899" />
-                  </View>
-                  <Text style={{
-                    fontSize: designTokens.typography.xs,
-                    color: designTokens.colors.textSecondary,
-                    marginLeft: designTokens.spacing.xs,
-                    fontWeight: designTokens.typography.medium as any,
-                  }}>
-                    Total Residents
-                  </Text>
-                </View>
                 <Text style={{
-                  fontSize: designTokens.typography['2xl'],
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textSecondary,
+                  marginBottom: designTokens.spacing.xs,
+                  fontWeight: designTokens.typography.medium as any,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  Total Residents
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography['3xl'],
                   fontWeight: designTokens.typography.bold as any,
-                  color: '#EC4899',
+                  color: designTokens.colors.textPrimary,
+                  letterSpacing: -1,
                 }}>
                   {analytics?.genderAnalytics?.total ?? 0}
                 </Text>
               </View>
 
-              {/* Avg Properties per Owner Card */}
+              {/* Avg Properties per Owner Card - Modern */}
               <View style={{
                 flex: 1,
                 minWidth: '47%',
                 backgroundColor: designTokens.colors.white,
-                borderRadius: 16,
-                padding: designTokens.spacing.lg,
+                borderRadius: 12,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
                 borderWidth: 1,
                 borderColor: designTokens.colors.borderLight,
-                ...designTokens.shadows.sm,
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-                    <Home size={18} color="#10B981" />
-                  </View>
-                  <Text style={{
-                    fontSize: designTokens.typography.xs,
-                    color: designTokens.colors.textSecondary,
-                    marginLeft: designTokens.spacing.xs,
-                    fontWeight: designTokens.typography.medium as any,
-                  }}>
-                    Avg Properties/Owner
-                  </Text>
-                </View>
                 <Text style={{
-                  fontSize: designTokens.typography['2xl'],
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textSecondary,
+                  marginBottom: designTokens.spacing.xs,
+                  fontWeight: designTokens.typography.medium as any,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}>
+                  Avg Properties/Owner
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography['3xl'],
                   fontWeight: designTokens.typography.bold as any,
-                  color: '#10B981',
+                  color: designTokens.colors.textPrimary,
+                  letterSpacing: -1,
                 }}>
                   {analytics?.ownerAnalytics?.averagePropertiesPerOwner ?? 0}
                 </Text>
               </View>
             </View>
 
-            {/* Tenant Demographics with Pie Chart - Modern Card */}
+            {/* Tenant Demographics with Pie Chart - Clean Card */}
             <View style={{
               backgroundColor: designTokens.colors.white,
-              borderRadius: 16,
-              padding: designTokens.spacing.lg,
-              marginBottom: designTokens.spacing.md,
+              borderRadius: 12,
+              padding: designTokens.spacing.xl + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
               borderWidth: 1,
               borderColor: designTokens.colors.borderLight,
-              ...designTokens.shadows.sm,
             }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.pink]}>
-                    <Users size={20} color="#EC4899" />
-                  </View>
-                  <Text style={{
-                    fontSize: designTokens.typography.base,
-                    fontWeight: designTokens.typography.semibold as any,
-                    color: designTokens.colors.textPrimary,
-                    marginLeft: designTokens.spacing.sm,
-                  }}>
-                    Resident Gender Distribution
-                  </Text>
-                </View>
+                <Text style={{
+                  fontSize: designTokens.typography.lg,
+                  fontWeight: designTokens.typography.bold as any,
+                  color: designTokens.colors.textPrimary,
+                  marginBottom: designTokens.spacing.xs,
+                  letterSpacing: -0.3,
+                }}>
+                  Resident Gender Distribution
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  marginBottom: designTokens.spacing.lg,
+                }}>
+                  Only tenants with completed payments are counted
+                </Text>
 
                 <View style={{ marginBottom: 16 }}>
                   <Text style={[sharedStyles.statLabel, { fontSize: 18, marginBottom: 8 }]}>
@@ -1591,160 +1555,461 @@ export default function ReportsPage() {
                     </View>
                   )}
                 </View>
+            </View>
+
+            {/* Tenant Type Analytics - Clean Section */}
+            <View style={{
+              backgroundColor: designTokens.colors.white,
+              borderRadius: 12,
+              padding: designTokens.spacing.xl + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
+              marginHorizontal: designTokens.spacing.sm,
+              borderWidth: 1,
+              borderColor: designTokens.colors.borderLight,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography.lg,
+                fontWeight: designTokens.typography.bold as any,
+                color: designTokens.colors.textPrimary,
+                marginBottom: designTokens.spacing.xs,
+                letterSpacing: -0.3,
+              }}>
+                Tenant Type Distribution
+              </Text>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                color: designTokens.colors.textSecondary,
+                marginBottom: designTokens.spacing.lg,
+              }}>
+                Breakdown of tenant types and total number of people
+              </Text>
+
+              <View style={{ marginBottom: 16 }}>
+                <Text style={[sharedStyles.statLabel, { fontSize: 18, marginBottom: 8 }]}>
+                  Total People: {analytics?.tenantTypeAnalytics?.totalPeople ?? 0}
+                </Text>
+                <Text style={[sharedStyles.statSubtitle, { fontSize: 12, color: '#6B7280', marginTop: 4 }]}>
+                  Breakdown of tenant types and total number of people from bookings
+                </Text>
+              </View>
+
+              {analytics?.tenantTypeAnalytics && (
+                <View style={{ gap: 16 }}>
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={sharedStyles.statLabel}>👤 Individual</Text>
+                      <Text style={sharedStyles.statLabel}>
+                        {analytics.tenantTypeAnalytics.individual ?? 0} {analytics.tenantTypeAnalytics.individual === 1 ? 'booking' : 'bookings'}
+                      </Text>
+                    </View>
+                    <ProgressBar 
+                      percentage={analytics.totalBookings > 0 ? Math.round(((analytics.tenantTypeAnalytics.individual ?? 0) / analytics.totalBookings) * 100) : 0} 
+                      color="#3B82F6" 
+                      height={12} 
+                    />
+                  </View>
+
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={sharedStyles.statLabel}>👨‍👩‍👧‍👦 Family</Text>
+                      <Text style={sharedStyles.statLabel}>
+                        {analytics.tenantTypeAnalytics.family ?? 0} {analytics.tenantTypeAnalytics.family === 1 ? 'booking' : 'bookings'}
+                      </Text>
+                    </View>
+                    <ProgressBar 
+                      percentage={analytics.totalBookings > 0 ? Math.round(((analytics.tenantTypeAnalytics.family ?? 0) / analytics.totalBookings) * 100) : 0} 
+                      color="#10B981" 
+                      height={12} 
+                    />
+                  </View>
+
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={sharedStyles.statLabel}>💑 Couple</Text>
+                      <Text style={sharedStyles.statLabel}>
+                        {analytics.tenantTypeAnalytics.couple ?? 0} {analytics.tenantTypeAnalytics.couple === 1 ? 'booking' : 'bookings'}
+                      </Text>
+                    </View>
+                    <ProgressBar 
+                      percentage={analytics.totalBookings > 0 ? Math.round(((analytics.tenantTypeAnalytics.couple ?? 0) / analytics.totalBookings) * 100) : 0} 
+                      color="#EC4899" 
+                      height={12} 
+                    />
+                  </View>
+
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={sharedStyles.statLabel}>👥 Group/Shared</Text>
+                      <Text style={sharedStyles.statLabel}>
+                        {analytics.tenantTypeAnalytics.group ?? 0} {analytics.tenantTypeAnalytics.group === 1 ? 'booking' : 'bookings'}
+                      </Text>
+                    </View>
+                    <ProgressBar 
+                      percentage={analytics.totalBookings > 0 ? Math.round(((analytics.tenantTypeAnalytics.group ?? 0) / analytics.totalBookings) * 100) : 0} 
+                      color="#F59E0B" 
+                      height={12} 
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
           </View>
 
-          {/* 3. PROPERTY ANALYTICS - Modern Section */}
+          {/* 3. PROPERTY ANALYTICS - Clean Section */}
           <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
-            {/* Section Header */}
+            {/* Clean Section Header */}
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              marginBottom: designTokens.spacing.lg,
-              paddingBottom: designTokens.spacing.md,
-              borderBottomWidth: 2,
-              borderBottomColor: designTokens.colors.borderLight,
+              marginBottom: designTokens.spacing.xl,
+              paddingLeft: designTokens.spacing.sm,
             }}>
-              <View style={[sharedStyles.statIcon, iconBackgrounds.green, { marginRight: designTokens.spacing.md }]}>
-                <Home size={20} color="#10B981" />
-              </View>
+              <View style={{
+                width: 4,
+                height: 24,
+                backgroundColor: '#10B981',
+                borderRadius: 2,
+                marginRight: designTokens.spacing.md,
+              }} />
               <Text style={{
                 fontSize: designTokens.typography.xl,
                 fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
+                letterSpacing: -0.3,
               }}>
                 Property Analytics
               </Text>
             </View>
             
-            {/* Property Status - Modern Card */}
+            {/* Property Status - Clean Card */}
             <View style={{
               backgroundColor: designTokens.colors.white,
-              borderRadius: 16,
-              padding: designTokens.spacing.lg,
-              marginBottom: designTokens.spacing.md,
+              borderRadius: 12,
+              padding: designTokens.spacing.xl + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
+              marginHorizontal: designTokens.spacing.sm,
               borderWidth: 1,
               borderColor: designTokens.colors.borderLight,
-              ...designTokens.shadows.sm,
             }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-                  <BarChart3 size={20} color="#10B981" />
-                </View>
-                <Text style={{
-                  fontSize: designTokens.typography.base,
-                  fontWeight: designTokens.typography.semibold as any,
-                  color: designTokens.colors.textPrimary,
-                  marginLeft: designTokens.spacing.sm,
-                }}>
-                  Property Status Breakdown
-                </Text>
-              </View>
+              <Text style={{
+                fontSize: designTokens.typography.lg,
+                fontWeight: designTokens.typography.bold as any,
+                color: designTokens.colors.textPrimary,
+                marginBottom: designTokens.spacing.lg,
+                letterSpacing: -0.3,
+              }}>
+                Property Status Breakdown
+              </Text>
 
-              <View style={{ gap: designTokens.spacing.md }}>
-                <View style={{
-                  padding: designTokens.spacing.md,
-                  backgroundColor: designTokens.colors.background,
-                  borderRadius: 12,
-                }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981', marginRight: designTokens.spacing.sm }} />
-                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Available</Text>
-                    </View>
-                    <Text style={{
-                      fontSize: designTokens.typography.base,
-                      fontWeight: designTokens.typography.semibold as any,
-                      color: '#10B981',
-                    }}>
-                      {analytics.availableProperties} ({analytics.totalProperties > 0 ? Math.round((analytics.availableProperties / analytics.totalProperties) * 100) : 0}%)
-                    </Text>
-                  </View>
-                  <ProgressBar 
-                    percentage={analytics.totalProperties > 0 ? (analytics.availableProperties / analytics.totalProperties) * 100 : 0} 
-                    color="#10B981" 
-                    height={8} 
-                  />
-                </View>
-
-                <View style={{
-                  padding: designTokens.spacing.md,
-                  backgroundColor: designTokens.colors.background,
-                  borderRadius: 12,
-                }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3B82F6', marginRight: designTokens.spacing.sm }} />
-                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Occupied</Text>
-                    </View>
-                    <Text style={{
-                      fontSize: designTokens.typography.base,
-                      fontWeight: designTokens.typography.semibold as any,
-                      color: '#3B82F6',
-                    }}>
-                      {analytics.occupiedProperties} ({analytics.totalProperties > 0 ? Math.round((analytics.occupiedProperties / analytics.totalProperties) * 100) : 0}%)
-                    </Text>
-                  </View>
-                  <ProgressBar 
-                    percentage={analytics.totalProperties > 0 ? (analytics.occupiedProperties / analytics.totalProperties) * 100 : 0} 
-                    color="#3B82F6" 
-                    height={8} 
-                  />
-                </View>
-
-                <View style={{
-                  padding: designTokens.spacing.md,
-                  backgroundColor: designTokens.colors.background,
-                  borderRadius: 12,
-                }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#F59E0B', marginRight: designTokens.spacing.sm }} />
-                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>Reserved</Text>
-                    </View>
-                    <Text style={{
-                      fontSize: designTokens.typography.base,
-                      fontWeight: designTokens.typography.semibold as any,
-                      color: '#F59E0B',
-                    }}>
-                      {analytics.reservedProperties} ({analytics.totalProperties > 0 ? Math.round((analytics.reservedProperties / analytics.totalProperties) * 100) : 0}%)
-                    </Text>
-                  </View>
-                  <ProgressBar 
-                    percentage={analytics.totalProperties > 0 ? (analytics.reservedProperties / analytics.totalProperties) * 100 : 0} 
-                    color="#F59E0B" 
-                    height={8} 
-                  />
-                </View>
+              {/* Area Chart */}
+              <View style={{ overflow: 'hidden' }}>
+                <LinearGradient
+                  colors={['#EEF2FF', '#F5F3FF'] as [string, string]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    borderRadius: 12,
+                    padding: designTokens.spacing.lg,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {(() => {
+                    const availablePercent = analytics.totalProperties > 0 ? (analytics.availableProperties / analytics.totalProperties) * 100 : 0;
+                    const occupiedPercent = analytics.totalProperties > 0 ? (analytics.occupiedProperties / analytics.totalProperties) * 100 : 0;
+                    const reservedPercent = analytics.totalProperties > 0 ? (analytics.reservedProperties / analytics.totalProperties) * 100 : 0;
+                    const chartHeight = 200;
+                    const chartWidth = '100%';
+                    const padding = designTokens.spacing.md;
+                    
+                    // Calculate stacked areas
+                    const availableHeight = (availablePercent / 100) * chartHeight;
+                    const occupiedHeight = (occupiedPercent / 100) * chartHeight;
+                    const reservedHeight = (reservedPercent / 100) * chartHeight;
+                    
+                    // Y positions from bottom
+                    const reservedY = chartHeight - reservedHeight;
+                    const occupiedY = reservedY - occupiedHeight;
+                    const availableY = occupiedY - availableHeight;
+                    
+                    return (
+                      <View>
+                        {/* Chart Container */}
+                        <View style={{
+                          height: chartHeight,
+                          position: 'relative',
+                          marginBottom: designTokens.spacing.lg,
+                        }}>
+                          {/* Y-axis labels */}
+                          <View style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 35,
+                            justifyContent: 'space-between',
+                            paddingRight: designTokens.spacing.xs,
+                          }}>
+                            {[100, 75, 50, 25, 0].map((value) => (
+                              <Text key={value} style={{
+                                fontSize: designTokens.typography.xs,
+                                color: designTokens.colors.textMuted,
+                                textAlign: 'right',
+                              }}>
+                                {value}%
+                              </Text>
+                            ))}
+                          </View>
+                          
+                          {/* Chart area */}
+                          <View style={{
+                            marginLeft: 40,
+                            marginRight: padding,
+                            height: chartHeight,
+                            position: 'relative',
+                            overflow: 'hidden',
+                          }}>
+                            {/* Grid lines */}
+                            {[0, 25, 50, 75, 100].map((percent) => (
+                              <View
+                                key={percent}
+                                style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  right: 0,
+                                  bottom: `${percent}%`,
+                                  height: 1,
+                                  backgroundColor: designTokens.colors.borderLight,
+                                  opacity: 0.3,
+                                }}
+                              />
+                            ))}
+                            
+                            {/* Area Chart using SVG */}
+                            {(() => {
+                              // Use Dimensions to get width, or use a fixed width for SVG
+                              const svgWidth = 300; // Approximate width, will scale
+                              
+                              return (
+                                <Svg height={chartHeight} width="100%" viewBox={`0 0 ${svgWidth} ${chartHeight}`} preserveAspectRatio="none" style={{ position: 'absolute' }}>
+                                  {/* Reserved Area (bottom) */}
+                                  <Path
+                                    d={`M 0 ${chartHeight} L 0 ${reservedY} L ${svgWidth} ${reservedY} L ${svgWidth} ${chartHeight} Z`}
+                                    fill="#F59E0B"
+                                    opacity={0.8}
+                                  />
+                                  
+                                  {/* Occupied Area (middle) */}
+                                  <Path
+                                    d={`M 0 ${reservedY} L 0 ${occupiedY} L ${svgWidth} ${occupiedY} L ${svgWidth} ${reservedY} Z`}
+                                    fill="#3B82F6"
+                                    opacity={0.8}
+                                  />
+                                  
+                                  {/* Available Area (top) */}
+                                  <Path
+                                    d={`M 0 ${occupiedY} L 0 ${availableY} L ${svgWidth} ${availableY} L ${svgWidth} ${occupiedY} Z`}
+                                    fill="#10B981"
+                                    opacity={0.8}
+                                  />
+                                  
+                                  {/* Separator lines */}
+                                  <Line
+                                    x1={0}
+                                    y1={reservedY}
+                                    x2={svgWidth}
+                                    y2={reservedY}
+                                    stroke="#FFFFFF"
+                                    strokeWidth="2"
+                                    strokeOpacity="0.5"
+                                  />
+                                  <Line
+                                    x1={0}
+                                    y1={occupiedY}
+                                    x2={svgWidth}
+                                    y2={occupiedY}
+                                    stroke="#FFFFFF"
+                                    strokeWidth="2"
+                                    strokeOpacity="0.5"
+                                  />
+                                </Svg>
+                              );
+                            })()}
+                            
+                            {/* Value labels on the areas */}
+                            <View style={{
+                              position: 'absolute',
+                              left: 0,
+                              right: 0,
+                              top: 0,
+                              bottom: 0,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}>
+                              {/* Reserved label */}
+                              {reservedHeight > 30 && (
+                                <View style={{
+                                  position: 'absolute',
+                                  bottom: reservedHeight / 2,
+                                  left: 0,
+                                  right: 0,
+                                  alignItems: 'center',
+                                }}>
+                                  <Text style={{
+                                    fontSize: designTokens.typography.base,
+                                    fontWeight: '700',
+                                    color: '#FFFFFF',
+                                  }}>
+                                    {analytics.reservedProperties}
+                                  </Text>
+                                  <Text style={{
+                                    fontSize: designTokens.typography.xs,
+                                    color: '#FFFFFF',
+                                    opacity: 0.9,
+                                  }}>
+                                    Reserved ({Math.round(reservedPercent)}%)
+                                  </Text>
+                                </View>
+                              )}
+                              
+                              {/* Occupied label */}
+                              {occupiedHeight > 30 && (
+                                <View style={{
+                                  position: 'absolute',
+                                  bottom: reservedHeight + (occupiedHeight / 2),
+                                  left: 0,
+                                  right: 0,
+                                  alignItems: 'center',
+                                }}>
+                                  <Text style={{
+                                    fontSize: designTokens.typography.base,
+                                    fontWeight: '700',
+                                    color: '#FFFFFF',
+                                  }}>
+                                    {analytics.occupiedProperties}
+                                  </Text>
+                                  <Text style={{
+                                    fontSize: designTokens.typography.xs,
+                                    color: '#FFFFFF',
+                                    opacity: 0.9,
+                                  }}>
+                                    Occupied ({Math.round(occupiedPercent)}%)
+                                  </Text>
+                                </View>
+                              )}
+                              
+                              {/* Available label */}
+                              {availableHeight > 30 && (
+                                <View style={{
+                                  position: 'absolute',
+                                  bottom: reservedHeight + occupiedHeight + (availableHeight / 2),
+                                  left: 0,
+                                  right: 0,
+                                  alignItems: 'center',
+                                }}>
+                                  <Text style={{
+                                    fontSize: designTokens.typography.base,
+                                    fontWeight: '700',
+                                    color: '#FFFFFF',
+                                  }}>
+                                    {analytics.availableProperties}
+                                  </Text>
+                                  <Text style={{
+                                    fontSize: designTokens.typography.xs,
+                                    color: '#FFFFFF',
+                                    opacity: 0.9,
+                                  }}>
+                                    Available ({Math.round(availablePercent)}%)
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        </View>
+                        
+                        {/* Legend */}
+                        <View style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-around',
+                          marginBottom: designTokens.spacing.md,
+                          flexWrap: 'wrap',
+                          gap: designTokens.spacing.sm,
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: '#10B981', marginRight: designTokens.spacing.xs }} />
+                            <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
+                              Available: {analytics.availableProperties}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: '#3B82F6', marginRight: designTokens.spacing.xs }} />
+                            <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
+                              Occupied: {analytics.occupiedProperties}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: '#F59E0B', marginRight: designTokens.spacing.xs }} />
+                            <Text style={{ fontSize: designTokens.typography.xs, color: designTokens.colors.textSecondary }}>
+                              Reserved: {analytics.reservedProperties}
+                            </Text>
+                          </View>
+                        </View>
+                        
+                        {/* Summary */}
+                        <View style={{
+                          paddingTop: designTokens.spacing.md,
+                          borderTopWidth: 1,
+                          borderTopColor: designTokens.colors.borderLight,
+                        }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{
+                              fontSize: designTokens.typography.base,
+                              color: designTokens.colors.textSecondary,
+                              fontWeight: '600',
+                            }}>
+                              Total Properties
+                            </Text>
+                            <Text style={{
+                              fontSize: designTokens.typography.xl,
+                              fontWeight: designTokens.typography.bold as any,
+                              color: designTokens.colors.textPrimary,
+                            }}>
+                              {analytics.totalProperties}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })()}
+                </LinearGradient>
               </View>
             </View>
 
-            {/* Property Types - Organized */}
+            {/* Property Types - Clean */}
             {Object.keys(analytics.propertyTypes).length > 0 && (
               <View style={{
                 backgroundColor: designTokens.colors.white,
-                borderRadius: 16,
-                padding: designTokens.spacing.lg,
-                marginBottom: designTokens.spacing.md,
+                borderRadius: 12,
+                padding: designTokens.spacing.xl + designTokens.spacing.xs,
+                marginBottom: designTokens.spacing.lg,
+                marginHorizontal: designTokens.spacing.sm,
                 borderWidth: 1,
                 borderColor: designTokens.colors.borderLight,
-                ...designTokens.shadows.sm,
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-                  <View style={[sharedStyles.statIcon, iconBackgrounds.purple]}>
-                    <Home size={20} color="#8B5CF6" />
-                  </View>
-                  <Text style={{
-                    fontSize: designTokens.typography.base,
-                    fontWeight: designTokens.typography.semibold as any,
-                    color: designTokens.colors.textPrimary,
-                    marginLeft: designTokens.spacing.sm,
-                  }}>
-                    Property Types Distribution
-                  </Text>
-                </View>
+                <Text style={{
+                  fontSize: designTokens.typography.lg,
+                  fontWeight: designTokens.typography.bold as any,
+                  color: designTokens.colors.textPrimary,
+                  marginBottom: designTokens.spacing.lg,
+                  letterSpacing: -0.3,
+                }}>
+                  Property Types Distribution
+                </Text>
 
                 <View style={{ gap: designTokens.spacing.md }}>
-                  {Object.entries(analytics.propertyTypes).map(([type, count]) => (
+                  {Object.entries(analytics.propertyTypes).map(([type, count]) => {
+                    // Normalize property type names for display
+                    const normalizedType = type === 'Condo' ? 'Boarding House' : type;
+                    return (
                     <View key={type} style={{
                       flexDirection: 'row',
                       justifyContent: 'space-between',
@@ -1754,7 +2019,7 @@ export default function ReportsPage() {
                       backgroundColor: designTokens.colors.background,
                       borderRadius: 8,
                     }}>
-                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>{type}</Text>
+                      <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.sm }]}>{normalizedType}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs }}>
                         <Text style={{
                           fontSize: designTokens.typography.base,
@@ -1771,58 +2036,57 @@ export default function ReportsPage() {
                         </Text>
                       </View>
                     </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </View>
             )}
-          </View>
 
-          {/* 4. BOOKING ANALYTICS - Modern Section */}
+          {/* 4. BOOKING ANALYTICS - Clean Section */}
           <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
-            {/* Section Header */}
+            {/* Clean Section Header */}
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              marginBottom: designTokens.spacing.lg,
-              paddingBottom: designTokens.spacing.md,
-              borderBottomWidth: 2,
-              borderBottomColor: designTokens.colors.borderLight,
+              marginBottom: designTokens.spacing.xl,
+              paddingLeft: designTokens.spacing.sm,
             }}>
-              <View style={[sharedStyles.statIcon, iconBackgrounds.purple, { marginRight: designTokens.spacing.md }]}>
-                <Calendar size={20} color="#8B5CF6" />
-              </View>
+              <View style={{
+                width: 4,
+                height: 24,
+                backgroundColor: '#8B5CF6',
+                borderRadius: 2,
+                marginRight: designTokens.spacing.md,
+              }} />
               <Text style={{
                 fontSize: designTokens.typography.xl,
                 fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
+                letterSpacing: -0.3,
               }}>
                 Booking Analytics
               </Text>
             </View>
             
-            {/* Booking Status - Modern Card */}
+            {/* Booking Status - Clean Card */}
             <View style={{
               backgroundColor: designTokens.colors.white,
-              borderRadius: 16,
-              padding: designTokens.spacing.lg,
-              marginBottom: designTokens.spacing.md,
+              borderRadius: 12,
+              padding: designTokens.spacing.xl + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
+              marginHorizontal: designTokens.spacing.sm,
               borderWidth: 1,
               borderColor: designTokens.colors.borderLight,
-              ...designTokens.shadows.sm,
             }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.purple]}>
-                  <PieChartIcon size={20} color="#8B5CF6" />
-                </View>
-                <Text style={{
-                  fontSize: designTokens.typography.base,
-                  fontWeight: designTokens.typography.semibold as any,
-                  color: designTokens.colors.textPrimary,
-                  marginLeft: designTokens.spacing.sm,
-                }}>
-                  Booking Status Breakdown
-                </Text>
-              </View>
+              <Text style={{
+                fontSize: designTokens.typography.lg,
+                fontWeight: designTokens.typography.bold as any,
+                color: designTokens.colors.textPrimary,
+                marginBottom: designTokens.spacing.lg,
+                letterSpacing: -0.3,
+              }}>
+                Booking Status Breakdown
+              </Text>
 
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 }}>
                 <StatusBadge status="Approved" count={analytics.approvedBookings} />
@@ -1856,29 +2120,24 @@ export default function ReportsPage() {
               </View>
             </View>
 
-            {/* Booking Trends - Modern Card */}
+            {/* Booking Trends - Clean Card */}
             <View style={{
               backgroundColor: designTokens.colors.white,
-              borderRadius: 16,
-              padding: designTokens.spacing.lg,
-              marginBottom: designTokens.spacing.md,
+              borderRadius: 12,
+              padding: designTokens.spacing.xl + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
               borderWidth: 1,
               borderColor: designTokens.colors.borderLight,
-              ...designTokens.shadows.sm,
             }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.green]}>
-                  <TrendingUp size={20} color="#10B981" />
-                </View>
-                <Text style={{
-                  fontSize: designTokens.typography.base,
-                  fontWeight: designTokens.typography.semibold as any,
-                  color: designTokens.colors.textPrimary,
-                  marginLeft: designTokens.spacing.sm,
-                }}>
-                  Booking Trends
-                </Text>
-              </View>
+              <Text style={{
+                fontSize: designTokens.typography.lg,
+                fontWeight: designTokens.typography.bold as any,
+                color: designTokens.colors.textPrimary,
+                marginBottom: designTokens.spacing.lg,
+                letterSpacing: -0.3,
+              }}>
+                Booking Trends
+              </Text>
 
               <View style={{ gap: 12 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1918,59 +2177,72 @@ export default function ReportsPage() {
             </View>
           </View>
 
-          {/* 5. ACTIVITY & ENGAGEMENT - Modern Section */}
+          {/* 5. ACTIVITY & ENGAGEMENT - Clean Section */}
           <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
-            {/* Section Header */}
+            {/* Clean Section Header */}
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              marginBottom: designTokens.spacing.lg,
-              paddingBottom: designTokens.spacing.md,
-              borderBottomWidth: 2,
-              borderBottomColor: designTokens.colors.borderLight,
+              marginBottom: designTokens.spacing.xl,
+              paddingLeft: designTokens.spacing.sm,
             }}>
-              <View style={[sharedStyles.statIcon, iconBackgrounds.indigo, { marginRight: designTokens.spacing.md }]}>
-                <Activity size={20} color="#6366F1" />
-              </View>
+              <View style={{
+                width: 4,
+                height: 24,
+                backgroundColor: '#6366F1',
+                borderRadius: 2,
+                marginRight: designTokens.spacing.md,
+              }} />
               <Text style={{
                 fontSize: designTokens.typography.xl,
                 fontWeight: designTokens.typography.bold as any,
                 color: designTokens.colors.textPrimary,
+                letterSpacing: -0.3,
               }}>
                 Activity & Engagement
               </Text>
             </View>
             
-            {/* Time Period Selector Button - Modern */}
+            {/* Time Period Selector Button - Clean */}
             <TouchableOpacity
               onPress={() => setShowTimePeriodModal(true)}
               style={{
                 backgroundColor: designTokens.colors.white,
-                borderRadius: 16,
-                padding: designTokens.spacing.lg,
-                marginBottom: designTokens.spacing.md,
+                borderRadius: 12,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                marginBottom: designTokens.spacing.lg,
+                marginHorizontal: designTokens.spacing.sm,
                 borderWidth: 1,
                 borderColor: designTokens.colors.borderLight,
-                ...designTokens.shadows.sm,
               }}
-              activeOpacity={0.8}
+              activeOpacity={0.7}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={[sharedStyles.statIcon, { backgroundColor: '#6366F1' }]}>
-                    <Clock size={20} color="white" />
-                  </View>
-                  <View style={{ marginLeft: 12 }}>
-                    <Text style={[sharedStyles.statLabel, { fontSize: 12, color: '#6B7280', marginBottom: 2 }]}>
-                      Time Period
-                    </Text>
-                    <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base, textTransform: 'capitalize' }]}>
-                      {timePeriod === 'daily' ? 'Today' : timePeriod === 'weekly' ? 'Last 7 Days' : timePeriod === 'monthly' ? 'This Month' : 'This Year'}
-                    </Text>
-                  </View>
+                <View>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                    marginBottom: designTokens.spacing.xs,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                  }}>
+                    Time Period
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: designTokens.typography.semibold as any,
+                    color: designTokens.colors.textPrimary,
+                    textTransform: 'capitalize',
+                  }}>
+                    {timePeriod === 'daily' ? 'Today' : timePeriod === 'weekly' ? 'Last 7 Days' : timePeriod === 'monthly' ? 'This Month' : 'This Year'}
+                  </Text>
                 </View>
-                <Text style={[sharedStyles.statLabel, { color: '#6366F1', fontSize: 14 }]}>
-                  Change
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.primary,
+                  fontWeight: designTokens.typography.medium as any,
+                }}>
+                  Change →
                 </Text>
               </View>
             </TouchableOpacity>
@@ -2252,574 +2524,1420 @@ export default function ReportsPage() {
               </View>
             </Modal>
             
-            {/* Recent Activity */}
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[sharedStyles.statIcon, { backgroundColor: '#EF4444' }]}>
+            {/* Recent Activity - Organized Bar Graph */}
+            <View style={{
+              backgroundColor: designTokens.colors.white,
+              borderRadius: 16,
+              padding: designTokens.spacing.lg + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
+              marginHorizontal: designTokens.spacing.sm,
+              borderWidth: 1,
+              borderColor: designTokens.colors.borderLight,
+              ...designTokens.shadows.md,
+            }}>
+              {/* Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                marginBottom: designTokens.spacing.lg,
+                paddingBottom: designTokens.spacing.md,
+                borderBottomWidth: 1,
+                borderBottomColor: designTokens.colors.borderLight,
+              }}>
+                <LinearGradient
+                  colors={['#EF4444', '#DC2626'] as [string, string]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: designTokens.spacing.sm,
+                  }}
+                >
                   <Activity size={20} color="white" />
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: designTokens.typography.bold as any,
+                    color: designTokens.colors.textPrimary,
+                  }}>
+                    Recent Activity
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                    marginTop: 2,
+                  }}>
+                    {timePeriod === 'daily' ? 'Today' : timePeriod === 'weekly' ? 'Last 7 Days' : timePeriod === 'monthly' ? 'This Month' : 'This Year'}
+                  </Text>
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                  Recent Activity ({timePeriod === 'daily' ? 'Today' : timePeriod === 'weekly' ? 'Last 7 Days' : timePeriod === 'monthly' ? 'This Month' : 'This Year'})
-                </Text>
               </View>
 
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>New Bookings</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#10B981' }]}>
-                    {activityData.newBookings}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>New Properties</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#3B82F6' }]}>
-                    {activityData.newProperties}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>New Owners</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#F59E0B' }]}>
-                    {activityData.newOwners}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>New Tenants</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#EC4899' }]}>
-                    {activityData.newTenants}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>New Inquiries</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#8B5CF6' }]}>
-                    {activityData.newInquiries}
-                  </Text>
-                </View>
+              {/* Bar Graph - Compact Layout */}
+              <View style={{
+                backgroundColor: designTokens.colors.background,
+                borderRadius: 12,
+                padding: designTokens.spacing.md,
+              }}>
+                {(() => {
+                  const activityItems = [
+                    { label: 'New Bookings', value: activityData.newBookings, color: '#10B981', icon: Calendar },
+                    { label: 'New Properties', value: activityData.newProperties, color: '#3B82F6', icon: Home },
+                    { label: 'New Owners', value: activityData.newOwners, color: '#F59E0B', icon: Users },
+                    { label: 'New Tenants', value: activityData.newTenants, color: '#EC4899', icon: Users },
+                    { label: 'New Inquiries', value: activityData.newInquiries, color: '#8B5CF6', icon: MessageSquare },
+                  ];
+                  
+                  const maxValue = Math.max(
+                    ...activityItems.map(item => item.value),
+                    1
+                  );
+                  const barHeight = 24;
+                  const barSpacing = designTokens.spacing.sm;
+
+                  return (
+                    <View style={{ gap: barSpacing }}>
+                      {activityItems.map((item) => {
+                        const IconComponent = item.icon;
+                        const barPercentage = maxValue > 0 ? (item.value / maxValue) * 100 : 0;
+
+                        return (
+                          <View key={item.label}>
+                            {/* Compact Row: Icon, Label, Value, Bar */}
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              alignItems: 'center', 
+                              gap: designTokens.spacing.sm,
+                            }}>
+                              {/* Icon */}
+                              <View style={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: 12,
+                                backgroundColor: item.color + '20',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                flexShrink: 0,
+                              }}>
+                                <IconComponent size={12} color={item.color} />
+                              </View>
+                              
+                              {/* Label */}
+                              <Text style={{
+                                fontSize: designTokens.typography.xs,
+                                fontWeight: designTokens.typography.medium as any,
+                                color: designTokens.colors.textPrimary,
+                                flex: 1,
+                                minWidth: 0,
+                              }} numberOfLines={1}>
+                                {item.label}
+                              </Text>
+                              
+                              {/* Value Badge */}
+                              <View style={{
+                                backgroundColor: item.color + '15',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                                minWidth: 32,
+                                alignItems: 'center',
+                              }}>
+                                <Text style={{
+                                  fontSize: designTokens.typography.xs,
+                                  fontWeight: designTokens.typography.bold as any,
+                                  color: item.color,
+                                }}>
+                                  {item.value}
+                                </Text>
+                              </View>
+                            </View>
+                            
+                            {/* Compact Bar */}
+                            <View style={{
+                              marginTop: 4,
+                              height: barHeight,
+                              backgroundColor: '#F3F4F6',
+                              borderRadius: 6,
+                              overflow: 'hidden',
+                            }}>
+                              {item.value > 0 ? (
+                                <LinearGradient
+                                  colors={[item.color, item.color + 'DD'] as [string, string]}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 0 }}
+                                  style={{
+                                    height: '100%',
+                                    width: `${Math.min(100, Math.max(0, barPercentage))}%`,
+                                    borderRadius: 6,
+                                  }}
+                                />
+                              ) : (
+                                <View style={{
+                                  height: '100%',
+                                  width: '100%',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                }}>
+                                  <Text style={{
+                                    fontSize: 10,
+                                    color: designTokens.colors.textMuted,
+                                    fontStyle: 'italic',
+                                  }}>
+                                    No activity
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })()}
               </View>
             </View>
 
 
-            {/* Engagement Metrics */}
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
-                  <Eye size={20} color="white" />
-                </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
+            {/* Engagement Metrics - KPI Cards */}
+            <View style={{ marginBottom: designTokens.spacing.lg }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.md, paddingLeft: designTokens.spacing.sm }}>
+                <View style={{
+                  width: 4,
+                  height: 20,
+                  backgroundColor: '#8B5CF6',
+                  borderRadius: 2,
+                  marginRight: designTokens.spacing.sm,
+                }} />
+                <Text style={{
+                  fontSize: designTokens.typography.base,
+                  fontWeight: designTokens.typography.semibold as any,
+                  color: designTokens.colors.textPrimary,
+                }}>
                   Engagement Metrics
                 </Text>
               </View>
 
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Total Property Views</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#8B5CF6' }]}>
-                    {analytics.totalViews}
+              <View style={{
+                flexDirection: 'row',
+                gap: designTokens.spacing.md,
+                flexWrap: 'wrap',
+                marginHorizontal: designTokens.spacing.sm,
+              }}>
+                {/* Total Property Views KPI Card */}
+                <View style={{
+                  flex: 1,
+                  minWidth: '30%',
+                  backgroundColor: designTokens.colors.white,
+                  borderRadius: 16,
+                  padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  ...designTokens.shadows.sm,
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <LinearGradient
+                      colors={['#8B5CF6', '#7C3AED'] as [string, string]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 12,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Eye size={20} color="white" />
+                    </LinearGradient>
+                  </View>
+                  <Text style={{
+                    fontSize: designTokens.typography['2xl'],
+                    fontWeight: designTokens.typography.bold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 4,
+                  }}>
+                    {analytics.totalViews.toLocaleString()}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                    fontWeight: designTokens.typography.medium as any,
+                  }}>
+                    Total Property Views
                   </Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Average Views per Property</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#3B82F6' }]}>
-                    {analytics.averageViewsPerProperty}
+
+                {/* Average Views per Property KPI Card */}
+                <View style={{
+                  flex: 1,
+                  minWidth: '30%',
+                  backgroundColor: designTokens.colors.white,
+                  borderRadius: 16,
+                  padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  ...designTokens.shadows.sm,
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <LinearGradient
+                      colors={['#3B82F6', '#2563EB'] as [string, string]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 12,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <BarChart3 size={20} color="white" />
+                    </LinearGradient>
+                  </View>
+                  <Text style={{
+                    fontSize: designTokens.typography['2xl'],
+                    fontWeight: designTokens.typography.bold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 4,
+                  }}>
+                    {analytics.averageViewsPerProperty.toLocaleString()}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                    fontWeight: designTokens.typography.medium as any,
+                  }}>
+                    Avg Views per Property
                   </Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Total Inquiries</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#10B981' }]}>
-                    {analytics.totalInquiries}
+
+                {/* Total Inquiries KPI Card */}
+                <View style={{
+                  flex: 1,
+                  minWidth: '30%',
+                  backgroundColor: designTokens.colors.white,
+                  borderRadius: 16,
+                  padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  ...designTokens.shadows.sm,
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <LinearGradient
+                      colors={['#10B981', '#059669'] as [string, string]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 12,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <MessageSquare size={20} color="white" />
+                    </LinearGradient>
+                  </View>
+                  <Text style={{
+                    fontSize: designTokens.typography['2xl'],
+                    fontWeight: designTokens.typography.bold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 4,
+                  }}>
+                    {analytics.totalInquiries.toLocaleString()}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                    fontWeight: designTokens.typography.medium as any,
+                  }}>
+                    Total Inquiries
                   </Text>
                 </View>
               </View>
             </View>
           </View>
 
-          {/* 7. TOP PERFORMERS */}
-          <View style={[sharedStyles.section, { marginBottom: designTokens.spacing.lg }]}>
-            <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: designTokens.spacing.md }]}>
-              🏆 Top Performers
-            </Text>
-            
-            {/* Top Performing Owners */}
+          {/* 7. TOP PERFORMERS - Modern Redesign */}
+          <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+            {/* Section Header */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: designTokens.spacing.lg,
+              paddingBottom: designTokens.spacing.md,
+              paddingLeft: designTokens.spacing.sm,
+              borderBottomWidth: 2,
+              borderBottomColor: designTokens.colors.borderLight,
+            }}>
+              <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { marginRight: designTokens.spacing.md }]}>
+                <Award size={20} color="#F59E0B" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>Top Performers</Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  marginTop: designTokens.spacing.xs,
+                }}>
+                  Leading owners and tenants in your barangay
+                </Text>
+              </View>
+            </View>
+
+            {/* Top Performing Owners - Premium Card */}
             {analytics.ownerAnalytics.topOwners.length > 0 && (
-              <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                  <View style={[sharedStyles.statIcon, { backgroundColor: '#10B981' }]}>
+              <View style={{
+                backgroundColor: designTokens.colors.white,
+                borderRadius: 16,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                marginBottom: designTokens.spacing.lg,
+                marginHorizontal: designTokens.spacing.sm,
+                borderWidth: 1,
+                borderColor: designTokens.colors.borderLight,
+                ...designTokens.shadows.md,
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+                  <LinearGradient
+                    colors={['#10B981', '#059669'] as [string, string]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginRight: designTokens.spacing.sm,
+                    }}
+                  >
                     <Award size={20} color="white" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: designTokens.typography.base,
+                      fontWeight: designTokens.typography.bold as any,
+                      color: designTokens.colors.textPrimary,
+                    }}>
+                      Top Performing Owners
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.textSecondary,
+                      marginTop: 2,
+                    }}>
+                      Ranked by property count
+                    </Text>
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                    Top Performing Owners
-                  </Text>
                 </View>
 
-                <View style={{ gap: 12 }}>
-                  {analytics.ownerAnalytics.topOwners.map((owner, index) => (
-                    <View key={owner.ownerId} style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderRadius: 8,
-                      borderBottomWidth: index < analytics.ownerAnalytics.topOwners.length - 1 ? 1 : 0,
-                      borderBottomColor: '#E5E7EB',
-                    }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 16 }]}>
-                          {index + 1}. {owner.ownerName}
-                        </Text>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 14, color: '#6B7280' }]}>
-                          {owner.propertyCount} properties
-                        </Text>
+                <View style={{ gap: designTokens.spacing.sm }}>
+                  {analytics.ownerAnalytics.topOwners.map((owner, index) => {
+                    const isTopThree = index < 3;
+                    const rankColors = [
+                      { bg: '#FFD700', text: '#B8860B' }, // Gold
+                      { bg: '#C0C0C0', text: '#808080' }, // Silver
+                      { bg: '#CD7F32', text: '#8B4513' }, // Bronze
+                    ];
+                    const rankColor = isTopThree ? rankColors[index] : { bg: '#F3F4F6', text: '#6B7280' };
+
+                    return (
+                      <View key={owner.ownerId} style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: designTokens.spacing.md,
+                        backgroundColor: index === 0 ? '#F0FDF4' : index === 1 ? '#FFFBEB' : index === 2 ? '#FEF3C7' : designTokens.colors.background,
+                        borderRadius: 12,
+                        borderWidth: isTopThree ? 2 : 1,
+                        borderColor: isTopThree ? rankColor.bg : designTokens.colors.borderLight,
+                        ...(isTopThree ? designTokens.shadows.sm : {}),
+                      }}>
+                        {/* Rank Badge */}
+                        <View style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: rankColor.bg,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: designTokens.spacing.md,
+                          borderWidth: isTopThree ? 2 : 0,
+                          borderColor: rankColor.text,
+                        }}>
+                          {isTopThree ? (
+                            <Award size={18} color={rankColor.text} />
+                          ) : (
+                            <Text style={{
+                              fontSize: designTokens.typography.base,
+                              fontWeight: designTokens.typography.bold as any,
+                              color: rankColor.text,
+                            }}>
+                              {index + 1}
+                            </Text>
+                          )}
+                        </View>
+
+                        {/* Owner Info */}
+                        <View style={{ flex: 1, marginRight: designTokens.spacing.sm }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.textPrimary,
+                            marginBottom: designTokens.spacing.xs,
+                          }} numberOfLines={1}>
+                            {owner.ownerName}
+                          </Text>
+                          <View style={{
+                            backgroundColor: designTokens.colors.primary + '15',
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 6,
+                            alignSelf: 'flex-start',
+                          }}>
+                            <Text style={{
+                              fontSize: designTokens.typography.xs,
+                              fontWeight: designTokens.typography.medium as any,
+                              color: designTokens.colors.primary,
+                            }}>
+                              {owner.propertyCount} {owner.propertyCount === 1 ? 'property' : 'properties'}
+                            </Text>
+                          </View>
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </View>
             )}
 
-            {/* Most Active Owners */}
+            {/* Most Active Owners - Premium Card */}
             {analytics.relationshipAnalytics.mostActiveOwners.length > 0 && (
-              <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                  <View style={[sharedStyles.statIcon, { backgroundColor: '#EF4444' }]}>
+              <View style={{
+                backgroundColor: designTokens.colors.white,
+                borderRadius: 16,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                marginBottom: designTokens.spacing.lg,
+                marginHorizontal: designTokens.spacing.sm,
+                borderWidth: 1,
+                borderColor: designTokens.colors.borderLight,
+                ...designTokens.shadows.md,
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+                  <LinearGradient
+                    colors={['#3B82F6', '#2563EB'] as [string, string]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginRight: designTokens.spacing.sm,
+                    }}
+                  >
                     <TrendingUp size={20} color="white" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: designTokens.typography.base,
+                      fontWeight: designTokens.typography.bold as any,
+                      color: designTokens.colors.textPrimary,
+                    }}>
+                      Most Active Owners
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.textSecondary,
+                      marginTop: 2,
+                    }}>
+                      Ranked by booking activity
+                    </Text>
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                    Most Active Owners
-                  </Text>
                 </View>
 
-                <View style={{ gap: 12 }}>
-                  {analytics.relationshipAnalytics.mostActiveOwners.map((owner, index) => (
-                    <View key={owner.ownerId} style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderRadius: 8,
-                      borderBottomWidth: index < analytics.relationshipAnalytics.mostActiveOwners.length - 1 ? 1 : 0,
-                      borderBottomColor: '#E5E7EB',
-                    }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 16 }]}>
-                          {index + 1}. {owner.ownerName}
-                        </Text>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 14, color: '#6B7280' }]}>
-                          {owner.bookingCount} bookings
-                        </Text>
+                <View style={{ gap: designTokens.spacing.sm }}>
+                  {analytics.relationshipAnalytics.mostActiveOwners.map((owner, index) => {
+                    const maxBookings = analytics.relationshipAnalytics.mostActiveOwners[0]?.bookingCount || 1;
+                    const bookingPercentage = (owner.bookingCount / maxBookings) * 100;
+
+                    return (
+                      <View key={owner.ownerId} style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: designTokens.spacing.md,
+                        backgroundColor: designTokens.colors.background,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: designTokens.colors.borderLight,
+                      }}>
+                        {/* Rank Number */}
+                        <View style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: '#3B82F6' + '20',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: designTokens.spacing.md,
+                        }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            fontWeight: designTokens.typography.bold as any,
+                            color: '#3B82F6',
+                          }}>
+                            {index + 1}
+                          </Text>
+                        </View>
+
+                        {/* Owner Info */}
+                        <View style={{ flex: 1, marginRight: designTokens.spacing.sm }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.textPrimary,
+                            marginBottom: designTokens.spacing.xs,
+                          }} numberOfLines={1}>
+                            {owner.ownerName}
+                          </Text>
+                          <View style={{
+                            backgroundColor: '#3B82F6' + '15',
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 6,
+                            alignSelf: 'flex-start',
+                          }}>
+                            <Text style={{
+                              fontSize: designTokens.typography.xs,
+                              fontWeight: designTokens.typography.medium as any,
+                              color: '#3B82F6',
+                            }}>
+                              {owner.propertyCount || 0} {owner.propertyCount === 1 ? 'property' : 'properties'}
+                            </Text>
+                          </View>
+                          {/* Activity Progress Bar */}
+                          <View style={{ marginTop: designTokens.spacing.xs }}>
+                            <ProgressBar 
+                              percentage={bookingPercentage} 
+                              color="#3B82F6" 
+                              height={4} 
+                            />
+                          </View>
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </View>
             )}
 
-            {/* Most Active Tenants */}
+            {/* Most Active Tenants - Premium Card */}
             {analytics.relationshipAnalytics.mostActiveTenants.length > 0 && (
-              <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                  <View style={[sharedStyles.statIcon, { backgroundColor: '#EC4899' }]}>
+              <View style={{
+                backgroundColor: designTokens.colors.white,
+                borderRadius: 16,
+                padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                marginBottom: designTokens.spacing.lg,
+                borderWidth: 1,
+                borderColor: designTokens.colors.borderLight,
+                ...designTokens.shadows.md,
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+                  <LinearGradient
+                    colors={['#8B5CF6', '#7C3AED'] as [string, string]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginRight: designTokens.spacing.sm,
+                    }}
+                  >
                     <Users size={20} color="white" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: designTokens.typography.base,
+                      fontWeight: designTokens.typography.bold as any,
+                      color: designTokens.colors.textPrimary,
+                    }}>
+                      Most Active Tenants
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.textSecondary,
+                      marginTop: 2,
+                    }}>
+                      Ranked by booking frequency
+                    </Text>
                   </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                    Most Active Tenants
-                  </Text>
                 </View>
 
-                <View style={{ gap: 12 }}>
-                  {analytics.relationshipAnalytics.mostActiveTenants.map((tenant, index) => (
-                    <View key={tenant.tenantId} style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderRadius: 8,
-                      borderBottomWidth: index < analytics.relationshipAnalytics.mostActiveTenants.length - 1 ? 1 : 0,
-                      borderBottomColor: '#E5E7EB',
-                    }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 16 }]}>
-                          {index + 1}. {tenant.tenantName}
-                        </Text>
+                <View style={{ gap: designTokens.spacing.sm }}>
+                  {analytics.relationshipAnalytics.mostActiveTenants.map((tenant, index) => {
+                    const maxBookings = analytics.relationshipAnalytics.mostActiveTenants[0]?.bookingCount || 1;
+                    const bookingPercentage = (tenant.bookingCount / maxBookings) * 100;
+
+                    return (
+                      <View key={tenant.tenantId} style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: designTokens.spacing.md,
+                        backgroundColor: designTokens.colors.background,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: designTokens.colors.borderLight,
+                      }}>
+                        {/* Rank Number */}
+                        <View style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: '#8B5CF6' + '20',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: designTokens.spacing.md,
+                        }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            fontWeight: designTokens.typography.bold as any,
+                            color: '#8B5CF6',
+                          }}>
+                            {index + 1}
+                          </Text>
+                        </View>
+
+                        {/* Tenant Info */}
+                        <View style={{ flex: 1, marginRight: designTokens.spacing.sm }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.base,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.textPrimary,
+                            marginBottom: designTokens.spacing.xs,
+                          }} numberOfLines={1}>
+                            {tenant.tenantName}
+                          </Text>
+                          {/* Activity Progress Bar */}
+                          <View style={{ marginTop: designTokens.spacing.xs }}>
+                            <ProgressBar 
+                              percentage={bookingPercentage} 
+                              color="#8B5CF6" 
+                              height={4} 
+                            />
+                          </View>
+                        </View>
                       </View>
-                      <Text style={[sharedStyles.statLabel, { color: '#3B82F6', fontSize: 16 }]}>
-                        {tenant.bookingCount} bookings
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* 8. PROPERTY TRENDS & RELATIONSHIPS */}
+          <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+            {/* Section Header */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: designTokens.spacing.lg,
+              paddingBottom: designTokens.spacing.md,
+              paddingLeft: designTokens.spacing.sm,
+              borderBottomWidth: 2,
+              borderBottomColor: designTokens.colors.borderLight,
+            }}>
+              <View style={[sharedStyles.statIcon, iconBackgrounds.purple, { marginRight: designTokens.spacing.md }]}>
+                <BarChart3 size={20} color="#8B5CF6" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>Property Trends & Relationships</Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  marginTop: designTokens.spacing.xs,
+                }}>
+                  Property distribution and tenant-owner connections
+                </Text>
+              </View>
+            </View>
+
+            {/* Popular Property Types - Bar Graph */}
+            {analytics.marketAnalytics.popularPropertyTypes.length > 0 && (() => {
+              // Prepare chart data
+              const propertyTypeColors = ['#6366F1', '#0EA5E9', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899'];
+              const chartSeries = analytics.marketAnalytics.popularPropertyTypes.map((type, index) => ({
+                label: type.type === 'Condo' ? 'Boarding House' : type.type,
+                value: type.count,
+                color: propertyTypeColors[index % propertyTypeColors.length],
+              }));
+              const chartMax = Math.max(...chartSeries.map(s => s.value), 1);
+              const chartHeight = 120;
+              const totalProperties = chartSeries.reduce((sum, series) => sum + series.value, 0);
+              const chartSeriesWithDetails = chartSeries.map(series => ({
+                ...series,
+                percentage: totalProperties > 0 ? Math.round((series.value / totalProperties) * 100) : 0,
+              }));
+
+              return (
+                <View style={{
+                  backgroundColor: designTokens.colors.white,
+                  borderRadius: 16,
+                  padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                  marginBottom: designTokens.spacing.lg,
+                  marginHorizontal: designTokens.spacing.sm,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  ...designTokens.shadows.md,
+                }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        fontWeight: designTokens.typography.bold as any,
+                        color: designTokens.colors.textPrimary,
+                      }}>
+                        Popular Property Types
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                        marginTop: 2,
+                      }}>
+                        Distribution by property type
                       </Text>
                     </View>
-                  ))}
-                </View>
-              </View>
-            )}
-          </View>
-
-          {/* 8. MARKET INSIGHTS */}
-          <View style={[sharedStyles.section, { marginBottom: designTokens.spacing.lg }]}>
-            <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: designTokens.spacing.md }]}>
-              📈 Market Insights
-            </Text>
-            
-            {/* Market Analytics */}
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
-                  <Building2 size={20} color="white" />
-                </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                  Market Analytics
-                </Text>
-              </View>
-
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Occupancy Rate</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#10B981' }]}>
-                    {analytics.marketAnalytics.occupancyRate}%
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Avg Days on Market</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#F59E0B' }]}>
-                    {analytics.marketAnalytics.averageDaysOnMarket} days
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Popular Property Types */}
-            {analytics.marketAnalytics.popularPropertyTypes.length > 0 && (
-              <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                  <View style={[sharedStyles.statIcon, { backgroundColor: '#F59E0B' }]}>
-                    <MapPin size={20} color="white" />
-                  </View>
-                  <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                    Popular Property Types
-                  </Text>
-                </View>
-
-                <View style={{ gap: 12 }}>
-                  {analytics.marketAnalytics.popularPropertyTypes.map((type, index) => (
-                    <View key={type.type} style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderRadius: 8,
-                      borderBottomWidth: index < analytics.marketAnalytics.popularPropertyTypes.length - 1 ? 1 : 0,
-                      borderBottomColor: '#E5E7EB',
+                    <View style={{
+                      backgroundColor: designTokens.colors.primary + '15',
+                      borderRadius: designTokens.borderRadius.md,
+                      paddingHorizontal: designTokens.spacing.md,
+                      paddingVertical: designTokens.spacing.xs,
                     }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 16 }]}>
-                          {type.type}
-                        </Text>
-                        <Text style={[sharedStyles.statLabel, { fontSize: 14, color: '#6B7280' }]}>
-                          {type.count} properties
-                        </Text>
-                      </View>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: '600',
+                        color: designTokens.colors.primary,
+                      }}>
+                        Total: {totalProperties}
+                      </Text>
                     </View>
-                  ))}
+                  </View>
+                  
+                  {/* Chart Visualization */}
+                  <View style={{ overflow: 'hidden' }}>
+                    <LinearGradient
+                      colors={['#EEF2FF', '#F5F3FF'] as [string, string]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        borderRadius: 12,
+                        padding: designTokens.spacing.lg + designTokens.spacing.xs,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'flex-end',
+                        justifyContent: 'space-between',
+                        minHeight: 200,
+                        maxHeight: 200,
+                        gap: designTokens.spacing.md,
+                        paddingHorizontal: designTokens.spacing.xs,
+                      }}>
+                        {chartSeriesWithDetails.map((series) => {
+                          // Reserve space for labels above (value + percentage) and below (label)
+                          const labelSpaceAbove = 50;
+                          const labelSpaceBelow = 30;
+                          const availableHeight = chartHeight - labelSpaceAbove - labelSpaceBelow;
+                          const computedHeight = Math.max(8, Math.min(availableHeight, (series.value / chartMax) * availableHeight));
+                          
+                          return (
+                            <View key={series.label} style={{
+                              flex: 1,
+                              alignItems: 'center',
+                              justifyContent: 'flex-end',
+                              maxWidth: `${100 / chartSeries.length}%`,
+                              height: '100%',
+                            }}>
+                              <View style={{ 
+                                alignItems: 'center', 
+                                marginBottom: designTokens.spacing.xs,
+                                height: labelSpaceAbove,
+                                justifyContent: 'flex-end',
+                              }}>
+                                <Text style={{
+                                  fontSize: designTokens.typography.sm,
+                                  fontWeight: '700',
+                                  color: series.color,
+                                  marginBottom: 2,
+                                }}>
+                                  {series.value}
+                                </Text>
+                                <Text style={{
+                                  fontSize: designTokens.typography.xs,
+                                  color: designTokens.colors.textMuted,
+                                }}>
+                                  {series.percentage}%
+                                </Text>
+                              </View>
+                              <View style={{ 
+                                width: '100%',
+                                maxWidth: 40,
+                                minWidth: 24,
+                                height: computedHeight, 
+                                backgroundColor: series.color,
+                                maxHeight: availableHeight,
+                                borderRadius: 8,
+                                alignSelf: 'center',
+                              }} />
+                              <View style={{ 
+                                height: labelSpaceBelow,
+                                justifyContent: 'flex-start',
+                                paddingTop: designTokens.spacing.xs,
+                              }}>
+                                <Text style={{
+                                  marginTop: designTokens.spacing.sm,
+                                  fontSize: designTokens.typography.xs,
+                                  color: designTokens.colors.textSecondary,
+                                  textAlign: 'center',
+                                }}>
+                                  {series.label}
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </LinearGradient>
+                  </View>
                 </View>
-              </View>
-            )}
+              );
+            })()}
 
-            {/* Tenant-Owner Relationships */}
-            <View style={[sharedStyles.card, { marginBottom: designTokens.spacing.md }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[sharedStyles.statIcon, { backgroundColor: '#8B5CF6' }]}>
+            {/* Tenant-Owner Relationships - Premium Card */}
+            <View style={{
+              backgroundColor: designTokens.colors.white,
+              borderRadius: 16,
+              padding: designTokens.spacing.lg + designTokens.spacing.xs,
+              marginBottom: designTokens.spacing.lg,
+              marginHorizontal: designTokens.spacing.sm,
+              borderWidth: 1,
+              borderColor: designTokens.colors.borderLight,
+              ...designTokens.shadows.md,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+                <LinearGradient
+                  colors={['#6366F1', '#4F46E5'] as [string, string]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: designTokens.spacing.sm,
+                  }}
+                >
                   <Target size={20} color="white" />
-                </View>
-                <Text style={[sharedStyles.sectionTitle, { marginBottom: 0, fontSize: designTokens.typography.base }]}>
-                  Tenant-Owner Relationships
-                </Text>
-              </View>
-
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Avg Bookings per Owner</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#3B82F6' }]}>
-                    {analytics.relationshipAnalytics.averageBookingsPerOwner}
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: designTokens.typography.bold as any,
+                    color: designTokens.colors.textPrimary,
+                  }}>
+                    Tenant-Owner Relationships
                   </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Avg Bookings per Tenant</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#10B981' }]}>
-                    {analytics.relationshipAnalytics.averageBookingsPerTenant}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={sharedStyles.statLabel}>Conversion Rate</Text>
-                  <Text style={[sharedStyles.statLabel, { color: '#F59E0B' }]}>
-                    {analytics.relationshipAnalytics.conversionRate}%
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                    marginTop: 2,
+                  }}>
+                    Engagement and conversion metrics
                   </Text>
                 </View>
               </View>
-            </View>
-          </View>
 
-          {/* Action Buttons */}
-          <View style={{ 
-            flexDirection: 'row', 
-            gap: 12, 
-            marginTop: designTokens.spacing.lg,
-            marginBottom: designTokens.spacing.xl,
-            flexWrap: 'wrap'
-          }}>
-            <TouchableOpacity
-              onPress={loadAnalytics}
-              style={[sharedStyles.primaryButton, { flex: 1, minWidth: 150 }]}
-              activeOpacity={0.8}
-            >
-              <RefreshCw size={20} color="white" />
-              <Text style={[sharedStyles.primaryButtonText, { marginLeft: 8 }]}>
-                🔄 Refresh
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              onPress={handlePrint}
-              style={[
-                sharedStyles.primaryButton, 
-                { 
-                  flex: 1,
-                  minWidth: 150,
-                  backgroundColor: '#8B5CF6',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8
-                }
-              ]}
-              activeOpacity={0.8}
-            >
-              <Printer size={20} color="white" />
-              <Text style={sharedStyles.primaryButtonText}>
-                🖨️ Print
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              onPress={() => setShowExportModal(true)}
-              disabled={exporting}
-              style={[
-                sharedStyles.primaryButton, 
-                { 
-                  flex: 1,
-                  minWidth: 150,
-                  backgroundColor: exporting ? '#9CA3AF' : '#10B981',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8
-                }
-              ]}
-              activeOpacity={0.8}
-            >
-              {exporting ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <FileDown size={20} color="white" />
-              )}
-              <Text style={sharedStyles.primaryButtonText}>
-                {exporting ? 'Exporting...' : '📥 Download'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Export Format Selection Modal - Modern Design */}
-          <Modal
-            visible={showExportModal}
-            transparent={true}
-            animationType="fade"
-            onRequestClose={() => setShowExportModal(false)}
-          >
-            <Pressable
-              style={{
-                flex: 1,
-                backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: 20,
-              }}
-              onPress={() => setShowExportModal(false)}
-            >
-              <Pressable
-                style={{
-                  backgroundColor: designTokens.colors.white,
-                  borderRadius: 24,
-                  padding: designTokens.spacing.xl,
-                  width: '100%',
-                  maxWidth: 420,
-                  ...designTokens.shadows.xl,
-                }}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <View style={{ marginBottom: designTokens.spacing.lg }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                    <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { marginRight: designTokens.spacing.sm }]}>
-                      <Download size={20} color="#3B82F6" />
+              <View style={{ gap: designTokens.spacing.md }}>
+                {/* Avg Bookings per Owner */}
+                <View style={{
+                  padding: designTokens.spacing.md,
+                  backgroundColor: '#EFF6FF',
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: '#3B82F6' + '30',
+                }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+                      <View style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: '#3B82F6',
+                      }} />
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.medium as any,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        Avg Bookings per Owner
+                      </Text>
                     </View>
                     <Text style={{
                       fontSize: designTokens.typography.xl,
                       fontWeight: designTokens.typography.bold as any,
-                      color: designTokens.colors.textPrimary,
+                      color: '#3B82F6',
                     }}>
-                      Download Analytics Data
+                      {analytics.relationshipAnalytics.averageBookingsPerOwner.toFixed(1)}
                     </Text>
                   </View>
+                </View>
+
+                {/* Avg Bookings per Tenant */}
+                <View style={{
+                  padding: designTokens.spacing.md,
+                  backgroundColor: '#F0FDF4',
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: '#10B981' + '30',
+                }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+                      <View style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: '#10B981',
+                      }} />
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.medium as any,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        Avg Bookings per Tenant
+                      </Text>
+                    </View>
+                    <Text style={{
+                      fontSize: designTokens.typography.xl,
+                      fontWeight: designTokens.typography.bold as any,
+                      color: '#10B981',
+                    }}>
+                      {analytics.relationshipAnalytics.averageBookingsPerTenant.toFixed(1)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Conversion Rate */}
+                <View style={{
+                  padding: designTokens.spacing.md,
+                  backgroundColor: '#FFFBEB',
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: '#F59E0B' + '30',
+                }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.xs }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
+                      <View style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: '#F59E0B',
+                      }} />
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.medium as any,
+                        color: designTokens.colors.textSecondary,
+                      }}>
+                        Conversion Rate
+                      </Text>
+                    </View>
+                    <Text style={{
+                      fontSize: designTokens.typography.xl,
+                      fontWeight: designTokens.typography.bold as any,
+                      color: '#F59E0B',
+                    }}>
+                      {analytics.relationshipAnalytics.conversionRate}%
+                    </Text>
+                  </View>
+                  <ProgressBar 
+                    percentage={analytics.relationshipAnalytics.conversionRate} 
+                    color="#F59E0B" 
+                    height={6} 
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Action Buttons - Modern Design */}
+          {/* Compact Action Buttons */}
+          <View style={{ 
+            flexDirection: 'row', 
+            gap: designTokens.spacing.sm, 
+            marginTop: designTokens.spacing.lg,
+            marginBottom: designTokens.spacing.lg,
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+          }}>
+            {/* Refresh Button */}
+            <TouchableOpacity
+              onPress={loadAnalytics}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: designTokens.colors.white,
+                borderWidth: 1.5,
+                borderColor: designTokens.colors.borderLight,
+                justifyContent: 'center',
+                alignItems: 'center',
+                ...designTokens.shadows.sm,
+              }}
+              activeOpacity={0.7}
+            >
+              <RefreshCw size={20} color={designTokens.colors.primary} />
+            </TouchableOpacity>
+            
+            {/* Download Button */}
+            <TouchableOpacity
+              onPress={() => setShowExportModal(true)}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: designTokens.colors.primary,
+                justifyContent: 'center',
+                alignItems: 'center',
+                ...designTokens.shadows.sm,
+              }}
+              activeOpacity={0.8}
+            >
+              <Download size={20} color="white" />
+            </TouchableOpacity>
+            
+            {/* Print Button */}
+            <TouchableOpacity
+              onPress={handlePrint}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: '#8B5CF6',
+                justifyContent: 'center',
+                alignItems: 'center',
+                ...designTokens.shadows.sm,
+              }}
+              activeOpacity={0.8}
+            >
+              <Printer size={20} color="white" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Export Modal - Modern Design */}
+      <Modal
+        visible={showExportModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowExportModal(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 20,
+          }}
+          onPress={() => setShowExportModal(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: designTokens.colors.white,
+              borderRadius: 20,
+              padding: designTokens.spacing.xl,
+              width: '100%',
+              maxWidth: 420,
+              ...designTokens.shadows.lg,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <View style={{ marginBottom: designTokens.spacing.lg }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                <LinearGradient
+                  colors={[designTokens.colors.primary, '#2563EB'] as [string, string]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: designTokens.spacing.md,
+                  }}
+                >
+                  <Download size={24} color="white" />
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.xl,
+                    fontWeight: designTokens.typography.bold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 4,
+                  }}>
+                    Export Analytics
+                  </Text>
                   <Text style={{
                     fontSize: designTokens.typography.sm,
                     color: designTokens.colors.textSecondary,
-                    marginLeft: 48,
                   }}>
-                    Choose the format you want to download
+                    Choose export format
                   </Text>
                 </View>
-
-                <View style={{ gap: 12 }}>
-                  <TouchableOpacity
-                    onPress={() => handleExport('all')}
-                    disabled={exporting}
-                    style={{
-                      paddingVertical: 16,
-                      paddingHorizontal: 20,
-                      borderRadius: 12,
-                      backgroundColor: '#10B981',
-                      borderWidth: 2,
-                      borderColor: '#10B981',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <Download size={20} color="white" />
-                      <View>
-                        <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF', marginBottom: 2 }}>
-                          All Formats
-                        </Text>
-                        <Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.8)' }}>
-                          Summary, CSV, and JSON
-                        </Text>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleExport('summary')}
-                    disabled={exporting}
-                    style={{
-                      paddingVertical: 14,
-                      paddingHorizontal: 20,
-                      borderRadius: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderWidth: 2,
-                      borderColor: '#E5E7EB',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <FileText size={18} color="#3B82F6" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 2 }}>
-                        Summary Report (TXT)
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#6B7280' }}>
-                        Human-readable text report
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleExport('csv')}
-                    disabled={exporting}
-                    style={{
-                      paddingVertical: 14,
-                      paddingHorizontal: 20,
-                      borderRadius: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderWidth: 2,
-                      borderColor: '#E5E7EB',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <FileDown size={18} color="#10B981" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 2 }}>
-                        CSV Data
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#6B7280' }}>
-                        Spreadsheet format for Excel
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleExport('json')}
-                    disabled={exporting}
-                    style={{
-                      paddingVertical: 14,
-                      paddingHorizontal: 20,
-                      borderRadius: 12,
-                      backgroundColor: '#F9FAFB',
-                      borderWidth: 2,
-                      borderColor: '#E5E7EB',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <FileText size={18} color="#8B5CF6" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 2 }}>
-                        JSON Data
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#6B7280' }}>
-                        Structured data format
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-
                 <TouchableOpacity
                   onPress={() => setShowExportModal(false)}
                   style={{
-                    marginTop: designTokens.spacing.lg,
-                    paddingVertical: designTokens.spacing.md,
-                    paddingHorizontal: designTokens.spacing.lg,
-                    borderRadius: designTokens.borderRadius.md,
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
                     backgroundColor: designTokens.colors.background,
+                    justifyContent: 'center',
                     alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: designTokens.colors.borderLight,
                   }}
                   activeOpacity={0.7}
                 >
+                  <Text style={{ fontSize: 20, color: designTokens.colors.textMuted, fontWeight: '300' }}>×</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Export Options */}
+            <View style={{ gap: designTokens.spacing.md }}>
+              <TouchableOpacity
+                onPress={() => handleExport('all')}
+                disabled={exporting}
+                style={{
+                  padding: designTokens.spacing.lg,
+                  backgroundColor: designTokens.colors.primary + '10',
+                  borderRadius: 12,
+                  borderWidth: 2,
+                  borderColor: designTokens.colors.primary,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: designTokens.spacing.md,
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: designTokens.colors.primary,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <FileDown size={20} color="white" />
+                </View>
+                <View style={{ flex: 1 }}>
                   <Text style={{
                     fontSize: designTokens.typography.base,
                     fontWeight: designTokens.typography.semibold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 2,
+                  }}>
+                    All Formats
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
                     color: designTokens.colors.textSecondary,
                   }}>
-                    Cancel
+                    Summary, CSV, and JSON files
                   </Text>
-                </TouchableOpacity>
-              </Pressable>
-            </Pressable>
-          </Modal>
-        </View>
-      </ScrollView>
+                </View>
+                {exporting && <ActivityIndicator size="small" color={designTokens.colors.primary} />}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => handleExport('summary')}
+                disabled={exporting}
+                style={{
+                  padding: designTokens.spacing.lg,
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: designTokens.spacing.md,
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: '#10B981' + '20',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <FileText size={20} color="#10B981" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: designTokens.typography.semibold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 2,
+                  }}>
+                    Summary (TXT)
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }}>
+                    Text summary report
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => handleExport('csv')}
+                disabled={exporting}
+                style={{
+                  padding: designTokens.spacing.lg,
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: designTokens.spacing.md,
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: '#3B82F6' + '20',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <BarChart3 size={20} color="#3B82F6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: designTokens.typography.semibold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 2,
+                  }}>
+                    CSV Data
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }}>
+                    Spreadsheet format
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => handleExport('json')}
+                disabled={exporting}
+                style={{
+                  padding: designTokens.spacing.lg,
+                  backgroundColor: designTokens.colors.background,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: designTokens.colors.borderLight,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: designTokens.spacing.md,
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: '#8B5CF6' + '20',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <FileText size={20} color="#8B5CF6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: designTokens.typography.base,
+                    fontWeight: designTokens.typography.semibold as any,
+                    color: designTokens.colors.textPrimary,
+                    marginBottom: 2,
+                  }}>
+                    JSON Data
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textSecondary,
+                  }}>
+                    Structured data format
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Cancel Button */}
+            <TouchableOpacity
+              onPress={() => setShowExportModal(false)}
+              style={{
+                marginTop: designTokens.spacing.lg,
+                paddingVertical: designTokens.spacing.md,
+                paddingHorizontal: designTokens.spacing.lg,
+                borderRadius: 12,
+                backgroundColor: designTokens.colors.background,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: designTokens.colors.borderLight,
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{
+                fontSize: designTokens.typography.base,
+                fontWeight: designTokens.typography.semibold as any,
+                color: designTokens.colors.textSecondary,
+              }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

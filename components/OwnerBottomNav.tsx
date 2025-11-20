@@ -83,13 +83,23 @@ export default function OwnerBottomNav() {
             key={item.id}
             style={[
               styles.navItem,
-              active && styles.navItemActive
+              active && {
+                backgroundColor: '#10B981' + '20',
+                borderRadius: 10,
+                paddingVertical: 8,
+                paddingHorizontal: 6,
+                borderWidth: 1,
+                borderColor: '#10B981' + '40',
+              }
             ]}
             onPress={() => handleNavigation(item.path)}
           >
             <View style={[
               styles.navIcon,
-              { backgroundColor: active ? item.color : 'transparent' }
+              { 
+                backgroundColor: active ? '#10B981' : 'transparent',
+                transform: active ? [{ scale: 1.1 }] : [{ scale: 1 }]
+              }
             ]}>
               <Icon 
                 size={18} 
@@ -105,7 +115,11 @@ export default function OwnerBottomNav() {
             </View>
             <Text style={[
               styles.navLabel,
-              active && { color: item.color, fontWeight: '600' as const }
+              active && { 
+                color: '#10B981', 
+                fontWeight: '700' as const,
+                fontSize: 11,
+              }
             ]}>
               {item.label}
             </Text>

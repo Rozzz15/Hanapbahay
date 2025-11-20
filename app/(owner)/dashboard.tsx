@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Modal, Platform, Alert, TextInput, KeyboardAvoidingView, Dimensions, FlatList } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Modal, Platform, Alert, TextInput, KeyboardAvoidingView, Dimensions, FlatList, Linking, Image as RNImage } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -49,11 +50,12 @@ import {
   Wrench,
   Video
 } from 'lucide-react-native';
+import { ScrollView as RNScrollView } from 'react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import { Image } from '../../components/ui/image';
 import TenantInfoModal from '../../components/TenantInfoModal';
-import { isOwnerApproved, hasPendingOwnerApplication } from '../../utils/owner-approval';
+import { isOwnerApproved, hasPendingOwnerApplication, getOwnerApplication, getBarangayOfficialContact } from '../../utils/owner-approval';
 import { addCustomEventListener } from '../../utils/custom-events';
 import { getMonthlyRevenueOverview, type MonthlyRevenueOverview } from '../../utils/owner-revenue';
 import { getTotalActiveTenants } from '../../utils/tenant-management';
@@ -245,6 +247,13 @@ export default function OwnerDashboard() {
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isPhotoModalClosing, setIsPhotoModalClosing] = useState(false);
+  const [showApplicationModal, setShowApplicationModal] = useState(false);
+  const [applicationModalData, setApplicationModalData] = useState<{
+    title: string;
+    message: string;
+    brgyContact: { name: string; email: string; phone: string; logo?: string | null } | null;
+    barangay?: string;
+  } | null>(null);
 
   // Define loadProfilePhoto before it's used
   const loadProfilePhoto = useCallback(async () => {
@@ -296,45 +305,58 @@ export default function OwnerDashboard() {
         return;
       }
 
-      // Check if owner application is approved
+      // Check if owner application is approved - parallelize checks for faster loading
       try {
-        const isApproved = await isOwnerApproved(user.id);
-        const hasPending = await hasPendingOwnerApplication(user.id);
+        // Parallelize approval checks and application fetch
+        const [isApproved, hasPending, application] = await Promise.all([
+          isOwnerApproved(user.id),
+          hasPendingOwnerApplication(user.id),
+          getOwnerApplication(user.id)
+        ]);
         
         if (!isApproved) {
+          const barangay = application?.barangay || '';
+          
+          // Get Barangay official contact info (can be done in parallel with modal setup)
+          const brgyContactPromise = barangay ? getBarangayOfficialContact(barangay) : Promise.resolve(null);
+          
           if (hasPending) {
-            showAlert(
-              'Application Pending',
-              'Your owner application is still under review by your Barangay official. You will be notified once it is approved.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    router.replace('/login');
-                  }
-                }
-              ]
-            );
+            // Build message with contact info
+            let message = 'Your Owner Application is still under review.\n\nYou will be notified once it is approved.';
+            
+            // Wait for contact info before showing modal
+            const brgyContact = await brgyContactPromise;
+            
+            setApplicationModalData({
+              title: 'Application Pending',
+              message: message,
+              brgyContact: brgyContact,
+              barangay: barangay
+            });
+            setShowApplicationModal(true);
           } else {
-            showAlert(
-              'Access Denied',
-              'Your owner application has not been approved yet. Please contact your Barangay official for assistance.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    router.replace('/login');
-                  }
-                }
-              ]
-            );
+            // Build message with contact info
+            let message = 'Your owner application has not been approved yet. Please contact your Barangay official for assistance.';
+            
+            // Wait for contact info before showing modal
+            const brgyContact = await brgyContactPromise;
+            
+            setApplicationModalData({
+              title: 'Access Denied',
+              message: message,
+              brgyContact: brgyContact,
+              barangay: barangay
+            });
+            setShowApplicationModal(true);
           }
           return;
         }
         
-        // If approved, load dashboard data
-        loadDashboardData();
-        loadProfilePhoto();
+        // If approved, load dashboard data and profile photo in parallel
+        Promise.all([
+          loadDashboardData(),
+          loadProfilePhoto()
+        ]).catch(err => console.error('Error loading dashboard data:', err));
       } catch (error) {
         console.error('❌ Error checking owner approval:', error);
         showAlert(
@@ -590,6 +612,12 @@ export default function OwnerDashboard() {
       console.error('Error loading revenue data:', error);
     }
   }, [user?.id]);
+
+  const handleCloseApplicationModal = () => {
+    setShowApplicationModal(false);
+    setApplicationModalData(null);
+    router.replace('/login');
+  };
 
   const loadTotalTenants = useCallback(async () => {
     if (!user?.id) return;
@@ -965,7 +993,7 @@ export default function OwnerDashboard() {
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.md }}>
             {/* Profile Photo */}
             <TouchableOpacity
-              onPress={() => setShowProfilePhotoModal(true)}
+              onPress={() => router.push('/(owner)/profile')}
               activeOpacity={0.7}
               style={{
                 width: 48,
@@ -2236,6 +2264,16 @@ export default function OwnerDashboard() {
                     <Text style={sharedStyles.statSubtitle}>{booking.tenantAddress}</Text>
                   )}
                   <Text style={sharedStyles.statSubtitle}>{booking.tenantPhone}</Text>
+                  {booking.tenantType && (
+                    <Text style={sharedStyles.statSubtitle}>
+                      Type: {booking.tenantType.charAt(0).toUpperCase() + booking.tenantType.slice(1)}
+                      {booking.numberOfPeople && (booking.tenantType === 'family' || booking.tenantType === 'group') && (
+                        <Text style={{ fontWeight: '600' }}>
+                          {' '}({booking.numberOfPeople} {booking.numberOfPeople === 1 ? 'person' : 'people'})
+                        </Text>
+                      )}
+                    </Text>
+                  )}
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <View style={[
@@ -3453,6 +3491,13 @@ export default function OwnerDashboard() {
           />
         )}
       </Modal>
+
+      {/* Application Status Modal */}
+      <ApplicationStatusModal
+        visible={showApplicationModal}
+        data={applicationModalData}
+        onClose={handleCloseApplicationModal}
+      />
     </View>
   );
 }
@@ -3650,5 +3695,301 @@ function VideoPlayerModal({ videoUri, onClose }: { videoUri: string; onClose: ()
         allowsPictureInPicture
       />
     </View>
+  );
+}
+
+// Application Status Modal Component
+function ApplicationStatusModal({ visible, data, onClose }: { visible: boolean; data: { title: string; message: string; brgyContact: { name: string; email: string; phone: string; logo?: string | null } | null } | null; onClose: () => void }) {
+  if (!data) return null;
+  
+  return (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={{
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20
+      }}>
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 12,
+          width: '100%',
+          maxWidth: 320,
+          padding: 20
+        }}>
+          {/* Title */}
+          <Text style={{
+            fontSize: 18,
+            fontWeight: '700',
+            color: '#111827',
+            marginBottom: 12,
+            textAlign: 'center'
+          }}>
+            {data.title || 'Application Status'}
+          </Text>
+
+          {/* Message */}
+          <Text style={{
+            fontSize: 14,
+            color: '#374151',
+            marginBottom: 16,
+            lineHeight: 20,
+            textAlign: 'center'
+          }}>
+            {data.message}
+          </Text>
+
+          {/* Contact Information */}
+          {data.brgyContact && (
+            <View style={{
+              marginTop: 12,
+              marginBottom: 20,
+              padding: 12,
+              backgroundColor: '#F9FAFB',
+              borderRadius: 8
+            }}>
+              <Text style={{
+                fontSize: 12,
+                fontWeight: '600',
+                color: '#111827',
+                marginBottom: 12,
+                textAlign: 'center'
+              }}>
+                For inquiries, please contact:
+              </Text>
+
+              {/* Barangay Logo and Name */}
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 12,
+                gap: 12
+              }}>
+                {(() => {
+                  // Helper function to get default logo
+                  const getDefaultLogo = (barangayName: string | null | undefined) => {
+                    if (!barangayName) return null;
+                    const barangayLower = barangayName.toLowerCase().trim();
+                    switch (barangayLower) {
+                      case 'talolong':
+                      case 'talongon':
+                        return require('../../assets/images/talolong.jpg');
+                      case 'burgos':
+                        return require('../../assets/images/burgos.jpg');
+                      case 'magsaysay':
+                        return require('../../assets/images/magsaysay.jpg');
+                      case 'gomez':
+                        return require('../../assets/images/gomez.jpg');
+                      case 'rizal':
+                        return require('../../assets/images/rizal.jpg');
+                      default:
+                        return null;
+                    }
+                  };
+
+                  const logo = data.brgyContact.logo;
+                  const barangayName = (data as any)?.barangay || '';
+                  const defaultLogo = getDefaultLogo(barangayName);
+                  
+                  if (logo || defaultLogo) {
+                    return (
+                      <RNImage
+                        source={logo ? { uri: logo } : defaultLogo}
+                        style={{
+                          width: 60,
+                          height: 60,
+                          borderRadius: 30,
+                          borderWidth: 2,
+                          borderColor: '#E5E7EB'
+                        }}
+                        resizeMode="cover"
+                      />
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* Barangay Name */}
+                {(data as any)?.barangay && (
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: '700',
+                    color: '#111827',
+                    flex: 1
+                  }}>
+                    Barangay {(data as any).barangay}
+                  </Text>
+                )}
+              </View>
+
+              <Text style={{
+                fontSize: 13,
+                color: '#111827',
+                marginBottom: 6,
+                textAlign: 'center'
+              }}>
+                {data.brgyContact.name}
+              </Text>
+              {data.brgyContact.email && (
+                <TextInput
+                  value={data.brgyContact.email}
+                  editable={false}
+                  selectTextOnFocus={true}
+                  style={{
+                    fontSize: 13,
+                    color: '#111827',
+                    padding: 6,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 4,
+                    borderWidth: 1,
+                    borderColor: '#D1D5DB',
+                    marginBottom: 6
+                  }}
+                />
+              )}
+              {data.brgyContact.phone && (
+                <TextInput
+                  value={data.brgyContact.phone}
+                  editable={false}
+                  selectTextOnFocus={true}
+                  style={{
+                    fontSize: 13,
+                    color: '#111827',
+                    padding: 6,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 4,
+                    borderWidth: 1,
+                    borderColor: '#D1D5DB'
+                  }}
+                />
+              )}
+            </View>
+          )}
+
+          {/* Action Buttons */}
+          <View style={{
+            flexDirection: 'row',
+            gap: 8,
+            justifyContent: 'center'
+          }}>
+            {data.brgyContact?.email && (
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    const emailUrl = `mailto:${data.brgyContact!.email}?subject=Owner Application Inquiry&body=Hello, I would like to inquire about my owner application status.`;
+                    const canOpen = await Linking.canOpenURL(emailUrl);
+                    if (canOpen) {
+                      await Linking.openURL(emailUrl);
+                    } else {
+                      Alert.alert('Error', 'Unable to open email client');
+                    }
+                  } catch (error) {
+                    console.error('Error opening email:', error);
+                    Alert.alert('Error', 'Unable to open email client');
+                  }
+                }}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  backgroundColor: '#10B981',
+                  borderRadius: 6,
+                  flex: 1
+                }}
+              >
+                <Text style={{
+                  color: '#FFFFFF',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  textAlign: 'center'
+                }}>
+                  Email
+                </Text>
+              </TouchableOpacity>
+            )}
+            {data.brgyContact?.phone && (
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    const cleanPhone = data.brgyContact!.phone.replace(/[\s\-()]/g, '');
+                    const phoneUrl = cleanPhone.startsWith('+') ? `tel:${cleanPhone}` : `tel:+${cleanPhone}`;
+                    
+                    if (Platform.OS === 'web') {
+                      window.location.href = phoneUrl;
+                    } else {
+                      const canOpen = await Linking.canOpenURL(phoneUrl);
+                      if (canOpen) {
+                        await Linking.openURL(phoneUrl);
+                      } else {
+                        const fallbackUrl = `tel:${cleanPhone.replace(/^\+/, '')}`;
+                        const canOpenFallback = await Linking.canOpenURL(fallbackUrl);
+                        if (canOpenFallback) {
+                          await Linking.openURL(fallbackUrl);
+                        } else {
+                          try {
+                            await Linking.openURL(`tel:${cleanPhone}`);
+                          } catch (fallbackError) {
+                            Alert.alert('Error', `Unable to open phone dialer. Please copy the number and dial manually.`);
+                          }
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error opening phone:', error);
+                    try {
+                      const cleanPhone = data.brgyContact!.phone.replace(/[\s\-()]/g, '');
+                      await Linking.openURL(`tel:${cleanPhone}`);
+                    } catch (fallbackError) {
+                      Alert.alert('Error', `Unable to open phone dialer. Please copy the number and dial manually.`);
+                    }
+                  }
+                }}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  backgroundColor: '#3B82F6',
+                  borderRadius: 6,
+                  flex: 1
+                }}
+              >
+                <Text style={{
+                  color: '#FFFFFF',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  textAlign: 'center'
+                }}>
+                  Call
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={onClose}
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                backgroundColor: '#6B7280',
+                borderRadius: 6,
+                minWidth: 70
+              }}
+            >
+              <Text style={{
+                color: '#FFFFFF',
+                fontSize: 14,
+                fontWeight: '600',
+                textAlign: 'center'
+              }}>
+                OK
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }

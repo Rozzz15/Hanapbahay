@@ -22,6 +22,7 @@ import {
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import * as ImagePicker from 'expo-image-picker';
+import { extractAccountInfoFromQRCode, parseQRPHCode } from '../../utils/qr-code-generator';
 
 interface PaymentAccount {
   id: string;
@@ -31,6 +32,7 @@ interface PaymentAccount {
   accountNumber: string;
   accountDetails: string;
   qrCodeImageUri?: string; // QR code image URI for GCash payments
+  qrCodeData?: string; // Parsed QR-PH code data string for accurate dynamic QR generation
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -59,6 +61,8 @@ export default function PaymentSettings() {
     accountDetails: '',
     qrCodeImageUri: '' as string | undefined
   });
+  const [qrCodeDataInput, setQrCodeDataInput] = useState('');
+  const [parsingQRCode, setParsingQRCode] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -129,7 +133,8 @@ export default function PaymentSettings() {
       accountName: '',
       accountNumber: '',
       accountDetails: '',
-      qrCodeImageUri: undefined
+      qrCodeImageUri: undefined,
+      qrCodeData: undefined
     });
     setEditingAccount(null);
     setShowAddForm(false);
@@ -200,6 +205,7 @@ export default function PaymentSettings() {
           accountNumber: formData.accountNumber.trim(),
           accountDetails: formData.accountDetails.trim(),
           qrCodeImageUri: formData.qrCodeImageUri || editingAccount.qrCodeImageUri,
+          qrCodeData: formData.qrCodeData || editingAccount.qrCodeData,
           updatedAt: now
         };
 
@@ -218,6 +224,7 @@ export default function PaymentSettings() {
           accountNumber: formData.accountNumber.trim(),
           accountDetails: formData.accountDetails.trim(),
           qrCodeImageUri: formData.qrCodeImageUri,
+          qrCodeData: formData.qrCodeData,
           isActive: true,
           createdAt: now,
           updatedAt: now
@@ -289,7 +296,8 @@ export default function PaymentSettings() {
       accountName: account.accountName,
       accountNumber: account.accountNumber,
       accountDetails: account.accountDetails,
-      qrCodeImageUri: account.qrCodeImageUri
+      qrCodeImageUri: account.qrCodeImageUri,
+      qrCodeData: account.qrCodeData
     });
     setEditingAccount(account);
     setShowAddForm(true);
@@ -308,17 +316,87 @@ export default function PaymentSettings() {
         return;
       }
 
-      // Launch image picker
+      // Launch image picker with cropping enabled to capture only the QR code
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+        aspect: [1, 1], // Square aspect ratio for QR codes
+        quality: 1.0, // Higher quality for better QR code recognition
+        allowsMultipleSelection: false,
+        selectionLimit: 1,
       });
 
       if (!result.canceled && result.assets[0]) {
-        setFormData(prev => ({ ...prev, qrCodeImageUri: result.assets[0].uri }));
-        Alert.alert('QR Code Added', 'QR code image has been selected.');
+        const imageUri = result.assets[0].uri;
+        setFormData(prev => ({ ...prev, qrCodeImageUri: imageUri }));
+        
+        // Automatically decode QR code from image and extract account info
+        try {
+          const { decodeQRCodeFromImage, parseQRPHCode } = await import('../../utils/qr-code-generator');
+          
+          // Show loading indicator
+          Alert.alert('Processing...', 'Decoding QR code from image...', [{ text: 'OK' }]);
+          
+          // Decode QR code from image
+          const qrData = await decodeQRCodeFromImage(imageUri);
+          
+          if (qrData) {
+            // Parse the QR-PH code
+            const parsed = parseQRPHCode(qrData);
+            
+            if (parsed && parsed.isValid) {
+              // Validate GUID matches account type
+              const expectedGUID = formData.type === 'gcash' ? '01' : '02';
+              
+              if (parsed.guid !== expectedGUID) {
+                Alert.alert(
+                  'QR Code Mismatch',
+                  `This QR code is for ${parsed.guid === '01' ? 'GCash' : 'PayMaya'}, but your account type is set to ${formData.type === 'gcash' ? 'GCash' : 'PayMaya'}. Please change the account type or use the correct QR code.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Change Account Type',
+                      onPress: () => {
+                        setFormData(prev => ({
+                          ...prev,
+                          type: parsed.guid === '01' ? 'gcash' : 'paymaya'
+                        }));
+                        // Retry auto-fill after type change
+                        setTimeout(() => {
+                          handleAutoFillFromQRCode(qrData, parsed);
+                        }, 100);
+                      }
+                    }
+                  ]
+                );
+              } else {
+                // Auto-fill account information
+                handleAutoFillFromQRCode(qrData, parsed);
+              }
+            } else {
+              // Show more detailed error message
+              console.log('❌ QR code parsing failed. Raw QR data (first 200 chars):', qrData.substring(0, 200));
+              Alert.alert(
+                'Invalid QR Code',
+                `The QR code could not be parsed as QR-PH format. This might be because:\n\n• The QR code is not in EMV QR-PH format\n• The QR code data is incomplete\n• The QR code is corrupted\n\nYou can still manually enter the account information, or try scanning the QR code again.\n\nQR data preview: ${qrData.substring(0, 50)}...`,
+                [{ text: 'OK' }]
+              );
+            }
+          } else {
+            Alert.alert(
+              'QR Code Decoding Failed',
+              'Could not automatically decode the QR code. Please scan it with your phone\'s camera app or a QR reader app, copy the data, and paste it in the "QR Code Data" field below.',
+              [{ text: 'OK' }]
+            );
+          }
+        } catch (error) {
+          console.error('Error decoding QR code:', error);
+          Alert.alert(
+            'Error',
+            'Failed to decode QR code. Please try manually entering the account information or paste the QR code data in the field below.',
+            [{ text: 'OK' }]
+          );
+        }
       }
     } catch (error) {
       console.error('Error picking QR code image:', error);
@@ -327,7 +405,79 @@ export default function PaymentSettings() {
   };
 
   const handleRemoveQRCode = () => {
-    setFormData(prev => ({ ...prev, qrCodeImageUri: undefined }));
+    setFormData(prev => ({ ...prev, qrCodeImageUri: undefined, qrCodeData: undefined }));
+    setQrCodeDataInput('');
+  };
+
+  const handleAutoFillFromQRCode = (qrData: string, parsed: any) => {
+    // Store QR code data without auto-filling account information
+    // This allows the user to keep their manually entered account details
+    // while using the QR code structure for accurate dynamic QR generation
+    setFormData(prev => ({
+      ...prev,
+      qrCodeData: qrData // Store the QR code data for accurate dynamic QR generation
+    }));
+
+    Alert.alert(
+      'QR Code Data Stored',
+      'The QR code data has been successfully stored and will be used to generate accurate dynamic QR codes. Your manually entered account information will be preserved.'
+    );
+  };
+
+  const handleParseQRCodeData = async () => {
+    if (!qrCodeDataInput.trim()) {
+      Alert.alert('Input Required', 'Please paste the QR code data string.');
+      return;
+    }
+
+    setParsingQRCode(true);
+    try {
+      // Parse the QR-PH code
+      const parsed = parseQRPHCode(qrCodeDataInput.trim());
+      
+      if (!parsed || !parsed.isValid) {
+        Alert.alert(
+          'Invalid QR Code',
+          'The QR code data is not in QR-PH format or is invalid. Please make sure you copied the complete QR code data string.'
+        );
+        setParsingQRCode(false);
+        return;
+      }
+
+      // Validate GUID matches account type
+      const expectedGUID = formData.type === 'gcash' ? '01' : '02';
+      if (parsed.guid !== expectedGUID) {
+        Alert.alert(
+          'QR Code Mismatch',
+          `This QR code is for ${parsed.guid === '01' ? 'GCash' : 'PayMaya'}, but your account type is set to ${formData.type === 'gcash' ? 'GCash' : 'PayMaya'}. Please change the account type or use the correct QR code.`
+        );
+        setParsingQRCode(false);
+        return;
+      }
+
+      // Store QR code data without auto-filling account information
+      // This allows the user to keep their manually entered account details
+      // while using the QR code structure for accurate dynamic QR generation
+      setFormData(prev => ({
+        ...prev,
+        qrCodeData: qrCodeDataInput.trim() // Store the QR code data for accurate dynamic QR generation
+      }));
+
+      Alert.alert(
+        'QR Code Data Stored',
+        'The QR code data has been successfully stored and will be used to generate accurate dynamic QR codes. Your manually entered account information will be preserved.'
+      );
+      
+      setQrCodeDataInput(''); // Clear input after successful parsing
+    } catch (error) {
+      console.error('Error parsing QR code:', error);
+      Alert.alert(
+        'Error',
+        'Failed to parse QR code data. Please make sure the data is correct and try again.'
+      );
+    } finally {
+      setParsingQRCode(false);
+    }
   };
 
   // Dedicated handler for opening the add form
@@ -345,7 +495,8 @@ export default function PaymentSettings() {
       accountName: '',
       accountNumber: '',
       accountDetails: '',
-      qrCodeImageUri: undefined
+      qrCodeImageUri: undefined,
+      qrCodeData: undefined
     });
     
     console.log('✅ State updates dispatched - form should show');
@@ -509,8 +660,52 @@ export default function PaymentSettings() {
               {formData.type === 'gcash' ? 'GCash' : 'Maya'} QR Code (Optional)
             </Text>
             <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm, fontSize: 12 }]}>
-              Upload your {formData.type === 'gcash' ? 'GCash' : 'Maya'} QR code image. This will be used to generate dynamic QR codes for each rental invoice.
+              Upload your {formData.type === 'gcash' ? 'GCash' : 'Maya'} QR code image.{'\n'}
+              <Text style={{ fontWeight: '600', color: designTokens.colors.primary }}>Important:</Text> When selecting the image, <Text style={{ fontWeight: '600' }}>crop it to show only the QR code</Text> (not the entire screen or background). This ensures accurate decoding and dynamic QR code generation.
             </Text>
+            
+            {/* QR Code Data Input - For auto-filling account info */}
+            <View style={{ marginTop: designTokens.spacing.md, marginBottom: designTokens.spacing.sm }}>
+              <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.xs, fontSize: 13 }]}>
+                QR Code Data (Optional - for auto-fill)
+              </Text>
+              <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm, fontSize: 11 }]}>
+                Scan the QR code with your phone's camera app or a QR reader app, copy the data string, and paste it here to auto-fill account information.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
+                <TextInput
+                  style={[
+                    sharedStyles.formInput,
+                    { flex: 1, fontSize: 12, fontFamily: 'monospace' }
+                  ]}
+                  placeholder="Paste QR code data string here..."
+                  value={qrCodeDataInput}
+                  onChangeText={setQrCodeDataInput}
+                  multiline
+                  numberOfLines={2}
+                />
+                <TouchableOpacity
+                  style={[
+                    sharedStyles.primaryButton,
+                    {
+                      paddingHorizontal: designTokens.spacing.md,
+                      paddingVertical: designTokens.spacing.sm,
+                      minWidth: 80,
+                      justifyContent: 'center',
+                      opacity: parsingQRCode ? 0.6 : 1
+                    }
+                  ]}
+                  onPress={handleParseQRCodeData}
+                  disabled={parsingQRCode || !qrCodeDataInput.trim()}
+                >
+                  {parsingQRCode ? (
+                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 12 }]}>Parsing...</Text>
+                  ) : (
+                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 12 }]}>Parse</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
             {formData.qrCodeImageUri ? (
               <View style={{ position: 'relative', marginTop: designTokens.spacing.sm }}>
                 <Image

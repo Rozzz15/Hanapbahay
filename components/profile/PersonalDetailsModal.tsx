@@ -279,9 +279,9 @@ const PersonalDetailsModal: React.FC<PersonalDetailsModalProps> = ({
                                 </View>
                             </View>
 
-                            {/* Family Type Selection */}
+                            {/* Tenant Type Selection */}
                             <View style={styles.inputContainer}>
-                                <Text style={styles.inputLabel}>Family Type</Text>
+                                <Text style={styles.inputLabel}>Tenant Type</Text>
                                 <View style={styles.radioGroup}>
                                     <TouchableOpacity
                                         style={[

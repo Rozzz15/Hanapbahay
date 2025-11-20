@@ -349,7 +349,7 @@ export default function PropertiesPage() {
               color: designTokens.colors.textPrimary,
               marginBottom: 2,
             }} numberOfLines={1}>
-              {listing.businessName || listing.propertyType || 'Property'}
+              {listing.businessName || (listing.propertyType === 'Condo' ? 'Boarding House' : listing.propertyType) || 'Property'}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, gap: designTokens.spacing.xs, flexWrap: 'wrap' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
@@ -526,7 +526,7 @@ export default function PropertiesPage() {
                     color: designTokens.colors.textPrimary,
                     marginBottom: designTokens.spacing.xs,
                   }}>
-                    {selectedProperty.businessName || selectedProperty.propertyType || 'Property'}
+                    {selectedProperty.businessName || (selectedProperty.propertyType === 'Condo' ? 'Boarding House' : selectedProperty.propertyType) || 'Property'}
                   </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.md }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -587,7 +587,7 @@ export default function PropertiesPage() {
                         Property Type
                       </Text>
                       <Text style={{ fontSize: designTokens.typography.sm, fontWeight: '600', color: designTokens.colors.textPrimary }}>
-                        {selectedProperty.propertyType}
+                        {selectedProperty.propertyType === 'Condo' ? 'Boarding House' : selectedProperty.propertyType}
                       </Text>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>

@@ -252,20 +252,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const redirectOwnerBasedOnListings = async (ownerId: string) => {
     try {
       console.log('🔍 Owner redirection - always going to dashboard:', ownerId);
-      // Ensure user state is set before redirecting
-      await refreshUser();
+      // Refresh user in background, don't block redirect
+      refreshUser().catch(err => console.log('Background user refresh:', err));
       
-      // Small delay to ensure state is updated
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Always redirect owners to dashboard regardless of listing status
+      // Redirect immediately - approval checks happen in layout
       console.log('🔄 Redirecting owner to dashboard...');
       router.replace('/(owner)/dashboard');
-      
-      // Force navigation after a short delay if needed
-      setTimeout(() => {
-        router.replace('/(owner)/dashboard');
-      }, 100);
     } catch (error) {
       console.error('❌ Error redirecting owner:', error);
       // Default to dashboard if there's an error

@@ -51,6 +51,7 @@
     "babel-plugin-module-resolver": "^5.0.2",
     "expo": "^54.0.24",
     "expo-audio": "~1.0.14",
+    "expo-barcode-scanner": "^13.0.1",
     "expo-blur": "~15.0.7",
     "expo-camera": "~17.0.9",
     "expo-clipboard": "^8.0.7",

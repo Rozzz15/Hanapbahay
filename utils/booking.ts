@@ -9,6 +9,8 @@ export interface CreateBookingData {
   duration: number; // in months
   specialRequests?: string;
   selectedRoom?: number; // Room index (0-based) that the tenant selected
+  tenantType?: 'individual' | 'family' | 'couple' | 'group';
+  numberOfPeople?: number; // Number of people for family or group bookings
   selectedPaymentMethod?: string;
   paymentMethodDetails?: {
     type: string;
@@ -127,6 +129,8 @@ export async function createBooking(data: CreateBookingData): Promise<BookingRec
       ownerPhone: property.contactNumber,
       specialRequests: data.specialRequests,
       selectedRoom: data.selectedRoom,
+      tenantType: data.tenantType,
+      numberOfPeople: data.numberOfPeople,
       selectedPaymentMethod: data.selectedPaymentMethod,
       paymentMethodDetails: data.paymentMethodDetails,
       createdAt: new Date().toISOString(),
@@ -165,11 +169,12 @@ export async function getBookingsByTenant(tenantId: string): Promise<BookingReco
     console.log('📋 Loading bookings for tenant:', tenantId);
     
     const allBookings = await db.list<BookingRecord>('bookings');
+    // Exclude soft-deleted bookings from normal views (but they're preserved for analytics)
     const tenantBookings = allBookings
-      .filter(booking => booking.tenantId === tenantId)
+      .filter(booking => booking.tenantId === tenantId && !booking.isDeleted)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
-    console.log(`✅ Loaded ${tenantBookings.length} bookings for tenant`);
+    console.log(`✅ Loaded ${tenantBookings.length} bookings for tenant (excluding deleted)`);
     return tenantBookings;
   } catch (error) {
     console.error('❌ Error loading tenant bookings:', error);
@@ -183,8 +188,9 @@ export async function getBookingsByOwner(ownerId: string): Promise<BookingRecord
     console.log('📋 Loading bookings for owner:', ownerId);
     
     const allBookings = await db.list<BookingRecord>('bookings');
+    // Exclude soft-deleted bookings from normal views (but they're preserved for analytics)
     const ownerBookings = allBookings
-      .filter(booking => booking.ownerId === ownerId)
+      .filter(booking => booking.ownerId === ownerId && !booking.isDeleted)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     // Load tenant addresses for each booking
@@ -244,6 +250,15 @@ export async function updateBookingStatus(
     await db.upsert('bookings', bookingId, updatedBooking);
     console.log('✅ Booking status updated successfully');
     
+    // If a paid booking is rejected, update listing availability status (slot may have become available)
+    // Also update if approving a booking (though it won't be occupied until paid)
+    try {
+      const { updateListingAvailabilityStatus } = await import('./listing-capacity');
+      await updateListingAvailabilityStatus(booking.propertyId);
+    } catch (statusError) {
+      console.warn('⚠️ Could not update listing availability status:', statusError);
+    }
+    
     return true;
   } catch (error) {
     console.error('❌ Error updating booking status:', error);
@@ -251,10 +266,10 @@ export async function updateBookingStatus(
   }
 }
 
-// Cancel booking (for tenants) - Deletes the booking completely
+// Cancel booking (for tenants) - Soft deletes the booking (preserves for analytics)
 export async function cancelBooking(bookingId: string, tenantId: string): Promise<boolean> {
   try {
-    console.log('🔄 Cancelling (deleting) booking:', { bookingId, tenantId });
+    console.log('🔄 Cancelling (soft deleting) booking:', { bookingId, tenantId });
     
     const booking = await db.get<BookingRecord>('bookings', bookingId);
     if (!booking) {
@@ -273,9 +288,28 @@ export async function cancelBooking(bookingId: string, tenantId: string): Promis
       throw new Error('Cannot cancel a completed booking');
     }
     
-    // Delete the booking completely instead of marking as cancelled
-    await db.remove('bookings', bookingId);
-    console.log('✅ Booking deleted successfully');
+    // Soft delete: Mark as cancelled and deleted instead of removing from database
+    // This preserves the booking for barangay analytics
+    const now = new Date().toISOString();
+    const updatedBooking: BookingRecord = {
+      ...booking,
+      status: 'cancelled',
+      cancelledAt: now,
+      isDeleted: true,
+      deletedAt: now,
+      updatedAt: now
+    };
+    
+    await db.upsert('bookings', bookingId, updatedBooking);
+    console.log('✅ Booking soft-deleted successfully (preserved for analytics)');
+    
+    // Update listing availability status in case slots became available
+    try {
+      const { updateListingAvailabilityStatus } = await import('./listing-capacity');
+      await updateListingAvailabilityStatus(booking.propertyId);
+    } catch (statusError) {
+      console.warn('⚠️ Could not update listing availability status:', statusError);
+    }
     
     // Dispatch event to notify owner dashboard that booking was cancelled
     const { dispatchCustomEvent } = await import('./custom-events');
@@ -284,7 +318,7 @@ export async function cancelBooking(bookingId: string, tenantId: string): Promis
       propertyId: booking.propertyId,
       tenantId: booking.tenantId,
       ownerId: booking.ownerId,
-      timestamp: new Date().toISOString()
+      timestamp: now
     });
     
     return true;
@@ -294,10 +328,10 @@ export async function cancelBooking(bookingId: string, tenantId: string): Promis
   }
 }
 
-// Delete booking (for owners) - Deletes the booking completely
+// Delete booking (for owners) - Soft deletes the booking (preserves for analytics)
 export async function deleteBookingByOwner(bookingId: string, ownerId: string): Promise<boolean> {
   try {
-    console.log('🔄 Deleting booking by owner:', { bookingId, ownerId });
+    console.log('🔄 Soft deleting booking by owner:', { bookingId, ownerId });
     
     const booking = await db.get<BookingRecord>('bookings', bookingId);
     if (!booking) {
@@ -308,9 +342,26 @@ export async function deleteBookingByOwner(bookingId: string, ownerId: string): 
       throw new Error('Unauthorized: You can only delete bookings for your own properties');
     }
     
-    // Delete the booking completely
-    await db.remove('bookings', bookingId);
-    console.log('✅ Booking deleted successfully by owner');
+    // Soft delete: Mark as deleted instead of removing from database
+    // This preserves the booking for barangay analytics
+    const now = new Date().toISOString();
+    const updatedBooking: BookingRecord = {
+      ...booking,
+      isDeleted: true,
+      deletedAt: now,
+      updatedAt: now
+    };
+    
+    await db.upsert('bookings', bookingId, updatedBooking);
+    console.log('✅ Booking soft-deleted successfully by owner (preserved for analytics)');
+    
+    // Update listing availability status in case slots became available
+    try {
+      const { updateListingAvailabilityStatus } = await import('./listing-capacity');
+      await updateListingAvailabilityStatus(booking.propertyId);
+    } catch (statusError) {
+      console.warn('⚠️ Could not update listing availability status:', statusError);
+    }
     
     // Dispatch event to notify tenant dashboard that booking was deleted
     // Wrapped in try-catch to prevent event errors from breaking the deletion
@@ -321,7 +372,7 @@ export async function deleteBookingByOwner(bookingId: string, ownerId: string): 
         propertyId: booking.propertyId,
         tenantId: booking.tenantId,
         ownerId: booking.ownerId,
-        timestamp: new Date().toISOString()
+        timestamp: now
       });
     } catch (eventError) {
       console.warn('⚠️ Could not dispatch bookingDeleted event:', eventError);

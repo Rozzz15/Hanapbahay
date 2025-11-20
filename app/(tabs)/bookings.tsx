@@ -166,7 +166,7 @@ export default function TenantBookings() {
     
     showAlert(
       'Delete Rejected Booking',
-      'Are you sure you want to permanently delete this rejected booking? This action cannot be undone.',
+      'Are you sure you want to delete this rejected booking? It will be removed from your view but preserved for barangay analytics.',
       [
         {
           text: 'Cancel',
@@ -180,8 +180,19 @@ export default function TenantBookings() {
               console.log('🗑️ User confirmed deletion for booking:', bookingId);
               setDeletingBookingId(bookingId);
               
-              await db.remove('bookings', bookingId);
-              console.log('✅ Delete function completed successfully');
+              // Soft delete: Mark as deleted instead of removing from database
+              // This preserves the booking for barangay analytics
+              const booking = await db.get('bookings', bookingId);
+              if (booking) {
+                const now = new Date().toISOString();
+                await db.upsert('bookings', bookingId, {
+                  ...booking,
+                  isDeleted: true,
+                  deletedAt: now,
+                  updatedAt: now
+                });
+              }
+              console.log('✅ Booking soft-deleted successfully (preserved for analytics)');
               
               // Reload bookings from database to ensure UI is in sync
               await loadBookings();

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, ViewStyle, TextStyle, ImageStyle, useWindowDimensions, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, ViewStyle, TextStyle, ImageStyle, useWindowDimensions, Image, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
@@ -25,10 +25,17 @@ import {
   ClipboardList,
   BarChart3,
   AlertTriangle,
-  List,
+  FileWarning,
+  CheckCircle2,
+  MessageSquare,
   Sparkles,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  XCircle,
+  CheckCircle,
+  Mail,
+  Phone,
+  MapPin
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -55,13 +62,21 @@ export default function BrgyDashboard() {
   const [barangayLogo, setBarangayLogo] = useState<string | null>(null);
   const [pendingApplicationsCount, setPendingApplicationsCount] = useState(0);
   const [newComplaintsCount, setNewComplaintsCount] = useState(0);
+  const [pendingApplications, setPendingApplications] = useState<OwnerApplicationRecord[]>([]);
+  const [processingApplication, setProcessingApplication] = useState<string | null>(null);
+  const [complaintsStats, setComplaintsStats] = useState({
+    total: 0,
+    new: 0,
+    resolved: 0,
+    inProgress: 0,
+  });
 
   // Define loadStats first (before loadDashboardData)
   const loadStats = useCallback(async () => {
     if (!user?.id) return;
 
     try {
-      // Get barangay name from user data
+      // Get barangay name from user data first (needed for other queries)
       const userRecord = await db.get<DbUserRecord>('users', user.id);
       const barangay = userRecord?.barangay || 'Unknown Barangay';
       setBarangayName(barangay);
@@ -75,11 +90,14 @@ export default function BrgyDashboard() {
       const logo = (userRecord as any)?.barangayLogo || null;
       setBarangayLogo(logo);
       
-      // Get all users
-      const allUsers = await db.list<DbUserRecord>('users');
-      
-      // Get all published listings
-      const allListings = await db.list<PublishedListingRecord>('published_listings');
+      // Parallelize all database queries for faster loading
+      const [allUsers, allListings, allBookings, allApplications, allComplaints] = await Promise.all([
+        db.list<DbUserRecord>('users'),
+        db.list<PublishedListingRecord>('published_listings'),
+        db.list<BookingRecord>('bookings'),
+        db.list<OwnerApplicationRecord>('owner_applications'),
+        getComplaintsByBarangay(barangay)
+      ]);
       
       // Filter ACTIVE listings by barangay (only available, not occupied or reserved)
       const listingsInBarangay = allListings.filter(listing => {
@@ -106,7 +124,6 @@ export default function BrgyDashboard() {
       });
       
       // Get all bookings for properties in this barangay
-      const allBookings = await db.list<BookingRecord>('bookings');
       const approvedBookingsInBarangay = allBookings.filter(b => {
         const property = allListings.find(l => l.id === b.propertyId);
         if (!property) return false;
@@ -126,13 +143,33 @@ export default function BrgyDashboard() {
       // Only count tenants with completed payments as residents
       const paidBookingsInBarangay = approvedBookingsInBarangay.filter(b => b.paymentStatus === 'paid');
       
-      // Count unique tenants (residents) with paid approved bookings in this barangay
-      const uniqueTenantIds = new Set(paidBookingsInBarangay.map(booking => booking.tenantId));
-      const totalResidents = uniqueTenantIds.size;
+      // Count residents including family/group members
+      // Helper function to calculate people count from booking
+      const getPeopleCountFromBooking = (booking: BookingRecord): number => {
+        if (!booking.tenantType) return 1; // Default to 1 if no tenant type
+        
+        switch (booking.tenantType) {
+          case 'individual':
+            return 1;
+          case 'couple':
+            return 2;
+          case 'family':
+          case 'group':
+            // Count tenant (1) + family/group members (numberOfPeople)
+            const members = booking.numberOfPeople || 0;
+            return 1 + members;
+          default:
+            return 1;
+        }
+      };
+      
+      // Calculate total residents including family/group members
+      const totalResidents = paidBookingsInBarangay.reduce((total, booking) => {
+        return total + getPeopleCountFromBooking(booking);
+      }, 0);
       
       // Count approved owners in this barangay by checking owner_applications table
       // This ensures accuracy by only counting owners who have been officially approved
-      const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
       const approvedApplicationsInBarangay = allApplications.filter(
         app => app.status === 'approved' && app.barangay?.toUpperCase() === barangay.toUpperCase()
       );
@@ -162,10 +199,24 @@ export default function BrgyDashboard() {
         app => app.status === 'pending' && app.barangay.toUpperCase() === barangay.toUpperCase()
       );
       setPendingApplicationsCount(pendingApps.length);
+      // Sort by creation date (newest first)
+      pendingApps.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setPendingApplications(pendingApps);
 
-      // Get new complaints count
-      const newComplaints = await getNewComplaintsCount(barangay);
+      // Process complaints statistics
+      const newComplaints = allComplaints.filter(c => c.status === 'submitted').length;
+      const resolvedComplaints = allComplaints.filter(c => c.status === 'resolved').length;
+      const inProgressComplaints = allComplaints.filter(c => c.status === 'under_review' || c.status === 'for_mediation' || c.status === 'received_by_brgy').length;
+      
       setNewComplaintsCount(newComplaints);
+      setComplaintsStats({
+        total: allComplaints.length,
+        new: newComplaints,
+        resolved: resolvedComplaints,
+        inProgress: inProgressComplaints,
+      });
     } catch (error) {
       console.error('Error loading stats:', error);
     }
@@ -219,6 +270,103 @@ export default function BrgyDashboard() {
       }
     }, [user, loadDashboardData])
   );
+
+  const handleApproveApplication = async (application: OwnerApplicationRecord) => {
+    if (!user?.id) return;
+    
+    try {
+      setProcessingApplication(application.id);
+      
+      // Update application status
+      const updatedApplication = {
+        ...application,
+        status: 'approved' as const,
+        reviewedBy: user.id,
+        reviewedAt: new Date().toISOString(),
+      };
+      
+      await db.upsert('owner_applications', application.id, updatedApplication);
+      
+      // Update user role to owner
+      const userRecord = await db.get<DbUserRecord>('users', application.userId);
+      if (userRecord) {
+        const updatedUser = {
+          ...userRecord,
+          role: 'owner' as const,
+          roles: ['owner'],
+          updatedAt: new Date().toISOString(),
+        };
+        await db.upsert('users', application.userId, updatedUser);
+      }
+      
+      // Delete notification if exists
+      const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
+      const notification = notifications.find(
+        notif => notif.ownerApplicationId === application.id && notif.barangay === barangayName
+      );
+      if (notification) {
+        await db.remove('brgy_notifications', notification.id);
+      }
+      
+      // Reload data
+      await loadStats();
+      showAlert('Success', 'Application approved successfully!');
+    } catch (error) {
+      console.error('Error approving application:', error);
+      showAlert('Error', 'Failed to approve application');
+    } finally {
+      setProcessingApplication(null);
+    }
+  };
+
+  const handleRejectApplication = async (application: OwnerApplicationRecord) => {
+    if (!user?.id) return;
+    
+    showAlert(
+      'Reject Application',
+      `Are you sure you want to reject ${application.name}'s application?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setProcessingApplication(application.id);
+              
+              // Update application status
+              const updatedApplication = {
+                ...application,
+                status: 'rejected' as const,
+                reviewedBy: user.id,
+                reviewedAt: new Date().toISOString(),
+              };
+              
+              await db.upsert('owner_applications', application.id, updatedApplication);
+              
+              // Delete notification if exists
+              const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
+              const notification = notifications.find(
+                notif => notif.ownerApplicationId === application.id && notif.barangay === barangayName
+              );
+              if (notification) {
+                await db.remove('brgy_notifications', notification.id);
+              }
+              
+              // Reload data
+              await loadStats();
+              showAlert('Success', 'Application rejected');
+            } catch (error) {
+              console.error('Error rejecting application:', error);
+              showAlert('Error', 'Failed to reject application');
+            } finally {
+              setProcessingApplication(null);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   const handleLogout = () => {
     if (!user) {
@@ -287,37 +435,50 @@ export default function BrgyDashboard() {
     const quickStats = [
       { label: 'Residents', value: stats.totalResidents, note: 'With completed payments' },
       { label: 'Properties', value: stats.totalProperties, note: 'Available homes' },
-      { label: 'Active Properties', value: stats.totalListings, note: 'Live on the app' },
       { label: 'Bookings', value: stats.activeBookings, note: 'On-going rentals' },
+      { label: 'Total Owners', value: stats.totalApprovedOwners, note: 'Verified property partners' },
     ];
 
-    const insightCards = [
+    const complaintCards = [
       {
-        title: 'Active Bookings',
-        value: stats.activeBookings,
-        subtext: 'On-going rentals',
-        trend: stats.activeBookings > 0 ? '+ Stable tenant demand' : 'Awaiting new bookings',
-        trendColor: stats.activeBookings > 0 ? '#059669' : designTokens.colors.textMuted,
-        icon: <TrendingUp size={18} color="#059669" />,
-        iconStyle: iconBackgrounds.teal,
+        title: 'New Complaints',
+        value: complaintsStats.new,
+        subtext: 'Require attention',
+        trend: complaintsStats.new > 0 ? `${complaintsStats.new} awaiting review` : 'No new complaints',
+        trendColor: complaintsStats.new > 0 ? '#EF4444' : designTokens.colors.textMuted,
+        icon: <AlertTriangle size={18} color="#EF4444" />,
+        iconStyle: iconBackgrounds.red,
+        gradient: ['#EF4444', '#DC2626'] as any,
       },
       {
-        title: 'Approved Owners',
-        value: stats.totalApprovedOwners,
-        subtext: 'Verified property partners',
-        trend: stats.totalApprovedOwners > 0 ? `${stats.totalApprovedOwners} active owner${stats.totalApprovedOwners > 1 ? 's' : ''}` : 'Invite more owners',
-        trendColor: '#0F766E',
-        icon: <ClipboardList size={18} color="#0F766E" />,
+        title: 'In Progress',
+        value: complaintsStats.inProgress,
+        subtext: 'Under review',
+        trend: complaintsStats.inProgress > 0 ? 'Being addressed' : 'None in progress',
+        trendColor: '#F59E0B',
+        icon: <FileWarning size={18} color="#F59E0B" />,
+        iconStyle: iconBackgrounds.orange,
+        gradient: designTokens.gradients.warning,
+      },
+      {
+        title: 'Resolved',
+        value: complaintsStats.resolved,
+        subtext: 'Successfully closed',
+        trend: complaintsStats.resolved > 0 ? 'Successfully resolved' : 'No resolved cases',
+        trendColor: '#10B981',
+        icon: <CheckCircle2 size={18} color="#10B981" />,
         iconStyle: iconBackgrounds.green,
+        gradient: designTokens.gradients.success,
       },
       {
-        title: 'Published Properties',
-        value: stats.totalListings,
-        subtext: 'Live inventory',
-        trend: stats.totalListings > 0 ? 'Ready for tenant discovery' : 'Publish new properties',
-        trendColor: '#1D4ED8',
-        icon: <BarChart3 size={18} color="#1D4ED8" />,
+        title: 'Total Complaints',
+        value: complaintsStats.total,
+        subtext: 'All time cases',
+        trend: complaintsStats.total > 0 ? `${complaintsStats.total} total cases` : 'No complaints yet',
+        trendColor: '#3B82F6',
+        icon: <MessageSquare size={18} color="#3B82F6" />,
         iconStyle: iconBackgrounds.blue,
+        gradient: designTokens.gradients.info,
       },
     ];
 
@@ -326,13 +487,12 @@ export default function BrgyDashboard() {
         label: 'Owner Applications',
         description: pendingApplicationsCount > 0
           ? `${pendingApplicationsCount} pending review${pendingApplicationsCount > 1 ? 's' : ''}`
-          : 'Review latest submissions',
-        icon: <Bell size={24} color="#FFFFFF" />,
+          : 'Review owner applications',
+        icon: <ClipboardList size={24} color="#F59E0B" />,
         iconBackground: iconBackgrounds.orange,
         route: '/(brgy)/owner-applications',
         badge: pendingApplicationsCount > 0 ? pendingApplicationsCount : undefined,
         highlight: pendingApplicationsCount > 0,
-        useGradient: true,
       },
       {
         label: 'Approved Owners',
@@ -417,14 +577,6 @@ export default function BrgyDashboard() {
         route: '/(brgy)/properties',
       },
       {
-        label: 'Active Properties',
-        gradient: designTokens.gradients.teal,
-        iconBg: iconBackgrounds.teal,
-        icon: List,
-        iconColor: '#14B8A6',
-        route: '/(brgy)/properties',
-      },
-      {
         label: 'Bookings',
         gradient: designTokens.gradients.warning,
         iconBg: iconBackgrounds.orange,
@@ -432,50 +584,33 @@ export default function BrgyDashboard() {
         iconColor: '#F59E0B',
         route: '/(brgy)/properties',
       },
-    ];
-
-    const alertItems = [
       {
-        label: 'Owner Applications',
-        value: pendingApplicationsCount,
-        status: pendingApplicationsCount > 0 ? 'Awaiting review' : 'All caught up',
-        accent: '#F59E0B',
-        priority: pendingApplicationsCount > 0,
-        icon: <Bell size={16} color="#F59E0B" />,
-      },
-      {
-        label: 'New Complaints',
-        value: newComplaintsCount,
-        status: newComplaintsCount > 0 ? 'Requires attention' : 'No new complaints',
-        accent: '#EF4444',
-        priority: newComplaintsCount > 0,
-        icon: <AlertTriangle size={16} color="#EF4444" />,
-      },
-      {
-        label: 'Active Bookings',
-        value: stats.activeBookings,
-        status: stats.activeBookings > 0 ? 'Residents currently renting' : 'No rentals in progress',
-        accent: '#0EA5E9',
-        priority: stats.activeBookings > 0,
-        icon: <Calendar size={16} color="#0EA5E9" />,
-      },
-      {
-        label: 'Published Properties',
-        value: stats.totalListings,
-        status: stats.totalListings > 0 ? 'Live inventory available' : 'Publish more homes',
-        accent: '#6366F1',
-        priority: stats.totalListings === 0,
-        icon: <Home size={16} color="#6366F1" />,
+        label: 'Total Owners',
+        gradient: designTokens.gradients.purple,
+        iconBg: iconBackgrounds.purple,
+        icon: CheckSquare,
+        iconColor: '#8B5CF6',
+        route: '/(brgy)/approved-owners',
       },
     ];
 
     const chartSeries = [
-      { label: 'Bookings', value: stats.activeBookings, color: '#6366F1' },
-      { label: 'Properties', value: stats.totalListings, color: '#0EA5E9' },
-      { label: 'Residents', value: stats.totalResidents, color: '#10B981' },
+      { label: 'Bookings', value: stats.activeBookings, color: '#6366F1', icon: Calendar },
+      { label: 'Properties', value: stats.totalListings, color: '#0EA5E9', icon: Home },
+      { label: 'Residents', value: stats.totalResidents, color: '#10B981', icon: Users },
+      { label: 'Owners', value: stats.totalApprovedOwners, color: '#8B5CF6', icon: CheckSquare },
     ];
     const chartMax = Math.max(...chartSeries.map(s => s.value), 1);
     const chartHeight = 120;
+    
+    // Calculate total engagement
+    const totalEngagement = chartSeries.reduce((sum, series) => sum + series.value, 0);
+    
+    // Calculate percentages for each metric
+    const chartSeriesWithDetails = chartSeries.map(series => ({
+      ...series,
+      percentage: totalEngagement > 0 ? Math.round((series.value / totalEngagement) * 100) : 0,
+    }));
 
     return (
       <View style={sharedStyles.pageContainer}>
@@ -534,187 +669,6 @@ export default function BrgyDashboard() {
             style={styles.heroGradient}
             pointerEvents="none"
           />
-        </View>
-
-        {/* Key Stats Section */}
-        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-            <View>
-              <Text style={sharedStyles.sectionTitle}>Key Stats</Text>
-              <Text style={{
-                fontSize: designTokens.typography.sm,
-                color: designTokens.colors.textSecondary,
-                marginTop: designTokens.spacing.xs,
-              }}>
-                Live barangay overview
-              </Text>
-            </View>
-            <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-              <BarChart3 size={18} color="#3B82F6" />
-            </View>
-          </View>
-          <View style={sharedStyles.grid}>
-            {statCards.map((cardConfig, index) => {
-              const stat = statsSummary.find(s => s.label === cardConfig.label);
-              const IconComponent = cardConfig.icon;
-              
-              return (
-                <TouchableOpacity
-                  key={cardConfig.label}
-                  style={sharedStyles.gridItem}
-                  onPress={() => router.push(cardConfig.route as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={sharedStyles.statCard}>
-                    <LinearGradient
-                      colors={cardConfig.gradient as any}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={[sharedStyles.statCardGradient, { height: 4 }]}
-                    />
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
-                      <View style={[sharedStyles.statIcon, cardConfig.iconBg]}>
-                        <IconComponent size={20} color={cardConfig.iconColor} />
-                      </View>
-                    </View>
-                    <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
-                      {stat?.label || cardConfig.label}
-                    </Text>
-                    <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
-                      {stat?.value || 0}
-                    </Text>
-                    <Text style={{
-                      fontSize: designTokens.typography.xs,
-                      color: designTokens.colors.textMuted,
-                      marginTop: designTokens.spacing.xs,
-                    }}>
-                      {stat?.note || ''}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.cardGrid}>
-
-          <View style={[styles.card, styles.alertsCard]}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Alerts</Text>
-              <Text style={styles.cardSubtitle}>
-                {hasActionAlerts ? 'Action required' : 'All systems normal'}
-              </Text>
-            </View>
-            <View style={styles.alertList}>
-              {alertItems.map((alert) => (
-                <View
-                  key={alert.label}
-                  style={[styles.alertItem, alert.priority && styles.alertItemActive]}
-                >
-                  <View style={[styles.alertIcon, { backgroundColor: `${alert.accent}1a` }]}>
-                    {alert.icon}
-                  </View>
-                  <View style={styles.alertContent}>
-                    <Text style={styles.alertLabel}>{alert.label}</Text>
-                    <Text style={styles.alertStatus}>{alert.status}</Text>
-                  </View>
-                  <Text style={[styles.alertValue, { color: alert.accent }]}>
-                    {alert.value}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        </View>
-
-        <View style={[styles.card, styles.chartCard]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Engagement Trend</Text>
-            <Text style={styles.cardSubtitle}>Last 30 days</Text>
-          </View>
-          <LinearGradient
-            colors={['#EEF2FF', '#F5F3FF'] as [string, string]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.chartSurface}
-          >
-            <View style={styles.chartBars}>
-              {chartSeries.map((series) => {
-                const computedHeight = Math.max(8, (series.value / chartMax) * chartHeight);
-                return (
-                  <View key={series.label} style={styles.chartBarWrapper}>
-                    <View style={[styles.chartBar, { height: computedHeight, backgroundColor: series.color }]} />
-                    <Text style={styles.chartBarLabel}>{series.label}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </LinearGradient>
-        </View>
-
-        {/* Operational Overview Section */}
-        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
-            <View>
-              <Text style={sharedStyles.sectionTitle}>Operational Overview</Text>
-              <Text style={{
-                fontSize: designTokens.typography.sm,
-                color: designTokens.colors.textSecondary,
-                marginTop: designTokens.spacing.xs,
-              }}>
-                Key performance indicators and operational metrics
-              </Text>
-            </View>
-            <View style={[sharedStyles.statIcon, iconBackgrounds.purple]}>
-              <TrendingUp size={18} color="#8B5CF6" />
-            </View>
-          </View>
-          <View style={sharedStyles.grid}>
-            {insightCards.map((card) => (
-              <View key={card.title} style={sharedStyles.gridItem}>
-                <View style={sharedStyles.statCard}>
-                  <LinearGradient
-                    colors={
-                      card.title === 'Active Bookings' ? designTokens.gradients.success as any :
-                      card.title === 'Approved Owners' ? designTokens.gradients.purple as any :
-                      card.title === 'Published Properties' ? designTokens.gradients.info as any :
-                      ['#6B7280', '#9CA3AF'] as any
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[sharedStyles.statCardGradient, { height: 4 }]}
-                  />
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
-                    <View style={[sharedStyles.statIcon, card.iconStyle]}>
-                      {card.icon}
-                    </View>
-                  </View>
-                  <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
-                    {card.title}
-                  </Text>
-                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: designTokens.spacing.xs }]}>
-                    {card.value}
-                  </Text>
-                  <Text style={{
-                    fontSize: designTokens.typography.xs,
-                    color: designTokens.colors.textMuted,
-                    marginBottom: designTokens.spacing.xs,
-                  }}>
-                    {card.subtext}
-                  </Text>
-                  <Text style={{
-                    fontSize: designTokens.typography.xs,
-                    color: card.trendColor,
-                    fontWeight: designTokens.typography.semibold as TextStyle['fontWeight'],
-                    marginTop: designTokens.spacing.xs,
-                  }}>
-                    {card.trend}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
         </View>
 
         {/* Operations & Management Section */}
@@ -851,6 +805,465 @@ export default function BrgyDashboard() {
               ))}
             </View>
           </ScrollView>
+        </View>
+
+        {/* Core Metrics Section */}
+        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+            <View>
+              <Text style={sharedStyles.sectionTitle}>Core Metrics</Text>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                color: designTokens.colors.textSecondary,
+                marginTop: designTokens.spacing.xs,
+              }}>
+                Live barangay overview
+              </Text>
+            </View>
+            <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+              <BarChart3 size={18} color="#3B82F6" />
+            </View>
+          </View>
+          <View style={sharedStyles.grid}>
+            {statCards.map((cardConfig, index) => {
+              const stat = statsSummary.find(s => s.label === cardConfig.label);
+              const IconComponent = cardConfig.icon;
+              
+              return (
+                <TouchableOpacity
+                  key={cardConfig.label}
+                  style={sharedStyles.gridItem}
+                  onPress={() => router.push(cardConfig.route as any)}
+                  activeOpacity={0.7}
+                >
+                  <View style={sharedStyles.statCard}>
+                    <LinearGradient
+                      colors={cardConfig.gradient as any}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[sharedStyles.statCardGradient, { height: 4 }]}
+                    />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
+                      <View style={[sharedStyles.statIcon, cardConfig.iconBg]}>
+                        <IconComponent size={20} color={cardConfig.iconColor} />
+                      </View>
+                    </View>
+                    <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
+                      {stat?.label || cardConfig.label}
+                    </Text>
+                    <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: 0 }]}>
+                      {stat?.value || 0}
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.textMuted,
+                      marginTop: designTokens.spacing.xs,
+                    }}>
+                      {stat?.note || ''}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Complaints & Issues Section */}
+        <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+            <View>
+              <Text style={sharedStyles.sectionTitle}>Complaints & Issues</Text>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                color: designTokens.colors.textSecondary,
+                marginTop: designTokens.spacing.xs,
+              }}>
+                Monitor and manage tenant complaints
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => router.push('/(brgy)/complaints' as any)}
+              style={[sharedStyles.statIcon, iconBackgrounds.red]}
+            >
+              <MessageSquare size={18} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+          <View style={sharedStyles.grid}>
+            {complaintCards.map((card) => (
+              <TouchableOpacity
+                key={card.title}
+                style={sharedStyles.gridItem}
+                onPress={() => router.push('/(brgy)/complaints' as any)}
+                activeOpacity={0.7}
+              >
+                <View style={sharedStyles.statCard}>
+                  <LinearGradient
+                    colors={card.gradient as any}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[sharedStyles.statCardGradient, { height: 4 }]}
+                  />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
+                    <View style={[sharedStyles.statIcon, card.iconStyle]}>
+                      {card.icon}
+                    </View>
+                  </View>
+                  <Text style={[sharedStyles.statLabel, { marginBottom: designTokens.spacing.xs }]}>
+                    {card.title}
+                  </Text>
+                  <Text style={[sharedStyles.statValue, { fontSize: designTokens.typography['2xl'], marginBottom: designTokens.spacing.xs }]}>
+                    {card.value}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: designTokens.colors.textMuted,
+                    marginBottom: designTokens.spacing.xs,
+                  }}>
+                    {card.subtext}
+                  </Text>
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    color: card.trendColor,
+                    fontWeight: designTokens.typography.semibold as TextStyle['fontWeight'],
+                    marginTop: designTokens.spacing.xs,
+                  }}>
+                    {card.trend}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Pending Applications Section */}
+        {pendingApplications.length > 0 && (
+          <View style={{ marginBottom: designTokens.spacing['2xl'] }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.lg }}>
+              <View>
+                <Text style={sharedStyles.sectionTitle}>Pending Applications</Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  color: designTokens.colors.textSecondary,
+                  marginTop: designTokens.spacing.xs,
+                }}>
+                  Review and approve owner applications
+                </Text>
+              </View>
+              <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
+                <Bell size={18} color="#F59E0B" />
+              </View>
+            </View>
+
+            {/* Summary Box */}
+            <View style={[sharedStyles.card, { 
+              backgroundColor: '#FFFBEB', 
+              borderColor: '#F59E0B', 
+              borderWidth: 1,
+              marginBottom: designTokens.spacing.lg 
+            }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.md }}>
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.orange]}>
+                    <Bell size={20} color="#F59E0B" />
+                  </View>
+                  <View>
+                    <Text style={[sharedStyles.statLabel, { color: '#92400E' }]}>
+                      {pendingApplicationsCount} Pending Application{pendingApplicationsCount > 1 ? 's' : ''}
+                    </Text>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: 12, color: '#92400E' }]}>
+                      Awaiting your review
+                    </Text>
+                  </View>
+                </View>
+                <View style={{
+                  backgroundColor: '#F59E0B',
+                  borderRadius: 20,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                }}>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }}>
+                    {pendingApplicationsCount}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Applications List */}
+            <View style={{ gap: designTokens.spacing.md }}>
+              {pendingApplications.slice(0, 3).map((application) => (
+                <View key={application.id} style={[sharedStyles.card, {
+                  borderLeftWidth: 4,
+                  borderLeftColor: '#F59E0B',
+                }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.md }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
+                        {application.name}
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <Mail size={14} color="#6B7280" />
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>
+                          {application.email}
+                        </Text>
+                      </View>
+                      {application.contactNumber && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                          <Phone size={14} color="#6B7280" />
+                          <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>
+                            {application.contactNumber}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        <MapPin size={14} color="#6B7280" />
+                        <Text style={[sharedStyles.statSubtitle, { fontSize: 12 }]}>
+                          {application.barangay}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: 11, color: designTokens.colors.textMuted }]}>
+                      {new Date(application.createdAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    gap: designTokens.spacing.sm, 
+                    marginTop: designTokens.spacing.md,
+                    paddingTop: designTokens.spacing.md,
+                    borderTopWidth: 1,
+                    borderTopColor: designTokens.colors.borderLight,
+                  }}>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#10B981',
+                        paddingVertical: designTokens.spacing.sm,
+                        paddingHorizontal: designTokens.spacing.md,
+                        borderRadius: designTokens.borderRadius.md,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                      onPress={() => handleApproveApplication(application)}
+                      disabled={processingApplication === application.id}
+                      activeOpacity={0.7}
+                    >
+                      {processingApplication === application.id ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <CheckCircle size={16} color="#FFFFFF" />
+                          <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 13 }}>
+                            Approve
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#EF4444',
+                        paddingVertical: designTokens.spacing.sm,
+                        paddingHorizontal: designTokens.spacing.md,
+                        borderRadius: designTokens.borderRadius.md,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                      onPress={() => handleRejectApplication(application)}
+                      disabled={processingApplication === application.id}
+                      activeOpacity={0.7}
+                    >
+                      {processingApplication === application.id ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <XCircle size={16} color="#FFFFFF" />
+                          <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 13 }}>
+                            Reject
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              
+              {pendingApplications.length > 3 && (
+                <TouchableOpacity
+                  style={[sharedStyles.card, {
+                    alignItems: 'center',
+                    paddingVertical: designTokens.spacing.md,
+                    borderStyle: 'dashed',
+                    borderWidth: 2,
+                    borderColor: designTokens.colors.borderLight,
+                    backgroundColor: 'transparent',
+                  }]}
+                  onPress={() => router.push('/(brgy)/owner-applications')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary }]}>
+                    View All {pendingApplications.length} Applications
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        <View style={[styles.card, styles.chartCard]}>
+          <View style={styles.cardHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Engagement Trend</Text>
+              <Text style={styles.cardSubtitle}>Comprehensive activity overview</Text>
+            </View>
+            <View style={{
+              backgroundColor: designTokens.colors.primary + '15',
+              borderRadius: designTokens.borderRadius.md,
+              paddingHorizontal: designTokens.spacing.md,
+              paddingVertical: designTokens.spacing.xs,
+            }}>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                fontWeight: '600',
+                color: designTokens.colors.primary,
+              }}>
+                Total: {totalEngagement}
+              </Text>
+            </View>
+          </View>
+          
+          {/* Chart Visualization */}
+          <View style={{ overflow: 'hidden' }}>
+            <LinearGradient
+              colors={['#EEF2FF', '#F5F3FF'] as [string, string]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.chartSurface}
+            >
+              <View style={styles.chartBars}>
+                {chartSeriesWithDetails.map((series) => {
+                  // Reserve space for labels above (value + percentage) and below (label)
+                  const labelSpaceAbove = 50; // Space for value and percentage text
+                  const labelSpaceBelow = 30; // Space for bar label
+                  const availableHeight = chartHeight - labelSpaceAbove - labelSpaceBelow;
+                  const computedHeight = Math.max(8, Math.min(availableHeight, (series.value / chartMax) * availableHeight));
+                  
+                  return (
+                    <View key={series.label} style={styles.chartBarWrapper}>
+                      <View style={{ 
+                        alignItems: 'center', 
+                        marginBottom: designTokens.spacing.xs,
+                        height: labelSpaceAbove,
+                        justifyContent: 'flex-end',
+                      }}>
+                        <Text style={{
+                          fontSize: designTokens.typography.sm,
+                          fontWeight: '700',
+                          color: series.color,
+                          marginBottom: 2,
+                        }}>
+                          {series.value}
+                        </Text>
+                        <Text style={{
+                          fontSize: designTokens.typography.xs,
+                          color: designTokens.colors.textMuted,
+                        }}>
+                          {series.percentage}%
+                        </Text>
+                      </View>
+                      <View style={[styles.chartBar, { 
+                        height: computedHeight, 
+                        backgroundColor: series.color,
+                        maxHeight: availableHeight,
+                      }]} />
+                      <View style={{ 
+                        height: labelSpaceBelow,
+                        justifyContent: 'flex-start',
+                        paddingTop: designTokens.spacing.xs,
+                      }}>
+                        <Text style={styles.chartBarLabel}>{series.label}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </LinearGradient>
+          </View>
+          
+          {/* Additional Insights */}
+          <View style={{
+            marginTop: designTokens.spacing.lg,
+            paddingTop: designTokens.spacing.lg,
+            borderTopWidth: 1,
+            borderTopColor: designTokens.colors.borderLight,
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+              <Text style={{
+                fontSize: designTokens.typography.sm,
+                fontWeight: '600',
+                color: designTokens.colors.textPrimary,
+              }}>
+                Key Insights
+              </Text>
+            </View>
+            <View style={{ gap: designTokens.spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textMuted,
+                }}>
+                  Average Properties per Owner
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  fontWeight: '600',
+                  color: designTokens.colors.textPrimary,
+                }}>
+                  {stats.totalApprovedOwners > 0 
+                    ? (stats.totalListings / stats.totalApprovedOwners).toFixed(1)
+                    : '0.0'}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textMuted,
+                }}>
+                  Residents per Property
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  fontWeight: '600',
+                  color: designTokens.colors.textPrimary,
+                }}>
+                  {stats.totalListings > 0 
+                    ? (stats.totalResidents / stats.totalListings).toFixed(1)
+                    : '0.0'}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{
+                  fontSize: designTokens.typography.xs,
+                  color: designTokens.colors.textMuted,
+                }}>
+                  Active Booking Rate
+                </Text>
+                <Text style={{
+                  fontSize: designTokens.typography.sm,
+                  fontWeight: '600',
+                  color: designTokens.colors.textPrimary,
+                }}>
+                  {stats.totalResidents > 0 
+                    ? ((stats.activeBookings / stats.totalResidents) * 100).toFixed(1)
+                    : '0.0'}%
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
       </View>
     );
@@ -1131,21 +1544,30 @@ const styles = StyleSheet.create<DashboardStyles>({
   chartSurface: {
     borderRadius: 12,
     padding: designTokens.spacing.lg,
+    overflow: 'hidden',
   },
   chartBars: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    height: 140,
-    gap: designTokens.spacing.lg,
+    minHeight: 200,
+    maxHeight: 200,
+    gap: designTokens.spacing.md,
+    paddingHorizontal: designTokens.spacing.xs,
   },
   chartBarWrapper: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    maxWidth: '25%',
+    height: '100%',
   },
   chartBar: {
-    width: 32,
-    borderRadius: 16,
+    width: '100%',
+    maxWidth: 40,
+    minWidth: 24,
+    borderRadius: 8,
+    alignSelf: 'center',
   },
   chartBarLabel: {
     marginTop: designTokens.spacing.sm,

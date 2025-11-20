@@ -331,12 +331,16 @@ export interface BookingRecord {
   };
   notes?: string;
   selectedRoom?: number; // Room index (0-based) that the tenant selected
+  tenantType?: 'individual' | 'family' | 'couple' | 'group';
+  numberOfPeople?: number; // Number of people for family or group bookings
   createdAt: string;
   updatedAt: string;
   approvedAt?: string;
   rejectedAt?: string;
   cancelledAt?: string;
   completedAt?: string;
+  deletedAt?: string; // Timestamp when booking was soft-deleted (for analytics preservation)
+  isDeleted?: boolean; // Flag to mark booking as deleted (for quick filtering)
   // Notification tracking
   notificationViewedByTenant?: boolean;
   notificationViewedAt?: string;
@@ -350,6 +354,7 @@ export interface PaymentAccount {
   accountNumber: string;
   accountDetails: string;
   qrCodeImageUri?: string; // QR code image URI for GCash payments
+  qrCodeData?: string; // Parsed QR-PH code data string for accurate dynamic QR generation
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

@@ -3036,9 +3036,97 @@ HanapBahay Complaint System
                     />
                   </View>
                   
-                  <TouchableOpacity
-                    style={styles.qrCodeShareButton}
-                    onPress={async () => {
+                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+                    <TouchableOpacity
+                      style={[styles.qrCodeShareButton, { flex: 1 }]}
+                      onPress={async () => {
+                        try {
+                          const { generateGCashQRPHCode } = await import('../../utils/qr-code-generator');
+                          // For PayMaya, use dynamic QR codes (with amount). For GCash, use static (no amount)
+                          const includeAmount = selectedQRCodeAccount.type === 'paymaya';
+                          const qrData = generateGCashQRPHCode(firstPayment, selectedQRCodeAccount, includeAmount);
+                          
+                          // Generate QR code image URL using a QR code API
+                          const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(qrData)}`;
+                          
+                          if (Platform.OS === 'web') {
+                            // For web, fetch the image and download it as a blob
+                            try {
+                              const response = await fetch(qrCodeImageUrl);
+                              const blob = await response.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const link = document.createElement('a');
+                              link.href = url;
+                              link.download = `payment-qr-code-${firstPayment.receiptNumber}.png`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              window.URL.revokeObjectURL(url);
+                              Alert.alert('Success', 'QR code downloaded successfully!');
+                            } catch (fetchError) {
+                              // Fallback: direct link download
+                              const link = document.createElement('a');
+                              link.href = qrCodeImageUrl;
+                              link.download = `payment-qr-code-${firstPayment.receiptNumber}.png`;
+                              link.target = '_blank';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              Alert.alert('Success', 'QR code download started!');
+                            }
+                          } else {
+                            // For mobile, download and save to device
+                            const FileSystem = await import('expo-file-system/legacy');
+                            const Sharing = await import('expo-sharing');
+                            const MediaLibrary = await import('expo-media-library');
+                            
+                            const FileSystemModule = FileSystem.default || FileSystem;
+                            const SharingModule = Sharing.default || Sharing;
+                            const MediaLibraryModule = MediaLibrary.default || MediaLibrary;
+                            
+                            const fileName = `payment-qr-code-${firstPayment.receiptNumber}.png`;
+                            const fileUri = FileSystemModule.documentDirectory + fileName;
+                            
+                            // Download the QR code image
+                            const downloadResult = await FileSystemModule.downloadAsync(qrCodeImageUrl, fileUri);
+                            
+                            // Try to save to media library (Photos/Gallery) first
+                            try {
+                              const { status } = await MediaLibraryModule.requestPermissionsAsync();
+                              if (status === 'granted') {
+                                const asset = await MediaLibraryModule.createAssetAsync(downloadResult.uri);
+                                await MediaLibraryModule.createAlbumAsync('HanapBahay', asset, false);
+                                Alert.alert('Success', 'QR code saved to your photo gallery!');
+                                return;
+                              }
+                            } catch (mediaError) {
+                              console.log('Could not save to media library, using sharing instead:', mediaError);
+                            }
+                            
+                            // Fallback: Use sharing to save/download
+                            if (await SharingModule.isAvailableAsync()) {
+                              await SharingModule.shareAsync(downloadResult.uri, {
+                                mimeType: 'image/png',
+                                dialogTitle: 'Save QR Code',
+                                UTI: 'public.png',
+                              });
+                            } else {
+                              Alert.alert('Success', `QR code saved to: ${downloadResult.uri}`);
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Error downloading QR code:', error);
+                          Alert.alert('Error', `Failed to download QR code: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                        }
+                      }}
+                    >
+                      <Download size={18} color="#3B82F6" />
+                      <Text style={styles.qrCodeShareButtonText}>Download QR Code</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[styles.qrCodeShareButton, { flex: 1 }]}
+                      onPress={async () => {
                       try {
                         const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
                         const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount);
@@ -3074,6 +3162,7 @@ HanapBahay Complaint System
                     <Share2 size={18} color="#3B82F6" />
                     <Text style={styles.qrCodeShareButtonText}>Share QR Code</Text>
                   </TouchableOpacity>
+                  </View>
                 </View>
 
                 <View style={styles.qrCodePaymentDetails}>

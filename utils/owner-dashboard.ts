@@ -121,6 +121,7 @@ export interface PaymentAccount {
   accountNumber: string;
   accountDetails: string;
   qrCodeImageUri?: string; // QR code image URI for GCash payments
+  qrCodeData?: string; // Parsed QR-PH code data string for accurate dynamic QR generation
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -404,11 +405,17 @@ export async function deleteOwnerListing(ownerId: string, listingId: string): Pr
         }
       }
       
-      // Remove from bookings
+      // Soft delete related bookings (preserve for analytics)
       const bookings = await db.list('bookings');
+      const now = new Date().toISOString();
       for (const booking of bookings) {
-        if (booking.propertyId === listingId) {
-          await db.remove('bookings', booking.id);
+        if (booking.propertyId === listingId && !booking.isDeleted) {
+          await db.upsert('bookings', booking.id, {
+            ...booking,
+            isDeleted: true,
+            deletedAt: now,
+            updatedAt: now
+          });
         }
       }
       

@@ -1,5 +1,5 @@
 import { db } from './db';
-import { OwnerApplicationRecord } from '../types';
+import { OwnerApplicationRecord, DbUserRecord } from '../types';
 
 /**
  * Check if an owner's application has been approved by Barangay officials
@@ -136,5 +136,43 @@ export async function hasPendingOwnerApplication(userId: string): Promise<boolea
   } catch (error) {
     console.error('❌ Error checking pending owner application:', error);
     return false;
+  }
+}
+
+/**
+ * Get Barangay official contact information by barangay name
+ * @param barangay - The barangay name
+ * @returns Promise with official contact info or null
+ */
+export async function getBarangayOfficialContact(barangay: string): Promise<{
+  name: string;
+  email: string;
+  phone: string;
+  logo?: string | null;
+} | null> {
+  try {
+    const allUsers = await db.list<DbUserRecord>('users');
+    const official = allUsers.find(
+      user => user.role === 'brgy_official' && 
+      user.barangay?.toUpperCase() === barangay.toUpperCase()
+    );
+    
+    if (!official) {
+      console.log(`⚠️ No barangay official found for ${barangay}`);
+      return null;
+    }
+    
+    // Get barangay logo from user record
+    const logo = (official as any)?.barangayLogo || null;
+    
+    return {
+      name: official.name || `Barangay ${barangay} Official`,
+      email: official.email || '',
+      phone: official.phone || '',
+      logo: logo
+    };
+  } catch (error) {
+    console.error('❌ Error getting barangay official contact:', error);
+    return null;
   }
 }

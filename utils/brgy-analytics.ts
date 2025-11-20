@@ -13,6 +13,13 @@ export interface GenderAnalytics {
 export interface ComprehensiveAnalytics {
   // Tenant Demographics
   genderAnalytics: GenderAnalytics;
+  tenantTypeAnalytics: {
+    individual: number;
+    family: number;
+    couple: number;
+    group: number;
+    totalPeople: number; // Total number of people from family and group bookings
+  };
   
   // Owner Demographics
   ownerAnalytics: {
@@ -77,6 +84,7 @@ export interface ComprehensiveAnalytics {
       ownerId: string;
       ownerName: string;
       bookingCount: number;
+      propertyCount: number;
       revenue: number;
     }>;
     mostActiveTenants: Array<{
@@ -337,6 +345,21 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       return isInBarangay;
     });
     
+    // Sync statuses for barangay listings to ensure they're up to date
+    // This fixes any listings that might be out of sync
+    try {
+      const { updateListingAvailabilityStatus } = await import('./listing-capacity');
+      console.log(`🔄 Syncing statuses for ${barangayListings.length} barangay listings...`);
+      for (const listing of barangayListings) {
+        if (listing.id) {
+          await updateListingAvailabilityStatus(listing.id);
+        }
+      }
+      console.log(`✅ Finished syncing barangay listing statuses`);
+    } catch (syncError) {
+      console.warn('⚠️ Could not sync listing statuses (non-critical):', syncError);
+    }
+    
     console.log('📊 Total listings before filtering:', allListings.length);
     console.log('📊 Barangay listings found:', barangayListings.length);
     console.log('📊 Barangay listings:', barangayListings.map(l => ({ id: l.id, barangay: l.barangay, title: l.title })));
@@ -423,7 +446,7 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     });
     
     const topOwners = ownerStats
-      .sort((a, b) => b.totalRevenue - a.totalRevenue)
+      .sort((a, b) => b.propertyCount - a.propertyCount)
       .slice(0, 5);
     
     const averagePropertiesPerOwner = barangayOwners.length > 0 
@@ -432,26 +455,101 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     
     // Property Analytics
     const totalProperties = barangayListings.length;
-    const availableProperties = barangayListings.filter(l => l.availabilityStatus === 'available').length;
-    const occupiedProperties = barangayListings.filter(l => l.availabilityStatus === 'occupied').length;
-    const reservedProperties = barangayListings.filter(l => l.availabilityStatus === 'reserved').length;
+    
+    // Normalize and count property statuses (case-insensitive, handle null/undefined)
+    const statusCounts = {
+      available: 0,
+      occupied: 0,
+      reserved: 0,
+      unknown: 0
+    };
+    
+    barangayListings.forEach(listing => {
+      // Get status and normalize (handle null/undefined, case-insensitive)
+      const rawStatus = listing.availabilityStatus;
+      const status = rawStatus ? String(rawStatus).toLowerCase().trim() : 'available';
+      
+      if (status === 'available') {
+        statusCounts.available++;
+      } else if (status === 'occupied') {
+        statusCounts.occupied++;
+      } else if (status === 'reserved') {
+        statusCounts.reserved++;
+      } else {
+        statusCounts.unknown++;
+        // Log unknown statuses for debugging
+        console.warn(`⚠️ Unknown property status: "${rawStatus}" for listing ${listing.id} (normalized to: "${status}")`);
+      }
+    });
+    
+    const availableProperties = statusCounts.available;
+    const occupiedProperties = statusCounts.occupied;
+    const reservedProperties = statusCounts.reserved;
+    
+    // Log status breakdown for debugging
+    console.log('📊 Property Status Breakdown:', {
+      total: totalProperties,
+      available: availableProperties,
+      occupied: occupiedProperties,
+      reserved: reservedProperties,
+      unknown: statusCounts.unknown,
+      sum: availableProperties + occupiedProperties + reservedProperties + statusCounts.unknown
+    });
+    
+    // Verify all properties are accounted for
+    if (totalProperties !== (availableProperties + occupiedProperties + reservedProperties + statusCounts.unknown)) {
+      console.warn('⚠️ Property status count mismatch!', {
+        total: totalProperties,
+        counted: availableProperties + occupiedProperties + reservedProperties + statusCounts.unknown
+      });
+    }
     
     const rents = barangayListings.map(l => l.monthlyRent || 0).filter(r => r > 0);
     const averageRent = rents.length > 0 ? rents.reduce((a, b) => a + b, 0) / rents.length : 0;
     
     const propertyTypes = barangayListings.reduce((acc, listing) => {
-      const type = listing.propertyType || 'Unknown';
+      let type = listing.propertyType || 'Unknown';
+      // Normalize "Condo" to "Boarding House" for consistency
+      if (type === 'Condo') {
+        type = 'Boarding House';
+      }
       acc[type] = (acc[type] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
     
     // Booking Analytics
+    // Include ALL bookings including soft-deleted ones for accurate analytics
+    // This ensures deleted bookings (rejected, pending, cancelled, completed) are still counted
     const totalBookings = barangayBookings.length;
-    const approvedBookings = barangayBookings.filter(b => b.status === 'approved').length;
+    // Only count non-deleted approved bookings (active approved bookings)
+    const approvedBookings = barangayBookings.filter(b => b.status === 'approved' && !b.isDeleted).length;
+    // Include ALL pending bookings (including deleted) for analytics
     const pendingBookings = barangayBookings.filter(b => b.status === 'pending').length;
+    // Include ALL rejected bookings (including deleted) for analytics
     const rejectedBookings = barangayBookings.filter(b => b.status === 'rejected').length;
+    // Include ALL cancelled bookings (including deleted) for analytics
     const cancelledBookings = barangayBookings.filter(b => b.status === 'cancelled').length;
+    // Include ALL completed bookings (including deleted) for analytics
     const completedBookings = barangayBookings.filter(b => b.status === 'completed').length;
+    
+    // Count deleted bookings by status for analytics
+    const deletedRejectedBookings = barangayBookings.filter(b => b.status === 'rejected' && b.isDeleted).length;
+    const deletedPendingBookings = barangayBookings.filter(b => b.status === 'pending' && b.isDeleted).length;
+    const deletedCancelledBookings = barangayBookings.filter(b => b.status === 'cancelled' && b.isDeleted).length;
+    const deletedCompletedBookings = barangayBookings.filter(b => b.status === 'completed' && b.isDeleted).length;
+    
+    console.log('📊 Booking Status Breakdown (including deleted):', {
+      total: totalBookings,
+      approved: approvedBookings,
+      pending: pendingBookings,
+      rejected: rejectedBookings,
+      cancelled: cancelledBookings,
+      completed: completedBookings,
+      deletedRejected: deletedRejectedBookings,
+      deletedPending: deletedPendingBookings,
+      deletedCancelled: deletedCancelledBookings,
+      deletedCompleted: deletedCompletedBookings
+    });
     
     // Booking trends (last 2 months)
     const now = new Date();
@@ -477,6 +575,59 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       acc[method] = (acc[method] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
+    
+    // Tenant Type Analytics
+    const tenantTypeCounts = {
+      individual: 0,
+      family: 0,
+      couple: 0,
+      group: 0,
+    };
+    
+    // Helper function to calculate people count from booking
+    const getPeopleCountFromBooking = (booking: BookingRecord): number => {
+      if (!booking.tenantType) return 1; // Default to 1 if no tenant type
+      
+      switch (booking.tenantType) {
+        case 'individual':
+          return 1;
+        case 'couple':
+          return 2;
+        case 'family':
+        case 'group':
+          // Count tenant (1) + family/group members (numberOfPeople)
+          const members = booking.numberOfPeople || 0;
+          return 1 + members;
+        default:
+          return 1;
+      }
+    };
+    
+    let totalPeople = 0;
+    
+    // Only count paid approved bookings for total people (residents)
+    const paidBarangayBookingsForPeople = barangayBookings.filter(
+      booking => booking.status === 'approved' && booking.paymentStatus === 'paid'
+    );
+    
+    paidBarangayBookingsForPeople.forEach(booking => {
+      if (booking.tenantType) {
+        if (booking.tenantType === 'individual') {
+          tenantTypeCounts.individual++;
+        } else if (booking.tenantType === 'family') {
+          tenantTypeCounts.family++;
+        } else if (booking.tenantType === 'couple') {
+          tenantTypeCounts.couple++;
+        } else if (booking.tenantType === 'group') {
+          tenantTypeCounts.group++;
+        }
+      } else {
+        // For bookings without tenant type, count as individual
+        tenantTypeCounts.individual++;
+      }
+      // Add total people count including tenant + family/group members
+      totalPeople += getPeopleCountFromBooking(booking);
+    });
     
     // Activity Analytics
     const totalInquiries = barangayBookings.length; // Using bookings as proxy for inquiries
@@ -566,14 +717,18 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
       ? Math.round((barangayBookings.length / barangayTenants.length) * 10) / 10 
       : 0;
     
-    // Most active owners (by booking count)
+    // Most active owners (by booking count) - include property count
     const mostActiveOwners = ownerStats
-      .map(owner => ({
-        ownerId: owner.ownerId,
-        ownerName: owner.ownerName,
-        bookingCount: barangayBookings.filter(b => b.ownerId === owner.ownerId).length,
-        revenue: owner.totalRevenue,
-      }))
+      .map(owner => {
+        const ownerProperties = barangayListings.filter(l => l.userId === owner.ownerId);
+        return {
+          ownerId: owner.ownerId,
+          ownerName: owner.ownerName,
+          bookingCount: barangayBookings.filter(b => b.ownerId === owner.ownerId).length,
+          propertyCount: ownerProperties.length,
+          revenue: owner.totalRevenue,
+        };
+      })
       .sort((a, b) => b.bookingCount - a.bookingCount)
       .slice(0, 5);
     
@@ -621,14 +776,20 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     
     // Popular property types with average rent
     const popularPropertyTypes = Object.entries(propertyTypes).map(([type, count]) => {
-      const typeListings = barangayListings.filter(l => l.propertyType === type);
+      // Normalize type for filtering (handle both "Condo" and "Boarding House")
+      const normalizedType = type === 'Boarding House' ? 'Boarding House' : type;
+      const typeListings = barangayListings.filter(l => {
+        const listingType = l.propertyType || 'Unknown';
+        // Match both "Condo" and "Boarding House" for the normalized type
+        return listingType === normalizedType || (normalizedType === 'Boarding House' && listingType === 'Condo');
+      });
       const typeRents = typeListings.map(l => l.monthlyRent || 0).filter(r => r > 0);
       const averageRentForType = typeRents.length > 0 
         ? Math.round(typeRents.reduce((a, b) => a + b, 0) / typeRents.length) 
         : 0;
       
       return {
-        type,
+        type: normalizedType,
         count,
         averageRent: averageRentForType,
       };
@@ -636,6 +797,13 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
     
     const analytics: ComprehensiveAnalytics = {
       genderAnalytics,
+      tenantTypeAnalytics: {
+        individual: tenantTypeCounts.individual,
+        family: tenantTypeCounts.family,
+        couple: tenantTypeCounts.couple,
+        group: tenantTypeCounts.group,
+        totalPeople,
+      },
       ownerAnalytics: {
         totalOwners: ownerGenderCounts.total,
         maleOwners: ownerGenderCounts.male,
@@ -712,6 +880,13 @@ export async function getComprehensiveAnalytics(barangay: string): Promise<Compr
         unknown: 0,
         malePercentage: 0,
         femalePercentage: 0,
+      },
+      tenantTypeAnalytics: {
+        individual: 0,
+        family: 0,
+        couple: 0,
+        group: 0,
+        totalPeople: 0,
       },
       ownerAnalytics: {
         totalOwners: 0,
@@ -895,6 +1070,14 @@ TENANT DEMOGRAPHICS
 Total Tenants: ${analytics.genderAnalytics.total}
 Male Tenants: ${analytics.genderAnalytics.male} (${analytics.genderAnalytics.malePercentage}%)
 Female Tenants: ${analytics.genderAnalytics.female} (${analytics.genderAnalytics.femalePercentage}%)
+
+TENANT TYPE DISTRIBUTION
+------------------------
+Total People: ${analytics.tenantTypeAnalytics.totalPeople}
+Individual: ${analytics.tenantTypeAnalytics.individual} bookings
+Family: ${analytics.tenantTypeAnalytics.family} bookings
+Couple: ${analytics.tenantTypeAnalytics.couple} bookings
+Group/Shared: ${analytics.tenantTypeAnalytics.group} bookings
 
 PROPERTY STATUS
 --------------

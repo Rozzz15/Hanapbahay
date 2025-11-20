@@ -62,7 +62,6 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
         password: '',
         confirmPassword: '',
         gender: '' as 'male' | 'female' | '',
-        familyType: '' as 'individual' | 'family' | '',
         emergencyContactPerson: '',
         emergencyContactNumber: '',
     });
@@ -74,7 +73,6 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
         password: '',
         confirmPassword: '',
         gender: '',
-        familyType: '',
         houseNumber: '',
         street: '',
         barangay: '',
@@ -92,7 +90,6 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                 password: '',
                 confirmPassword: '',
                 gender: '' as 'male' | 'female' | '',
-                familyType: '' as 'individual' | 'family' | '',
                 emergencyContactPerson: '',
                 emergencyContactNumber: '',
             });
@@ -109,7 +106,6 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                 password: '',
                 confirmPassword: '',
                 gender: '',
-                familyType: '',
                 houseNumber: '',
                 street: '',
                 barangay: '',
@@ -252,14 +248,10 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
             }
         }
 
-        // Gender and Family Type are required for tenants
+        // Gender is required for tenants
         if (selectedRole === 'tenant') {
             if (!formData.gender) {
                 newErrors.gender = 'Gender is required';
-                isValid = false;
-            }
-            if (!formData.familyType) {
-                newErrors.familyType = 'Family type is required';
                 isValid = false;
             }
         }
@@ -314,7 +306,6 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                 confirmPassword: formData.confirmPassword,
                 role: selectedRole,
                 gender: selectedRole === 'tenant' ? (formData.gender === 'male' || formData.gender === 'female' ? formData.gender : undefined) : undefined,
-                familyType: selectedRole === 'tenant' ? (formData.familyType === 'individual' || formData.familyType === 'family' ? formData.familyType : undefined) : undefined,
                 emergencyContactPerson: selectedRole === 'tenant' ? formData.emergencyContactPerson.trim() || undefined : undefined,
                 emergencyContactNumber: selectedRole === 'tenant' ? formData.emergencyContactNumber.trim() || undefined : undefined,
                 houseNumber: selectedRole === 'owner' ? ownerAddress.houseNumber.trim() : undefined,
@@ -609,53 +600,6 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                                         </View>
                                     )}
 
-                                    {/* Family Type Selection (for tenants only) */}
-                                    {selectedRole === 'tenant' && (
-                                        <View style={styles.inputContainer}>
-                                            <Text style={styles.fieldLabel}>Family Type *</Text>
-                                            <View style={styles.radioGroup}>
-                                                <Pressable
-                                                    style={[
-                                                        styles.radioOption,
-                                                        formData.familyType === 'individual' && styles.radioOptionActive
-                                                    ]}
-                                                    onPress={() => setFormData(prev => ({ ...prev, familyType: 'individual' }))}
-                                                >
-                                                    <View style={[
-                                                        styles.radioCircle,
-                                                        formData.familyType === 'individual' && styles.radioCircleActive
-                                                    ]}>
-                                                        {formData.familyType === 'individual' && <View style={styles.radioInner} />}
-                                                    </View>
-                                                    <Text style={[
-                                                        styles.radioText,
-                                                        formData.familyType === 'individual' && styles.radioTextActive
-                                                    ]}>Individual</Text>
-                                                </Pressable>
-                                                <Pressable
-                                                    style={[
-                                                        styles.radioOption,
-                                                        formData.familyType === 'family' && styles.radioOptionActive
-                                                    ]}
-                                                    onPress={() => setFormData(prev => ({ ...prev, familyType: 'family' }))}
-                                                >
-                                                    <View style={[
-                                                        styles.radioCircle,
-                                                        formData.familyType === 'family' && styles.radioCircleActive
-                                                    ]}>
-                                                        {formData.familyType === 'family' && <View style={styles.radioInner} />}
-                                                    </View>
-                                                    <Text style={[
-                                                        styles.radioText,
-                                                        formData.familyType === 'family' && styles.radioTextActive
-                                                    ]}>Family</Text>
-                                                </Pressable>
-                                            </View>
-                                            {errors.familyType && (
-                                                <Text style={styles.errorText}>{errors.familyType}</Text>
-                                            )}
-                                        </View>
-                                    )}
 
                                     {/* Emergency Contact Fields (for tenants only) */}
                                     {selectedRole === 'tenant' && (

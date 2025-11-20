@@ -83,7 +83,7 @@ export interface ContactOwnerData {
 export const PROPERTY_TYPES = [
   'Apartment',
   'House',
-  'Condo',
+  'Boarding House',
   'Bedspace'
 ];
 

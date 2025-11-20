@@ -67,6 +67,14 @@ export async function confirmPaymentByOwner(
         };
         await db.upsert('bookings', booking.id, updatedBooking);
         console.log('✅ Updated booking paymentStatus to paid:', booking.id);
+        
+        // Check if listing has reached capacity and update availability status
+        try {
+          const { checkAndRejectPendingBookings } = await import('./listing-capacity');
+          await checkAndRejectPendingBookings(booking.propertyId);
+        } catch (capacityError) {
+          console.warn('⚠️ Could not check listing capacity:', capacityError);
+        }
       }
     } catch (bookingError) {
       console.warn('⚠️ Could not update booking paymentStatus:', bookingError);
