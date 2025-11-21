@@ -42,7 +42,7 @@ interface ListingFormData {
   description: string;
   amenities: string[];
   rules: string[];
-  securityDeposit: string;
+  advanceDepositMonths: string; // Optional: Number of months for advance deposit
   paymentMethods: string[];
   ownerName: string;
   businessName: string;
@@ -82,7 +82,7 @@ export default function EditListing() {
     description: '',
     amenities: [],
     rules: [],
-    securityDeposit: '',
+    advanceDepositMonths: '', // Optional advance deposit months
     paymentMethods: [],
     ownerName: user?.name || '',
     businessName: '',
@@ -198,7 +198,7 @@ export default function EditListing() {
         description: listing.description || '',
         amenities: listing.amenities || [],
         rules: listing.rules || [],
-        securityDeposit: listing.securityDeposit?.toString() || '',
+        advanceDepositMonths: listing.advanceDepositMonths?.toString() || '',
         paymentMethods: listing.paymentMethods || [],
         ownerName: listing.ownerName || user.name || '',
         businessName: listing.businessName || '',
@@ -391,7 +391,8 @@ export default function EditListing() {
         description: formData.description,
         amenities: formData.amenities,
         rules: formData.rules,
-        securityDeposit: formData.securityDeposit ? parseFloat(formData.securityDeposit) : 0,
+        securityDeposit: 0, // Security deposit feature removed
+        advanceDepositMonths: formData.advanceDepositMonths ? parseInt(formData.advanceDepositMonths) : undefined,
         paymentMethods: formData.paymentMethods,
         ownerName: formData.ownerName,
         businessName: formData.businessName || '',
@@ -1080,19 +1081,22 @@ export default function EditListing() {
       </View>
       
       <View style={professionalStyles.inputGroup}>
-        <Text style={professionalStyles.inputLabel}>Security Deposit (₱)</Text>
+        <Text style={professionalStyles.inputLabel}>Advance Deposit Months (Optional)</Text>
+        <Text style={[professionalStyles.inputHelper, { marginBottom: 8 }]}>
+          Number of months tenant pays in advance (e.g., 3 months). If set, tenant can use these months if they want to leave early.
+        </Text>
         <View style={professionalStyles.inputContainer}>
-          <View style={professionalStyles.inputIcon}>
-            <Text style={{ fontSize: 18, color: designTokens.colors.textMuted }}>₱</Text>
-          </View>
           <TextInput
-            style={[professionalStyles.input, professionalStyles.inputWithIcon]}
-            placeholder="Enter security deposit amount"
-            value={formData.securityDeposit}
-            onChangeText={(value) => updateFormData('securityDeposit', value)}
+            style={professionalStyles.input}
+            placeholder="Enter number of months (e.g., 3)"
+            value={formData.advanceDepositMonths}
+            onChangeText={(value) => updateFormData('advanceDepositMonths', value)}
             keyboardType="numeric"
           />
         </View>
+        <Text style={[professionalStyles.inputHelper, { marginTop: 4 }]}>
+          Leave empty if you don't require advance deposit. If tenant pays 3 months advance, they can use those months if they want to leave early.
+        </Text>
       </View>
 
       <View style={professionalStyles.inputGroup}>

@@ -5,7 +5,7 @@ import { X, Share2, Download } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
-import { getRentHistorySummary, createRentPayment, getNextDueDate } from '@/utils/tenant-payments';
+import { getRentHistorySummary, createRentPayment, getNextDueDate, getCurrentMonth } from '@/utils/tenant-payments';
 import { getQRCodeProps } from '@/utils/qr-code-generator';
 import { BookingRecord } from '@/types';
 
@@ -46,19 +46,39 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
   const [nextDuePayment, setNextDuePayment] = useState<any>(null);
 
   useEffect(() => {
-    checkApprovedBooking();
-    loadPaymentAccounts();
+    // Only load if we have valid ownerId and tenantId
+    if (ownerId && tenantId && typeof ownerId === 'string' && typeof tenantId === 'string') {
+      checkApprovedBooking();
+      loadPaymentAccounts();
+    } else {
+      setLoading(false);
+      setHasApprovedBooking(false);
+      if (onVisibilityChange) {
+        onVisibilityChange(false);
+      }
+    }
   }, [ownerId, tenantId]);
 
   const checkApprovedBooking = async () => {
+    // Guard against invalid IDs
+    if (!ownerId || !tenantId || typeof ownerId !== 'string' || typeof tenantId !== 'string') {
+      setHasApprovedBooking(false);
+      if (onVisibilityChange) {
+        onVisibilityChange(false);
+      }
+      return;
+    }
+    
     try {
       // Check if there's an approved booking between this owner and tenant
-      const allBookings = await db.list('bookings');
-      const approvedBooking = allBookings.find((booking: any) => 
+      const allBookings = await db.list('bookings') || [];
+      const approvedBooking = Array.isArray(allBookings) ? allBookings.find((booking: any) => 
+        booking && 
+        typeof booking === 'object' &&
         booking.ownerId === ownerId && 
         booking.tenantId === tenantId &&
         booking.status === 'approved'
-      );
+      ) : undefined;
       
       setHasApprovedBooking(!!approvedBooking);
       if (onVisibilityChange) {
@@ -79,17 +99,34 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
   };
 
   const loadPaymentAccounts = async () => {
+    // Guard against invalid ownerId
+    if (!ownerId || typeof ownerId !== 'string') {
+      setPaymentAccounts([]);
+      setLoading(false);
+      return;
+    }
+    
     try {
       setLoading(true);
       
-      const allAccounts = await db.list<PaymentAccount>('payment_accounts');
-      const ownerAccounts = allAccounts
-        .filter(account => account.ownerId === ownerId && account.isActive)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const allAccounts = await db.list<PaymentAccount>('payment_accounts') || [];
+      const ownerAccounts = Array.isArray(allAccounts) ? allAccounts
+        .filter(account => 
+          account && 
+          typeof account === 'object' &&
+          account.ownerId === ownerId && 
+          account.isActive
+        )
+        .sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
+        }) : [];
       
       setPaymentAccounts(ownerAccounts);
     } catch (error) {
       console.error('Error loading payment accounts:', error);
+      setPaymentAccounts([]);
     } finally {
       setLoading(false);
     }
@@ -122,22 +159,30 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
       return;
     }
 
+    // Guard against invalid IDs
+    if (!ownerId || !tenantId || typeof ownerId !== 'string' || typeof tenantId !== 'string') {
+      showAlert('Invalid Parameters', 'Owner or tenant information is missing.');
+      return;
+    }
+    
     try {
       // First, check for an approved booking (even if paymentStatus is not 'paid' yet)
-      const allBookings = await db.list<BookingRecord>('bookings');
-      const approvedBooking = allBookings.find(
-        b => b.tenantId === tenantId && 
+      const allBookings = await db.list<BookingRecord>('bookings') || [];
+      const approvedBooking = Array.isArray(allBookings) ? allBookings.find(
+        b => b && 
+        typeof b === 'object' &&
+        b.tenantId === tenantId && 
         b.ownerId === ownerId &&
         b.status === 'approved'
-      );
+      ) : undefined;
 
       if (!approvedBooking) {
         showAlert('No Approved Booking', 'You don\'t have an approved booking with this owner yet.');
         return;
       }
 
-      // Get rent history (this might not have nextDueDate if paymentStatus is not 'paid')
-      const rentHistory = await getRentHistorySummary(tenantId);
+      // Get rent history filtered by current booking to prevent previous booking payments from showing
+      const rentHistory = await getRentHistorySummary(tenantId, approvedBooking.id);
       
       let paymentToUse = null;
       let nextDueDate: string | undefined;
@@ -149,17 +194,57 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
         nextDueAmount = rentHistory.nextDueAmount;
         
         // Find the payment for the next due date
-        paymentToUse = rentHistory.payments.find(
+        const foundPayment = rentHistory.payments.find(
           p => p.dueDate === nextDueDate && (p.status === 'pending' || p.status === 'overdue')
         );
+        
+        if (foundPayment) {
+          // Check if this is the current month payment and needs amount correction
+          const currentMonth = getCurrentMonth();
+          const paymentMonth = foundPayment.paymentMonth || nextDueDate.substring(0, 7);
+          const isCurrentMonth = paymentMonth === currentMonth;
+          
+          // If it's the current month payment and amount is wrong, update it
+          // Compare the base amount (without late fee) to booking.totalAmount
+          const paymentBaseAmount = foundPayment.totalAmount - (foundPayment.lateFee || 0);
+          if (isCurrentMonth && approvedBooking.totalAmount && 
+              paymentBaseAmount !== approvedBooking.totalAmount) {
+            console.log('⚠️ Current month payment from rent history has wrong amount, updating...', {
+              current: paymentBaseAmount,
+              expected: approvedBooking.totalAmount
+            });
+            
+            const updatedPayment = {
+              ...foundPayment,
+              amount: approvedBooking.totalAmount,
+              totalAmount: approvedBooking.totalAmount + (foundPayment.lateFee || 0),
+              notes: 'Current month payment (includes advance deposit)',
+              updatedAt: new Date().toISOString()
+            };
+            
+            await db.upsert('rent_payments', foundPayment.id, updatedPayment);
+            paymentToUse = updatedPayment;
+          } else {
+            paymentToUse = foundPayment;
+          }
+        }
       }
 
-      // If no payment found, calculate first payment based on booking
+      // If no payment found, calculate payment based on booking
       if (!paymentToUse) {
-        // Calculate first payment due date (1 month after start date)
         const startDate = new Date(approvedBooking.startDate);
         nextDueDate = getNextDueDate(approvedBooking.startDate);
-        nextDueAmount = approvedBooking.monthlyRent || 0;
+        
+        // Get the current month
+        const currentMonth = getCurrentMonth();
+        const paymentMonth = nextDueDate.substring(0, 7); // YYYY-MM format
+        const isCurrentMonth = paymentMonth === currentMonth;
+        
+        // For the current month payment, use totalAmount (includes advance deposit)
+        // For other payments, use monthlyRent
+        nextDueAmount = isCurrentMonth && approvedBooking.totalAmount 
+          ? approvedBooking.totalAmount 
+          : approvedBooking.monthlyRent || 0;
 
         // Check if payment already exists for this due date
         const existingPayment = rentHistory.payments.find(
@@ -167,10 +252,36 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
         );
 
         if (existingPayment) {
-          paymentToUse = existingPayment;
+          // If this is the current month payment and the existing payment amount is wrong,
+          // update it to include advance deposit
+          // Compare the base amount (without late fee) to booking.totalAmount
+          const paymentBaseAmount = existingPayment.totalAmount - (existingPayment.lateFee || 0);
+          if (isCurrentMonth && approvedBooking.totalAmount && 
+              paymentBaseAmount !== approvedBooking.totalAmount) {
+            console.log('⚠️ Existing current month payment has wrong amount, updating...', {
+              current: paymentBaseAmount,
+              expected: approvedBooking.totalAmount
+            });
+            
+            // Update the existing payment with correct amount
+            const updatedPayment = {
+              ...existingPayment,
+              amount: approvedBooking.totalAmount,
+              totalAmount: approvedBooking.totalAmount + (existingPayment.lateFee || 0),
+              notes: 'Current month payment (includes advance deposit)',
+              updatedAt: new Date().toISOString()
+            };
+            
+            // Save updated payment
+            await db.upsert('rent_payments', existingPayment.id, updatedPayment);
+            
+            paymentToUse = updatedPayment;
+          } else {
+            paymentToUse = existingPayment;
+          }
         } else {
-          // Create the first payment if it doesn't exist
-          const paymentMonth = nextDueDate.substring(0, 7); // YYYY-MM format
+          // Create the payment if it doesn't exist
+          // createRentPayment will handle detecting current month and using totalAmount
           paymentToUse = await createRentPayment(approvedBooking.id, paymentMonth, nextDueDate);
         }
       }

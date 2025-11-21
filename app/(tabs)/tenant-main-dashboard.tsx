@@ -64,10 +64,12 @@ import {
   isPaymentOverdue,
   getDaysOverdue,
   getFuturePaymentMonths,
+  getCorrectPaymentAmountSync,
   type RentPayment,
   type PaymentReminder,
   type RentHistorySummary,
 } from '../../utils/tenant-payments';
+import { getAdvanceDepositInfo, endRentalStayWithAdvanceDeposit, getTerminationCountdownInfo } from '../../utils/advance-deposit';
 import { createOrFindConversation } from '../../utils/conversation-utils';
 import { db } from '../../utils/db';
 import { PublishedListingRecord, PaymentAccount } from '../../types';
@@ -75,6 +77,7 @@ import BookingStatusModal from '@/components/BookingStatusModal';
 import { Platform } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Print from 'expo-print';
 import { getQRCodeProps, generatePaymentQRCodeString } from '../../utils/qr-code-generator';
 import { addCustomEventListener } from '../../utils/custom-events';
 import {
@@ -169,6 +172,19 @@ export default function TenantMainDashboard() {
     videos: [] as string[],
   });
   const [submittingComplaint, setSubmittingComplaint] = useState(false);
+  const [showEndRentalModal, setShowEndRentalModal] = useState(false);
+  const [endingRental, setEndingRental] = useState(false);
+  const [advanceDepositInfo, setAdvanceDepositInfo] = useState<{
+    advanceDepositMonths?: number;
+    remainingAdvanceMonths?: number;
+    hasAdvanceDeposit: boolean;
+  }>({ hasAdvanceDeposit: false });
+  const [terminationCountdown, setTerminationCountdown] = useState<{
+    hasCountdown: boolean;
+    daysRemaining?: number;
+    terminationEndDate?: string;
+    remainingMonths?: number;
+  }>({ hasCountdown: false });
 
   const loadProfilePhoto = useCallback(async () => {
     if (!user?.id) return;
@@ -229,11 +245,22 @@ export default function TenantMainDashboard() {
       } catch (err) {
         // Silently fail - overdue update is not critical
       }
+
+      // Process termination countdown (runs in background)
+      try {
+        const { processTerminationCountdown } = await import('../../utils/advance-deposit');
+        processTerminationCountdown().catch(err => {
+          console.log('Termination countdown processing completed (background)');
+        });
+      } catch (err) {
+        // Silently fail - countdown processing is not critical
+      }
       
-      // Get active booking (approved and paid)
+      // Get active booking (approved and paid, or with termination countdown)
       const bookings = await getBookingsByTenant(user.id);
       const active = bookings.find(
-        b => b.status === 'approved' && b.paymentStatus === 'paid'
+        b => (b.status === 'approved' && b.paymentStatus === 'paid') ||
+             (b.terminationInitiatedAt && b.terminationMode === 'countdown')
       );
 
       if (!active) {
@@ -248,11 +275,29 @@ export default function TenantMainDashboard() {
       const propertyData = await db.get<PublishedListingRecord>('published_listings', active.propertyId);
       setProperty(propertyData || null);
 
+      // Load advance deposit info
+      try {
+        const advanceInfo = await getAdvanceDepositInfo(active.id);
+        setAdvanceDepositInfo(advanceInfo);
+      } catch (error) {
+        console.error('❌ Error loading advance deposit info:', error);
+        setAdvanceDepositInfo({ hasAdvanceDeposit: false });
+      }
+
+      // Load termination countdown info
+      try {
+        const countdownInfo = await getTerminationCountdownInfo(active.id);
+        setTerminationCountdown(countdownInfo);
+      } catch (error) {
+        console.error('❌ Error loading termination countdown info:', error);
+        setTerminationCountdown({ hasCountdown: false });
+      }
+
       // Initialize monthly payments if needed
       await initializeMonthlyPayments(active.id);
 
-      // Load rent history
-      const history = await getRentHistorySummary(user.id);
+      // Load rent history - filter by active booking to prevent previous booking payments from showing
+      const history = await getRentHistorySummary(user.id, active.id);
       setRentHistory(history);
 
       // Load payment reminders
@@ -269,8 +314,8 @@ export default function TenantMainDashboard() {
           const paymentMonth = history.nextDueDate.substring(0, 7);
           await createRentPayment(active.id, paymentMonth, history.nextDueDate);
           
-          // Reload history
-          const updatedHistory = await getRentHistorySummary(user.id);
+          // Reload history - filter by active booking
+          const updatedHistory = await getRentHistorySummary(user.id, active.id);
           setRentHistory(updatedHistory);
         }
       }
@@ -487,6 +532,96 @@ export default function TenantMainDashboard() {
       Alert.alert('Error', 'Failed to start conversation. Please try again.');
     }
   }, [activeBooking, user, router]);
+
+  const handleEndRentalStay = useCallback(async () => {
+    if (!activeBooking || !user?.id) return;
+
+    // Check if termination is already initiated
+    if (terminationCountdown.hasCountdown) {
+      // Show modal with option to leave immediately
+      setShowEndRentalModal(true);
+      return;
+    }
+
+    // Check if advance deposit is available
+    if (!advanceDepositInfo.hasAdvanceDeposit) {
+      Alert.alert(
+        'Cannot End Rental Stay',
+        'This feature is only available for properties with advance deposit. This property does not have advance deposit set.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    const remainingMonths = advanceDepositInfo.remainingAdvanceMonths || 0;
+    if (remainingMonths === 0) {
+      Alert.alert(
+        'No Advance Deposit Available',
+        'You have no remaining advance deposit months to use.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Show confirmation modal
+    setShowEndRentalModal(true);
+  }, [activeBooking, user, advanceDepositInfo, terminationCountdown]);
+
+  const handleConfirmEndRentalStay = useCallback(async (immediateLeave: boolean = false) => {
+    if (!activeBooking || !user?.id) return;
+
+    setEndingRental(true);
+    try {
+      const result = await endRentalStayWithAdvanceDeposit(activeBooking.id, user.id, immediateLeave);
+      
+      if (result.success) {
+        // Close modal first
+        setShowEndRentalModal(false);
+        
+        if (immediateLeave) {
+          Alert.alert(
+            'Rental Stay Ended',
+            result.message || `Successfully ended rental stay immediately. ${result.monthsUsed} advance deposit month(s) were used.`,
+            [
+              {
+                text: 'OK',
+                onPress: async () => {
+                  // When leaving immediately, the booking is marked as completed
+                  // Redirect to property browsing so tenant can make another booking
+                  // The tab layout will automatically hide the tenant main dashboard tab
+                  console.log('🏠 Redirecting to property browsing after immediate leave');
+                  router.replace('/(tabs)');
+                }
+              }
+            ]
+          );
+        } else {
+          Alert.alert(
+            'Termination Countdown Started',
+            result.message || `Termination countdown started. You have ${result.daysRemaining} days remaining.`,
+            [
+              {
+                text: 'OK',
+                onPress: async () => {
+                  // Reload dashboard data to show countdown
+                  await loadDashboardData();
+                }
+              }
+            ]
+          );
+        }
+      } else {
+        Alert.alert('Error', result.error || 'Failed to end rental stay. Please try again.');
+        setShowEndRentalModal(false);
+      }
+    } catch (error) {
+      console.error('❌ Error ending rental stay:', error);
+      Alert.alert('Error', 'Failed to end rental stay. Please try again.');
+      setShowEndRentalModal(false);
+    } finally {
+      setEndingRental(false);
+    }
+  }, [activeBooking, user, loadDashboardData, router]);
 
   const handlePickMaintenancePhoto = useCallback(async () => {
     try {
@@ -768,8 +903,9 @@ export default function TenantMainDashboard() {
     if (!rentHistory?.nextDueDate || !rentHistory?.nextDueAmount || !activeBooking) return;
 
     // Find the pending payment for next due date
+    // Include rejected payments so tenant can pay them again
     const pendingPayment = rentHistory.payments.find(
-      p => p.dueDate === rentHistory.nextDueDate && (p.status === 'pending' || p.status === 'overdue')
+      p => p.dueDate === rentHistory.nextDueDate && (p.status === 'pending' || p.status === 'overdue' || p.status === 'rejected')
     );
 
     // Pre-select the current due payment if it exists
@@ -794,11 +930,27 @@ export default function TenantMainDashboard() {
       const reference = activeBooking.id.slice(-8).toUpperCase();
       
       // Calculate total amount from all selected payments
-      const allPayments = [
+      // Use correct payment amount to ensure advance deposit is not applied to non-first payments
+      const selectedPaymentsList = [
         ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
         ...futurePayments.filter(p => selectedPayments.has(p.id))
       ];
-      const amount = allPayments.reduce((sum, p) => sum + p.totalAmount, 0);
+      
+      // Get all payments for this booking to check if there are paid payments
+      const allBookingPayments = [
+        ...(rentHistory?.payments || []),
+        ...futurePayments
+      ];
+      
+      // Calculate amount using correct payment amounts (not stored totalAmount which might be wrong)
+      const amount = selectedPaymentsList.reduce((sum, p) => {
+        if (!activeBooking) return sum + p.totalAmount;
+        
+        // Get the correct amount for this payment
+        const correctAmount = getCorrectPaymentAmountSync(p, activeBooking, allBookingPayments);
+        const lateFee = p.lateFee || 0;
+        return sum + correctAmount + lateFee;
+      }, 0);
 
       if (!amount || amount <= 0) {
         Alert.alert('Error', 'Invalid payment amount. Please try again.');
@@ -1326,8 +1478,583 @@ export default function TenantMainDashboard() {
 
     const receipt = generatePaymentReceipt(payment, activeBooking);
     setSelectedReceipt(receipt);
+    setSelectedPayment(payment);
     setShowReceiptModal(true);
   }, [activeBooking]);
+
+  const handleDownloadReceipt = useCallback(async () => {
+    if (!selectedReceipt || !selectedPayment || !activeBooking) return;
+
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const filename = `payment_receipt_${selectedPayment.receiptNumber || selectedPayment.id.slice(-8)}_${timestamp}`;
+
+      // Generate HTML content for PDF
+      const paidDate = selectedPayment.paidDate ? new Date(selectedPayment.paidDate) : new Date();
+      const dueDate = new Date(selectedPayment.dueDate);
+      
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Payment Receipt</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .header {
+      text-align: center;
+      border-bottom: 3px solid #3B82F6;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      color: #1E40AF;
+      margin: 0;
+      font-size: 24px;
+    }
+    .header p {
+      color: #666;
+      margin: 5px 0;
+    }
+    .section {
+      margin-bottom: 25px;
+      page-break-inside: avoid;
+    }
+    .section-title {
+      background-color: #3B82F6;
+      color: white;
+      padding: 10px 15px;
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      border-radius: 5px;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #E5E7EB;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-label {
+      font-weight: 600;
+      color: #4B5563;
+    }
+    .info-value {
+      color: #1F2937;
+      font-weight: 600;
+      text-align: right;
+    }
+    .total {
+      background-color: #F3F4F6;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 15px;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 18px;
+      font-weight: bold;
+      color: #1E40AF;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 2px solid #E5E7EB;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>RENT PAYMENT RECEIPT</h1>
+    <p>HanapBahay Rental Platform</p>
+  </div>
+
+  <div class="section">
+    <div class="info-row">
+      <span class="info-label">Receipt Number:</span>
+      <span class="info-value">${selectedPayment.receiptNumber || 'N/A'}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Date:</span>
+      <span class="info-value">${paidDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Time:</span>
+      <span class="info-value">${paidDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">PROPERTY INFORMATION</div>
+    <div class="info-row">
+      <span class="info-label">Property:</span>
+      <span class="info-value">${activeBooking.propertyTitle}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Address:</span>
+      <span class="info-value">${activeBooking.propertyAddress}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Payment Month:</span>
+      <span class="info-value">${new Date(selectedPayment.paymentMonth + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Due Date:</span>
+      <span class="info-value">${dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">PAYMENT DETAILS</div>
+    <div class="info-row">
+      <span class="info-label">Monthly Rent:</span>
+      <span class="info-value">₱${selectedPayment.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+    </div>
+    ${selectedPayment.lateFee > 0 ? `
+    <div class="info-row">
+      <span class="info-label">Late Fee:</span>
+      <span class="info-value">₱${selectedPayment.lateFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+    </div>
+    ` : ''}
+    <div class="total">
+      <div class="total-row">
+        <span>Total Amount Paid:</span>
+        <span>₱${selectedPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+    </div>
+    <div class="info-row" style="margin-top: 15px;">
+      <span class="info-label">Payment Method:</span>
+      <span class="info-value">${selectedPayment.paymentMethod || 'Not specified'}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Status:</span>
+      <span class="info-value">${selectedPayment.status.toUpperCase()}</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">TENANT INFORMATION</div>
+    <div class="info-row">
+      <span class="info-label">Name:</span>
+      <span class="info-value">${activeBooking.tenantName}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Email:</span>
+      <span class="info-value">${activeBooking.tenantEmail}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Phone:</span>
+      <span class="info-value">${activeBooking.tenantPhone}</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">OWNER INFORMATION</div>
+    <div class="info-row">
+      <span class="info-label">Name:</span>
+      <span class="info-value">${activeBooking.ownerName}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Email:</span>
+      <span class="info-value">${activeBooking.ownerEmail}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Phone:</span>
+      <span class="info-value">${activeBooking.ownerPhone}</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Thank you for your payment!</p>
+    <p>Generated on ${new Date().toLocaleString()}</p>
+  </div>
+</body>
+</html>
+      `;
+
+      // Generate PDF
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+        // Web platform: Download PDF
+        try {
+          const response = await fetch(uri);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `${filename}.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          
+          Alert.alert('Success', 'Payment receipt PDF downloaded successfully!');
+        } catch (error) {
+          console.error('Error downloading PDF:', error);
+          Alert.alert('Download Failed', 'Unable to download PDF. Please try again.');
+        }
+      } else {
+        // Mobile platform: Share the PDF file
+        const Sharing = await import('expo-sharing');
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Download Payment Receipt (PDF)',
+          });
+          Alert.alert('Success', 'Payment receipt PDF ready to save! Use the share menu to save to Downloads or Files.');
+        } else {
+          Alert.alert('Success', `Payment receipt PDF saved to: ${uri}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error downloading receipt:', error);
+      Alert.alert('Error', 'Failed to download payment receipt PDF. Please try again.');
+    }
+  }, [selectedReceipt, selectedPayment, activeBooking]);
+
+  const handleDownloadPaymentHistory = useCallback(async () => {
+    if (!rentHistory || !activeBooking || !property || !user) return;
+
+    try {
+      // Generate comprehensive payment history document
+      const paidPayments = rentHistory.payments.filter(p => p.status === 'paid');
+      const pendingPayments = rentHistory.payments.filter(p => p.status === 'pending');
+      const overduePayments = rentHistory.payments.filter(p => p.status === 'overdue');
+      
+      // Generate HTML content for PDF
+      const paymentRows = rentHistory.payments.map((payment, index) => {
+        const paymentDate = payment.paidDate ? new Date(payment.paidDate) : null;
+        const dueDate = new Date(payment.dueDate);
+        const statusColor = payment.status === 'paid' ? '#10B981' : 
+                           payment.status === 'overdue' ? '#EF4444' : '#F59E0B';
+        
+        return `
+        <tr style="border-bottom: 1px solid #E5E7EB;">
+          <td style="padding: 10px; text-align: center;">${index + 1}</td>
+          <td style="padding: 10px;">${new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}</td>
+          <td style="padding: 10px;">${dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
+          <td style="padding: 10px;">${paymentDate ? paymentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Paid'}</td>
+          <td style="padding: 10px; color: ${statusColor}; font-weight: 600;">${payment.status.toUpperCase()}</td>
+          <td style="padding: 10px; text-align: right;">₱${payment.amount.toLocaleString()}</td>
+          <td style="padding: 10px; text-align: right;">${payment.lateFee > 0 ? `₱${payment.lateFee.toLocaleString()}` : '-'}</td>
+          <td style="padding: 10px; text-align: right; font-weight: 600;">₱${payment.totalAmount.toLocaleString()}</td>
+          <td style="padding: 10px; font-size: 12px;">${payment.receiptNumber || '-'}</td>
+        </tr>
+        `;
+      }).join('');
+
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Payment History Report</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      border-bottom: 3px solid #3B82F6;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      color: #1E40AF;
+      margin: 0;
+      font-size: 24px;
+    }
+    .header p {
+      color: #666;
+      margin: 5px 0;
+    }
+    .section {
+      margin-bottom: 30px;
+      page-break-inside: avoid;
+    }
+    .section-title {
+      background-color: #3B82F6;
+      color: white;
+      padding: 10px 15px;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      border-radius: 5px;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #E5E7EB;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-label {
+      font-weight: 600;
+      color: #4B5563;
+    }
+    .info-value {
+      color: #1F2937;
+      font-weight: 600;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .summary-card {
+      background-color: #F9FAFB;
+      padding: 15px;
+      border-radius: 5px;
+      border-left: 4px solid #3B82F6;
+    }
+    .summary-card.success {
+      border-left-color: #10B981;
+    }
+    .summary-card.warning {
+      border-left-color: #F59E0B;
+    }
+    .summary-card.error {
+      border-left-color: #EF4444;
+    }
+    .summary-label {
+      font-size: 12px;
+      color: #6B7280;
+      margin-bottom: 5px;
+    }
+    .summary-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1F2937;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    th {
+      background-color: #3B82F6;
+      color: white;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    th:first-child {
+      text-align: center;
+      width: 50px;
+    }
+    th:nth-child(5),
+    th:nth-child(6),
+    th:nth-child(7),
+    th:nth-child(8) {
+      text-align: right;
+    }
+    td {
+      padding: 10px;
+      font-size: 13px;
+    }
+    td:nth-child(5),
+    td:nth-child(6),
+    td:nth-child(7),
+    td:nth-child(8) {
+      text-align: right;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 2px solid #E5E7EB;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>PAYMENT HISTORY REPORT</h1>
+    <p>HanapBahay Rental Platform</p>
+    <p>Generated: ${new Date().toLocaleString()}</p>
+  </div>
+
+  <div class="section">
+    <div class="section-title">TENANT INFORMATION</div>
+    <div class="info-row">
+      <span class="info-label">Name:</span>
+      <span class="info-value">${user.name || 'N/A'}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Email:</span>
+      <span class="info-value">${user.email || 'N/A'}</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">PROPERTY INFORMATION</div>
+    <div class="info-row">
+      <span class="info-label">Property:</span>
+      <span class="info-value">${activeBooking.propertyTitle}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Address:</span>
+      <span class="info-value">${activeBooking.propertyAddress}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Owner:</span>
+      <span class="info-value">${activeBooking.ownerName}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Monthly Rent:</span>
+      <span class="info-value">₱${activeBooking.monthlyRent.toLocaleString()}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Start Date:</span>
+      <span class="info-value">${new Date(activeBooking.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">PAYMENT SUMMARY</div>
+    <div class="summary-grid">
+      <div class="summary-card success">
+        <div class="summary-label">Total Paid</div>
+        <div class="summary-value">₱${rentHistory.totalPaid.toLocaleString()}</div>
+      </div>
+      <div class="summary-card warning">
+        <div class="summary-label">Total Pending</div>
+        <div class="summary-value">₱${rentHistory.totalPending.toLocaleString()}</div>
+      </div>
+      ${rentHistory.totalOverdue > 0 ? `
+      <div class="summary-card error">
+        <div class="summary-label">Total Overdue</div>
+        <div class="summary-value">₱${rentHistory.totalOverdue.toLocaleString()}</div>
+      </div>
+      ` : ''}
+      ${rentHistory.totalLateFees > 0 ? `
+      <div class="summary-card error">
+        <div class="summary-label">Total Late Fees</div>
+        <div class="summary-value">₱${rentHistory.totalLateFees.toLocaleString()}</div>
+      </div>
+      ` : ''}
+    </div>
+    <div class="info-row">
+      <span class="info-label">Number of Payments:</span>
+      <span class="info-value">${rentHistory.payments.length}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Paid Payments:</span>
+      <span class="info-value">${paidPayments.length}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Pending Payments:</span>
+      <span class="info-value">${pendingPayments.length}</span>
+    </div>
+    ${overduePayments.length > 0 ? `
+    <div class="info-row">
+      <span class="info-label">Overdue Payments:</span>
+      <span class="info-value">${overduePayments.length}</span>
+    </div>
+    ` : ''}
+  </div>
+
+  <div class="section">
+    <div class="section-title">DETAILED PAYMENT HISTORY</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Payment Month</th>
+          <th>Due Date</th>
+          <th>Paid Date</th>
+          <th>Status</th>
+          <th>Amount</th>
+          <th>Late Fee</th>
+          <th>Total</th>
+          <th>Receipt #</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${paymentRows}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    <p>End of Payment History Report</p>
+    <p>Generated by HanapBahay on ${new Date().toLocaleString()}</p>
+  </div>
+</body>
+</html>
+      `;
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const filename = `payment_history_${activeBooking.id.slice(-8)}_${timestamp}`;
+
+      // Generate PDF
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+        // Web platform: Download PDF
+        try {
+          const response = await fetch(uri);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `${filename}.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          
+          Alert.alert('Success', 'Payment history PDF downloaded successfully!');
+        } catch (error) {
+          console.error('Error downloading PDF:', error);
+          Alert.alert('Download Failed', 'Unable to download PDF. Please try again.');
+        }
+      } else {
+        // Mobile platform: Share the PDF file
+        const Sharing = await import('expo-sharing');
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Download Payment History (PDF)',
+          });
+          Alert.alert('Success', 'Payment history PDF ready to save! Use the share menu to save to Downloads or Files.');
+        } else {
+          Alert.alert('Success', `Payment history PDF saved to: ${uri}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error downloading payment history:', error);
+      Alert.alert('Error', 'Failed to download payment history PDF. Please try again.');
+    }
+  }, [rentHistory, activeBooking, property, user]);
 
   const handleDownloadComplaint = useCallback(async (complaint: TenantComplaintRecord) => {
     if (!user || !activeBooking || !property) return;
@@ -1434,6 +2161,21 @@ HanapBahay Complaint System
         year: 'numeric',
         month: 'short',
         day: 'numeric',
+      });
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const formatPaymentMonth = (paymentMonth: string, format: 'short' | 'long' = 'short') => {
+    try {
+      if (!paymentMonth || typeof paymentMonth !== 'string') return 'N/A';
+      // Ensure paymentMonth is in YYYY-MM format
+      const date = new Date(paymentMonth + '-01');
+      if (isNaN(date.getTime())) return 'N/A';
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: format,
       });
     } catch {
       return 'N/A';
@@ -1616,8 +2358,8 @@ HanapBahay Complaint System
           </View>
         </View>
 
-        {/* Prominent Payment Alert Banner - Shows when payment is within 7 days */}
-        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (nextDueDays <= 7 || isNextDueOverdue) && (
+        {/* Prominent Payment Alert Banner - Shows when payment is within 7 days (hidden when countdown is active) */}
+        {!terminationCountdown.hasCountdown && rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (nextDueDays <= 7 || isNextDueOverdue) && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: 0 }]}>
             <TouchableOpacity
               onPress={handlePayRent}
@@ -1686,8 +2428,8 @@ HanapBahay Complaint System
           </View>
         )}
 
-        {/* Compact Payment Notification Banner */}
-        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
+        {/* Compact Payment Notification Banner (hidden when countdown is active) */}
+        {!terminationCountdown.hasCountdown && rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
             <LinearGradient
               colors={isNextDueOverdue ? ['#DC2626', '#EF4444'] as const : designTokens.gradients.primary as any}
@@ -1764,7 +2506,7 @@ HanapBahay Complaint System
                 marginBottom: designTokens.spacing.sm,
               }} numberOfLines={1}>{activeBooking.propertyAddress}</Text>
               
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.xs, marginBottom: designTokens.spacing.md }}>
                 <Calendar size={14} color={designTokens.colors.textSecondary} />
                 <Text style={{
                   fontSize: designTokens.typography.xs,
@@ -1777,20 +2519,159 @@ HanapBahay Complaint System
                 </Text>
               </View>
 
-              <TouchableOpacity
-                style={[sharedStyles.primaryButton, { marginTop: designTokens.spacing.sm, paddingVertical: 10 }]}
-                onPress={handleMessageOwner}
-                activeOpacity={0.8}
-              >
-                <MessageSquare size={16} color="#FFFFFF" />
-                <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Message Owner</Text>
-              </TouchableOpacity>
+              {/* Action Buttons Section - Redesigned */}
+              <View style={{ gap: designTokens.spacing.sm }}>
+                {/* Message Owner Button - Primary Action with Gradient */}
+                <TouchableOpacity
+                  onPress={handleMessageOwner}
+                  activeOpacity={0.8}
+                  style={{
+                    borderRadius: designTokens.borderRadius.lg,
+                    overflow: 'hidden',
+                    ...designTokens.shadows.sm,
+                  }}
+                >
+                  <LinearGradient
+                    colors={[designTokens.colors.primary, designTokens.colors.primaryDark] as any}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: designTokens.spacing.md,
+                      paddingHorizontal: designTokens.spacing.lg,
+                      gap: designTokens.spacing.sm,
+                    }}
+                  >
+                    <View style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      borderRadius: designTokens.borderRadius.full,
+                      padding: 6,
+                    }}>
+                      <MessageSquare size={18} color="#FFFFFF" />
+                    </View>
+                    <Text style={{
+                      fontSize: designTokens.typography.base,
+                      fontWeight: designTokens.typography.semibold as any,
+                      color: '#FFFFFF',
+                      flex: 1,
+                    }}>
+                      Message Owner
+                    </Text>
+                    <ChevronRight size={18} color="#FFFFFF" />
+                  </LinearGradient>
+                </TouchableOpacity>
+                
+                {/* Termination Countdown Banner */}
+                {terminationCountdown.hasCountdown && (
+                  <View style={{
+                    backgroundColor: designTokens.colors.warningLight,
+                    borderWidth: 2,
+                    borderColor: designTokens.colors.warning,
+                    paddingVertical: designTokens.spacing.md,
+                    paddingHorizontal: designTokens.spacing.lg,
+                    borderRadius: designTokens.borderRadius.lg,
+                    marginBottom: designTokens.spacing.sm,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm, marginBottom: designTokens.spacing.xs }}>
+                      <AlertTriangle size={18} color={designTokens.colors.warning} />
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.warning,
+                        flex: 1,
+                      }}>
+                        Termination Countdown Active
+                      </Text>
+                    </View>
+                    <Text style={{
+                      fontSize: designTokens.typography['2xl'],
+                      fontWeight: designTokens.typography.bold as any,
+                      color: designTokens.colors.textPrimary,
+                      marginBottom: designTokens.spacing.xs,
+                    }}>
+                      {terminationCountdown.daysRemaining || 0} days remaining
+                    </Text>
+                    <Text style={{
+                      fontSize: designTokens.typography.xs,
+                      color: designTokens.colors.textSecondary,
+                    }}>
+                      Your rental stay will end on {terminationCountdown.terminationEndDate ? new Date(terminationCountdown.terminationEndDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
+                    </Text>
+                    <TouchableOpacity
+                      style={{
+                        marginTop: designTokens.spacing.sm,
+                        paddingVertical: designTokens.spacing.sm,
+                        paddingHorizontal: designTokens.spacing.md,
+                        backgroundColor: designTokens.colors.warning,
+                        borderRadius: designTokens.borderRadius.md,
+                        alignSelf: 'flex-start',
+                      }}
+                      onPress={handleEndRentalStay}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: '#FFFFFF',
+                      }}>
+                        Leave Immediately
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* End Rental Stay Button - Only show if advance deposit is available and no countdown */}
+                {!terminationCountdown.hasCountdown && advanceDepositInfo.hasAdvanceDeposit && (advanceDepositInfo.remainingAdvanceMonths || 0) > 0 && (
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: designTokens.colors.white,
+                      borderWidth: 2,
+                      borderColor: designTokens.colors.warning,
+                      paddingVertical: designTokens.spacing.md,
+                      paddingHorizontal: designTokens.spacing.lg,
+                      borderRadius: designTokens.borderRadius.lg,
+                      gap: designTokens.spacing.sm,
+                      ...designTokens.shadows.sm,
+                    }}
+                    onPress={handleEndRentalStay}
+                    activeOpacity={0.8}
+                  >
+                    <View style={{
+                      backgroundColor: designTokens.colors.warningLight,
+                      borderRadius: designTokens.borderRadius.full,
+                      padding: 6,
+                    }}>
+                      <XCircle size={18} color={designTokens.colors.warning} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.textPrimary,
+                      }}>
+                        End Rental Stay
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.xs,
+                        color: designTokens.colors.textSecondary,
+                        marginTop: 2,
+                      }}>
+                        {advanceDepositInfo.remainingAdvanceMonths} advance month{(advanceDepositInfo.remainingAdvanceMonths || 0) !== 1 ? 's' : ''} available
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color={designTokens.colors.warning} />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
         </View>
 
-        {/* Compact Payment Details Card */}
-        {rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
+        {/* Compact Payment Details Card (hidden when countdown is active) */}
+        {!terminationCountdown.hasCountdown && rentHistory?.nextDueDate && rentHistory?.nextDueAmount && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.sm }]}>
             <View style={[
               sharedStyles.card,
@@ -2015,14 +2896,16 @@ HanapBahay Complaint System
               )}
               
               <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.xs }}>
-                <TouchableOpacity
-                  style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: 10 }]}
-                  onPress={() => setShowMaintenanceModal(true)}
-                  activeOpacity={0.8}
-                >
-                  <Plus size={16} color="#FFFFFF" />
-                  <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Report Issue</Text>
-                </TouchableOpacity>
+                {!terminationCountdown.hasCountdown && (
+                  <TouchableOpacity
+                    style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: 10 }]}
+                    onPress={() => setShowMaintenanceModal(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Plus size={16} color="#FFFFFF" />
+                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Report Issue</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={[sharedStyles.secondaryButton, { flex: 1, paddingVertical: 10 }]}
                   onPress={() => setShowMaintenanceHistory(true)}
@@ -2032,14 +2915,16 @@ HanapBahay Complaint System
                   <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>History</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={[sharedStyles.secondaryButton, { paddingVertical: 10 }]}
-                onPress={handleMessageOwner}
-                activeOpacity={0.8}
-              >
-                <MessageSquare size={16} color={designTokens.colors.info} />
-                <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>Chat Owner</Text>
-              </TouchableOpacity>
+              {!terminationCountdown.hasCountdown && (
+                <TouchableOpacity
+                  style={[sharedStyles.secondaryButton, { paddingVertical: 10 }]}
+                  onPress={handleMessageOwner}
+                  activeOpacity={0.8}
+                >
+                  <MessageSquare size={16} color={designTokens.colors.info} />
+                  <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: 14 }]}>Chat Owner</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
@@ -2179,14 +3064,16 @@ HanapBahay Complaint System
               )}
               
               <View style={{ flexDirection: 'row', gap: designTokens.spacing.xs, marginTop: designTokens.spacing.xs }}>
-                <TouchableOpacity
-                  style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: 10, backgroundColor: designTokens.colors.error }]}
-                  onPress={() => setShowComplaintModal(true)}
-                  activeOpacity={0.8}
-                >
-                  <AlertTriangle size={16} color="#FFFFFF" />
-                  <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Submit Complaint</Text>
-                </TouchableOpacity>
+                {!terminationCountdown.hasCountdown && (
+                  <TouchableOpacity
+                    style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: 10, backgroundColor: designTokens.colors.error }]}
+                    onPress={() => setShowComplaintModal(true)}
+                    activeOpacity={0.8}
+                  >
+                    <AlertTriangle size={16} color="#FFFFFF" />
+                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 14 }]}>Submit Complaint</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={[sharedStyles.secondaryButton, { flex: 1, paddingVertical: 10 }]}
                   onPress={() => setShowComplaintHistory(true)}
@@ -2245,11 +3132,35 @@ HanapBahay Complaint System
         {rentHistory && rentHistory.payments.length > 0 && (
           <View style={[sharedStyles.pageContainer, { paddingTop: designTokens.spacing.sm, paddingBottom: designTokens.spacing.lg }]}>
             <View style={sharedStyles.card}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 32, height: 32 }]}>
-                  <FileText size={16} color="#3B82F6" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: designTokens.spacing.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={[sharedStyles.statIcon, iconBackgrounds.blue, { width: 32, height: 32 }]}>
+                    <FileText size={16} color="#3B82F6" />
+                  </View>
+                  <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Rent History</Text>
                 </View>
-                <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.base }]}>Rent History</Text>
+                <TouchableOpacity
+                  onPress={handleDownloadPaymentHistory}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: designTokens.spacing.xs,
+                    paddingHorizontal: designTokens.spacing.sm,
+                    paddingVertical: designTokens.spacing.xs,
+                    backgroundColor: designTokens.colors.primaryLight,
+                    borderRadius: designTokens.borderRadius.md,
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Download size={16} color={designTokens.colors.primary} />
+                  <Text style={{
+                    fontSize: designTokens.typography.xs,
+                    fontWeight: designTokens.typography.semibold as any,
+                    color: designTokens.colors.primary,
+                  }}>
+                    Download PDF
+                  </Text>
+                </TouchableOpacity>
               </View>
               <View>
                 {/* Summary */}
@@ -2310,17 +3221,28 @@ HanapBahay Complaint System
                         )}
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{
-                          fontSize: designTokens.typography.sm,
-                          fontWeight: designTokens.typography.semibold as any,
-                          color: designTokens.colors.textPrimary,
-                          marginBottom: 2,
-                        }}>
-                          {new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                          })}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.textPrimary,
+                          }}>
+                            {formatPaymentMonth(payment.paymentMonth)}
+                          </Text>
+                          {/* Show indicator if payment was previously rejected */}
+                          {(payment as any).rejectedAt && payment.status !== 'paid' && (
+                            <View style={{
+                              backgroundColor: '#FEF3C7',
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 4,
+                            }}>
+                              <Text style={{ color: '#92400E', fontSize: 10, fontWeight: '600' }}>
+                                REJECTED
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={{
                           fontSize: designTokens.typography.xs,
                           color: designTokens.colors.textSecondary,
@@ -2337,6 +3259,17 @@ HanapBahay Complaint System
                             +₱{payment.lateFee.toLocaleString()} late fee
                           </Text>
                         )}
+                        {/* Show rejection note if available */}
+                        {payment.notes && payment.notes.includes('Rejected by owner') && payment.status !== 'paid' && (
+                          <Text style={{
+                            fontSize: designTokens.typography.xs,
+                            color: designTokens.colors.error,
+                            marginTop: 2,
+                            fontStyle: 'italic',
+                          }}>
+                            {payment.notes}
+                          </Text>
+                        )}
                       </View>
                       <View style={{ alignItems: 'flex-end', gap: 2 }}>
                         <Text style={{
@@ -2346,7 +3279,22 @@ HanapBahay Complaint System
                                  payment.status === 'overdue' ? designTokens.colors.error :
                                  designTokens.colors.textPrimary,
                         }}>
-                          ₱{payment.totalAmount.toLocaleString()}
+                          ₱{(() => {
+                            // For paid payments, show the actual amount paid
+                            // For pending/overdue payments, show the correct amount to ensure advance deposit is not shown for non-first payments
+                            if (payment.status === 'paid') {
+                              return payment.totalAmount.toLocaleString();
+                            }
+                            // Calculate correct amount for pending/overdue payments
+                            const allPayments = [
+                              ...(rentHistory?.payments || []),
+                              ...futurePayments
+                            ];
+                            const correctAmount = activeBooking 
+                              ? getCorrectPaymentAmountSync(payment, activeBooking, allPayments) + (payment.lateFee || 0)
+                              : payment.totalAmount;
+                            return correctAmount.toLocaleString();
+                          })()}
                         </Text>
                         {payment.status === 'paid' && (
                           <ChevronRight size={14} color={designTokens.colors.textSecondary} />
@@ -2392,13 +3340,15 @@ HanapBahay Complaint System
               
               {/* Current Due Payment */}
               {rentHistory?.nextDueDate && (() => {
+                // Include rejected payments so tenant can pay them again
                 const currentPayment = rentHistory.payments.find(
-                  p => p.dueDate === rentHistory.nextDueDate && (p.status === 'pending' || p.status === 'overdue')
+                  p => p.dueDate === rentHistory.nextDueDate && (p.status === 'pending' || p.status === 'overdue' || p.status === 'rejected')
                 );
                 if (!currentPayment) return null;
                 
                 const isSelected = selectedPayments.has(currentPayment.id);
                 const isOverdue = currentPayment.status === 'overdue';
+                const wasRejected = (currentPayment as any).rejectedAt;
                 
                 return (
                   <View style={styles.paymentSection}>
@@ -2429,9 +3379,9 @@ HanapBahay Complaint System
                           {isSelected && <CheckCircle size={18} color="#FFFFFF" />}
                         </View>
                         <View style={styles.advancedPaymentModalInfo}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <Text style={styles.advancedPaymentModalMonth}>
-                              {isOverdue ? '⚠️ Overdue Payment' : 'Current Due Payment'}
+                              {isOverdue ? '⚠️ Overdue Payment' : wasRejected ? '⚠️ Payment Rejected - Please Pay Again' : 'Current Due Payment'}
                             </Text>
                             {isOverdue && (
                               <View style={{
@@ -2445,6 +3395,18 @@ HanapBahay Complaint System
                                 </Text>
                               </View>
                             )}
+                            {wasRejected && !isOverdue && (
+                              <View style={{
+                                backgroundColor: '#FEF3C7',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                              }}>
+                                <Text style={{ color: '#92400E', fontSize: 10, fontWeight: '600' }}>
+                                  REJECTED
+                                </Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={styles.advancedPaymentModalDate}>
                             Due: {formatDate(currentPayment.dueDate)}
@@ -2454,10 +3416,25 @@ HanapBahay Complaint System
                               Late Fee: ₱{currentPayment.lateFee.toLocaleString()}
                             </Text>
                           )}
+                          {wasRejected && currentPayment.notes && (
+                            <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 2, fontStyle: 'italic' }}>
+                              {currentPayment.notes}
+                            </Text>
+                          )}
                         </View>
                       </View>
                       <Text style={styles.advancedPaymentModalAmount}>
-                        ₱{currentPayment.totalAmount.toLocaleString()}
+                        ₱{(() => {
+                          // Calculate correct amount to ensure advance deposit is not shown for non-first payments
+                          const allPayments = [
+                            ...(rentHistory?.payments || []),
+                            ...futurePayments
+                          ];
+                          const correctAmount = activeBooking 
+                            ? getCorrectPaymentAmountSync(currentPayment, activeBooking, allPayments) + (currentPayment.lateFee || 0)
+                            : currentPayment.totalAmount;
+                          return correctAmount.toLocaleString();
+                        })()}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -2471,10 +3448,7 @@ HanapBahay Complaint System
                   <View style={styles.advancedPaymentList}>
                     {futurePayments.map((payment) => {
                       const isSelected = selectedPayments.has(payment.id);
-                      const monthName = new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                      });
+                      const monthName = formatPaymentMonth(payment.paymentMonth, 'long');
                       
                       return (
                         <TouchableOpacity
@@ -2509,7 +3483,17 @@ HanapBahay Complaint System
                             </View>
                           </View>
                           <Text style={styles.advancedPaymentModalAmount}>
-                            ₱{payment.totalAmount.toLocaleString()}
+                            ₱{(() => {
+                              // Calculate correct amount to ensure advance deposit is not shown for non-first payments
+                              const allPayments = [
+                                ...(rentHistory?.payments || []),
+                                ...futurePayments
+                              ];
+                              const correctAmount = activeBooking 
+                                ? getCorrectPaymentAmountSync(payment, activeBooking, allPayments) + (payment.lateFee || 0)
+                                : payment.totalAmount;
+                              return correctAmount.toLocaleString();
+                            })()}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -2520,11 +3504,22 @@ HanapBahay Complaint System
 
               {/* Payment Summary */}
               {selectedPayments.size > 0 && (() => {
-                const allPayments = [
+                const selectedPaymentsList = [
                   ...(rentHistory?.payments.filter(p => selectedPayments.has(p.id)) || []),
                   ...futurePayments.filter(p => selectedPayments.has(p.id))
                 ];
-                const totalAmount = allPayments.reduce((sum, p) => sum + p.totalAmount, 0);
+                // Get all payments for this booking to check if there are paid payments
+                const allBookingPayments = [
+                  ...(rentHistory?.payments || []),
+                  ...futurePayments
+                ];
+                // Calculate total using correct payment amounts to ensure advance deposit is not applied to non-first payments
+                const totalAmount = selectedPaymentsList.reduce((sum, p) => {
+                  if (!activeBooking) return sum + p.totalAmount;
+                  const correctAmount = getCorrectPaymentAmountSync(p, activeBooking, allBookingPayments);
+                  const lateFee = p.lateFee || 0;
+                  return sum + correctAmount + lateFee;
+                }, 0);
                 
                 return (
                   <View style={styles.advancedPaymentModalSummary}>
@@ -2700,13 +3695,19 @@ HanapBahay Complaint System
         visible={showReceiptModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowReceiptModal(false)}
+        onRequestClose={() => {
+          setShowReceiptModal(false);
+          setSelectedPayment(null);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Payment Receipt</Text>
-              <TouchableOpacity onPress={() => setShowReceiptModal(false)}>
+              <TouchableOpacity onPress={() => {
+                setShowReceiptModal(false);
+                setSelectedPayment(null);
+              }}>
                 <XCircle size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
@@ -2718,17 +3719,17 @@ HanapBahay Complaint System
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={() => {
-                  // TODO: Implement download functionality
-                  Alert.alert('Info', 'Download functionality will be implemented soon.');
-                }}
+                onPress={handleDownloadReceipt}
               >
                 <Download size={18} color="#FFFFFF" />
                 <Text style={styles.modalButtonPrimaryText}>Download</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonSecondary]}
-                onPress={() => setShowReceiptModal(false)}
+                onPress={() => {
+                  setShowReceiptModal(false);
+                  setSelectedPayment(null);
+                }}
               >
                 <Text style={styles.modalButtonSecondaryText}>Close</Text>
               </TouchableOpacity>
@@ -2948,6 +3949,290 @@ HanapBahay Complaint System
         }}
       />
 
+      {/* End Rental Stay Confirmation Modal */}
+      <Modal
+        visible={showEndRentalModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !endingRental && setShowEndRentalModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {terminationCountdown.hasCountdown ? 'Leave Immediately' : 'End Rental Stay'}
+              </Text>
+              {!endingRental && (
+                <TouchableOpacity onPress={() => setShowEndRentalModal(false)}>
+                  <XCircle size={24} color="#6B7280" />
+                </TouchableOpacity>
+              )}
+            </View>
+            
+            <ScrollView style={{ maxHeight: 400 }}>
+              <View style={{ padding: designTokens.spacing.md }}>
+                {terminationCountdown.hasCountdown ? (
+                  <>
+                    <View style={{
+                      backgroundColor: designTokens.colors.warningLight,
+                      padding: designTokens.spacing.md,
+                      borderRadius: designTokens.borderRadius.md,
+                      marginBottom: designTokens.spacing.md,
+                      borderWidth: 1,
+                      borderColor: designTokens.colors.warning + '40',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: designTokens.spacing.sm }}>
+                        <AlertTriangle size={20} color={designTokens.colors.warning} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.warning,
+                            marginBottom: designTokens.spacing.xs,
+                          }}>
+                            Countdown Active
+                          </Text>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            color: designTokens.colors.textPrimary,
+                            lineHeight: 20,
+                          }}>
+                            You have {terminationCountdown.daysRemaining || 0} days remaining in your countdown. You can leave immediately to forfeit the remaining time.
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={{ marginBottom: designTokens.spacing.md }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.xs,
+                      }}>
+                        Days Remaining
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography['2xl'],
+                        fontWeight: designTokens.typography.bold as any,
+                        color: designTokens.colors.warning,
+                      }}>
+                        {terminationCountdown.daysRemaining || 0} days
+                      </Text>
+                    </View>
+
+                    <View style={{ marginBottom: designTokens.spacing.md }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.xs,
+                      }}>
+                        End Date
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.textPrimary,
+                      }}>
+                        {terminationCountdown.terminationEndDate ? new Date(terminationCountdown.terminationEndDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={{
+                      backgroundColor: designTokens.colors.warningLight,
+                      padding: designTokens.spacing.md,
+                      borderRadius: designTokens.borderRadius.md,
+                      marginBottom: designTokens.spacing.md,
+                      borderWidth: 1,
+                      borderColor: designTokens.colors.warning + '40',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: designTokens.spacing.sm }}>
+                        <AlertTriangle size={20} color={designTokens.colors.warning} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.warning,
+                            marginBottom: designTokens.spacing.xs,
+                          }}>
+                            Choose Your Option
+                          </Text>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            color: designTokens.colors.textPrimary,
+                            lineHeight: 20,
+                          }}>
+                            You can start a countdown based on your advance deposit months, or leave immediately.
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={{ marginBottom: designTokens.spacing.md }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.xs,
+                      }}>
+                        Property
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.base,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.textPrimary,
+                      }}>
+                        {activeBooking?.propertyTitle}
+                      </Text>
+                    </View>
+
+                    <View style={{ marginBottom: designTokens.spacing.md }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textSecondary,
+                        marginBottom: designTokens.spacing.xs,
+                      }}>
+                        Remaining Advance Deposit
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography['2xl'],
+                        fontWeight: designTokens.typography.bold as any,
+                        color: designTokens.colors.primary,
+                      }}>
+                        {advanceDepositInfo.remainingAdvanceMonths || 0} month{(advanceDepositInfo.remainingAdvanceMonths || 0) !== 1 ? 's' : ''}
+                      </Text>
+                    </View>
+
+                    <View style={{
+                      backgroundColor: designTokens.colors.background,
+                      padding: designTokens.spacing.md,
+                      borderRadius: designTokens.borderRadius.md,
+                      marginBottom: designTokens.spacing.md,
+                      borderWidth: 1,
+                      borderColor: designTokens.colors.borderLight,
+                    }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.textPrimary,
+                        marginBottom: designTokens.spacing.xs,
+                      }}>
+                        Countdown Option
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textPrimary,
+                        lineHeight: 20,
+                      }}>
+                        Start a countdown for {advanceDepositInfo.remainingAdvanceMonths || 0} months. You'll be automatically removed when the countdown ends, but you can leave immediately anytime.
+                      </Text>
+                    </View>
+
+                    <View style={{
+                      backgroundColor: designTokens.colors.errorLight,
+                      padding: designTokens.spacing.md,
+                      borderRadius: designTokens.borderRadius.md,
+                    }}>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        fontWeight: designTokens.typography.semibold as any,
+                        color: designTokens.colors.error,
+                        marginBottom: designTokens.spacing.xs,
+                      }}>
+                        Immediate Leave Option
+                      </Text>
+                      <Text style={{
+                        fontSize: designTokens.typography.sm,
+                        color: designTokens.colors.textPrimary,
+                        lineHeight: 20,
+                      }}>
+                        Leave immediately and use all remaining advance deposit months to cover payments. This action cannot be undone.
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </View>
+            </ScrollView>
+
+            <View style={styles.endRentalModalActions}>
+              <TouchableOpacity
+                style={[
+                  styles.endRentalCancelButton,
+                  endingRental && styles.endRentalButtonDisabled
+                ]}
+                onPress={() => setShowEndRentalModal(false)}
+                disabled={endingRental}
+                activeOpacity={0.6}
+              >
+                <Text style={styles.endRentalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              {terminationCountdown.hasCountdown ? (
+                <TouchableOpacity
+                  style={[
+                    styles.endRentalPrimaryButton,
+                    styles.endRentalDangerButton,
+                    endingRental && styles.endRentalButtonDisabled
+                  ]}
+                  onPress={() => handleConfirmEndRentalStay(true)}
+                  disabled={endingRental}
+                  activeOpacity={0.8}
+                >
+                  {endingRental ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <XCircle size={16} color="#FFFFFF" strokeWidth={2} />
+                      <Text style={styles.endRentalPrimaryButtonText}>Leave Immediately</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[
+                      styles.endRentalSecondaryButton,
+                      styles.endRentalWarningButton,
+                      endingRental && styles.endRentalButtonDisabled
+                    ]}
+                    onPress={() => handleConfirmEndRentalStay(false)}
+                    disabled={endingRental}
+                    activeOpacity={0.7}
+                  >
+                    {endingRental ? (
+                      <ActivityIndicator color={designTokens.colors.warning} size="small" />
+                    ) : (
+                      <>
+                        <Clock size={16} color={designTokens.colors.warning} strokeWidth={2} />
+                        <Text style={styles.endRentalSecondaryButtonText}>Start Countdown</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.endRentalPrimaryButton,
+                      styles.endRentalDangerButton,
+                      endingRental && styles.endRentalButtonDisabled
+                    ]}
+                    onPress={() => handleConfirmEndRentalStay(true)}
+                    disabled={endingRental}
+                    activeOpacity={0.8}
+                  >
+                    {endingRental ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <>
+                        <XCircle size={16} color="#FFFFFF" strokeWidth={2} />
+                        <Text style={styles.endRentalPrimaryButtonText}>Leave Immediately</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Dynamic QR Code Modal for GCash and Maya Payment */}
       {showQRCodeModal && selectedQRCodeAccount && (() => {
         const allPayments = [
@@ -2955,6 +4240,15 @@ HanapBahay Complaint System
           ...futurePayments.filter(p => selectedPayments.has(p.id))
         ];
         const firstPayment = allPayments[0];
+        // Get all payments for this booking to check if there are paid payments
+        const allBookingPayments = [
+          ...(rentHistory?.payments || []),
+          ...futurePayments
+        ];
+        // Calculate correct amount for display
+        const correctPaymentAmount = firstPayment && activeBooking 
+          ? getCorrectPaymentAmountSync(firstPayment, activeBooking, allBookingPayments) + (firstPayment.lateFee || 0)
+          : firstPayment?.totalAmount || 0;
         return firstPayment ? (
         <Modal
           visible={showQRCodeModal}
@@ -2977,9 +4271,9 @@ HanapBahay Complaint System
                     onPress={async () => {
                       try {
                         const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
-                        const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount);
+                        const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount, correctPaymentAmount);
                         const paymentMethodName = selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya';
-                        const paymentDetails = `${paymentMethodName} Payment QR Code\n\nAmount: ₱${firstPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${firstPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${firstPayment.paymentMonth}\nDue Date: ${new Date(firstPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
+                        const paymentDetails = `${paymentMethodName} Payment QR Code\n\nAmount: ₱${correctPaymentAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${firstPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${firstPayment.paymentMonth}\nDue Date: ${new Date(firstPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
                         
                         if (Platform.OS === 'web') {
                           // For web, copy to clipboard
@@ -3032,7 +4326,7 @@ HanapBahay Complaint System
                   
                   <View style={styles.qrCodeWrapper}>
                     <QRCode
-                      {...getQRCodeProps(firstPayment, selectedQRCodeAccount, 250)}
+                      {...getQRCodeProps(firstPayment, selectedQRCodeAccount, 250, correctPaymentAmount)}
                     />
                   </View>
                   
@@ -3129,9 +4423,9 @@ HanapBahay Complaint System
                       onPress={async () => {
                       try {
                         const { generatePaymentQRCodeString } = await import('../../utils/qr-code-generator');
-                        const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount);
+                        const qrData = generatePaymentQRCodeString(firstPayment, selectedQRCodeAccount, correctPaymentAmount);
                         const paymentMethodName = selectedQRCodeAccount.type === 'gcash' ? 'GCash' : 'Maya';
-                        const paymentDetails = `${paymentMethodName} Payment QR Code\n\nAmount: ₱${firstPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${firstPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${firstPayment.paymentMonth}\nDue Date: ${new Date(firstPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
+                        const paymentDetails = `${paymentMethodName} Payment QR Code\n\nAmount: ₱${correctPaymentAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nReference: ${firstPayment.receiptNumber}\nAccount: ${selectedQRCodeAccount.accountName} (${selectedQRCodeAccount.accountNumber})\nPayment Month: ${firstPayment.paymentMonth}\nDue Date: ${new Date(firstPayment.dueDate).toLocaleDateString()}\n\nScan the QR code in the app to pay.`;
                         
                         if (Platform.OS === 'web') {
                           // For web, copy to clipboard
@@ -3171,7 +4465,7 @@ HanapBahay Complaint System
                   <View style={styles.qrCodeDetailRow}>
                     <Text style={styles.qrCodeDetailLabel}>Amount:</Text>
                     <Text style={styles.qrCodeDetailValue}>
-                      ₱{firstPayment.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ₱{correctPaymentAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   </View>
 
@@ -5676,7 +6970,10 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: designTokens.spacing.md,
+    paddingTop: designTokens.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: designTokens.colors.borderLight,
   },
   modalButton: {
     flex: 1,
@@ -6452,6 +7749,81 @@ const styles = StyleSheet.create({
     height: 24,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // End Rental Stay Form Button Styles - Modern & Clean
+  endRentalModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: designTokens.colors.white,
+  },
+  endRentalCancelButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#F9FAFB',
+    minHeight: 44,
+  },
+  endRentalCancelButtonText: {
+    fontSize: 15,
+    fontWeight: '600' as any,
+    color: '#374151',
+  },
+  endRentalSecondaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 6,
+    minHeight: 44,
+    backgroundColor: designTokens.colors.white,
+  },
+  endRentalWarningButton: {
+    borderColor: designTokens.colors.warning,
+  },
+  endRentalSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600' as any,
+    color: designTokens.colors.warning,
+  },
+  endRentalPrimaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 6,
+    minHeight: 44,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  endRentalDangerButton: {
+    backgroundColor: designTokens.colors.error,
+  },
+  endRentalPrimaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600' as any,
+    color: designTokens.colors.white,
+  },
+  endRentalButtonDisabled: {
+    opacity: 0.5,
   },
 });
 

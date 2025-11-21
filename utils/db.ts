@@ -99,27 +99,103 @@ async function readCollection<T extends AnyRecord>(name: CollectionName): Promis
   
   // Check cache first for better performance
   if (collectionCache.has(key)) {
-    return collectionCache.get(key);
+    const cached = collectionCache.get(key);
+    // Ensure we always return an object, not undefined
+    return cached && typeof cached === 'object' ? cached : {};
   }
   
   const raw = await AsyncStorage.getItem(key);
   const result = raw ? JSON.parse(raw) as Record<string, T> : {};
   
-  // Cache the result for future calls
-  collectionCache.set(key, result);
+  // Ensure result is always an object
+  const safeResult = result && typeof result === 'object' ? result : {};
   
-  return result;
+  // Cache the result for future calls
+  collectionCache.set(key, safeResult);
+  
+  return safeResult;
+}
+
+// Helper function to retry AsyncStorage write
+async function retryAsyncStorageWrite(key: string, jsonData: string, retries: number = 1): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    await new Promise(resolve => setTimeout(resolve, 100 * (i + 1)));
+    await AsyncStorage.setItem(key, jsonData);
+  }
 }
 
 async function writeCollection<T extends AnyRecord>(name: CollectionName, data: Record<string, T>): Promise<void> {
   const key = KEY_PREFIX + name;
   
   // Write to AsyncStorage first
-  await AsyncStorage.setItem(key, JSON.stringify(data));
+  const jsonData = JSON.stringify(data);
+  // Calculate approximate size in bytes (UTF-8: most chars are 1 byte, some are 2-4 bytes)
+  // Use a conservative estimate of 1.5 bytes per character for JSON
+  const dataSize = jsonData.length * 1.5;
+  const dataSizeMB = (dataSize / (1024 * 1024)).toFixed(2);
   
-  // Clear and update cache with a fresh copy to ensure consistency
-  collectionCache.delete(key);
-  collectionCache.set(key, { ...data });
+  // Warn if data is getting large (AsyncStorage typically has 6-10MB limit)
+  if (dataSize > 5 * 1024 * 1024) { // 5MB
+    console.warn(`⚠️ Large data size for ${name}: ${dataSizeMB}MB. AsyncStorage may have issues.`);
+  }
+  
+  try {
+    // Write to AsyncStorage - this will throw if it fails
+    await AsyncStorage.setItem(key, jsonData);
+    
+    // For small data (< 100KB), skip verification to avoid false failures
+    // AsyncStorage.setItem will throw an error if the write actually fails
+    if (dataSize < 100 * 1024) {
+      // Just update cache and return - trust that setItem succeeded
+      collectionCache.delete(key);
+      collectionCache.set(key, { ...data });
+      return;
+    }
+    
+    // For larger data, do a simple verification
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const verify = await AsyncStorage.getItem(key);
+    
+    if (!verify) {
+      // verify is null - try one more time
+      console.warn(`⚠️ AsyncStorage write verification returned null for ${name} (${dataSizeMB}MB), retrying...`);
+      await retryAsyncStorageWrite(key, jsonData, 1);
+      
+      await new Promise(resolve => setTimeout(resolve, 150));
+      const verify2 = await AsyncStorage.getItem(key);
+      
+      if (!verify2) {
+        const errorMsg = dataSize > 6 * 1024 * 1024 
+          ? `Failed to persist data to AsyncStorage for ${name}. Data size (${dataSizeMB}MB) may exceed AsyncStorage limits.`
+          : `Failed to persist data to AsyncStorage for ${name}`;
+        throw new Error(errorMsg);
+      }
+    } else {
+      // Verify that we got some data back - do a simple key count check
+      try {
+        const verifyParsed = JSON.parse(verify);
+        const dataParsed = JSON.parse(jsonData);
+        
+        // Just check if we have the same number of keys
+        if (Object.keys(verifyParsed).length !== Object.keys(dataParsed).length) {
+          console.warn(`⚠️ AsyncStorage key count mismatch for ${name}, but proceeding...`);
+        }
+      } catch (parseError) {
+        // If we can't parse, but verify is not null, assume it's okay
+        console.warn(`⚠️ Could not parse verification data for ${name}, but data was written`);
+      }
+    }
+    
+    // Clear and update cache with a fresh copy to ensure consistency
+    collectionCache.delete(key);
+    collectionCache.set(key, { ...data });
+  } catch (error) {
+    // If it's a known AsyncStorage error, provide more context
+    if (error instanceof Error) {
+      console.error(`❌ AsyncStorage error for ${name} (${dataSizeMB}MB):`, error.message);
+    }
+    throw error;
+  }
 }
 
 export const db = {
@@ -135,10 +211,18 @@ export const db = {
   },
   async list<T extends AnyRecord>(name: CollectionName): Promise<T[]> {
     const col = await readCollection<T>(name);
+    // Ensure col is an object before calling Object.values
+    if (!col || typeof col !== 'object') {
+      return [];
+    }
     return Object.values(col);
   },
   async getAll<T extends AnyRecord>(name: CollectionName): Promise<T[]> {
     const col = await readCollection<T>(name);
+    // Ensure col is an object before calling Object.values
+    if (!col || typeof col !== 'object') {
+      return [];
+    }
     return Object.values(col);
   },
   async remove(name: CollectionName, id: string): Promise<void> {

@@ -44,12 +44,14 @@ export function generateInvoiceQRCodeData(payment: RentPayment, account: Payment
  */
 export function generatePaymentQRCodeString(
   payment: RentPayment,
-  account: PaymentAccount
+  account: PaymentAccount,
+  overrideAmount?: number
 ): string {
   // Create a structured format that GCash can parse
   // Format: Key-value pairs separated by newlines for better parsing
   const cleanPhone = account.accountNumber.replace(/[^0-9]/g, '');
-  const amount = payment.totalAmount.toFixed(2);
+  // Use override amount if provided, otherwise use payment.totalAmount
+  const amount = (overrideAmount !== undefined ? overrideAmount : payment.totalAmount).toFixed(2);
   
   // Primary format: Structured data that can be parsed
   return `GCASH_PAYMENT
@@ -71,10 +73,11 @@ NOTE:Rental payment for ${payment.paymentMonth}`;
  */
 export function generateGCashQRCodeURL(
   payment: RentPayment,
-  account: PaymentAccount
+  account: PaymentAccount,
+  overrideAmount?: number
 ): string {
   const cleanPhone = account.accountNumber.replace(/[^0-9]/g, '');
-  const amount = payment.totalAmount.toFixed(2);
+  const amount = (overrideAmount !== undefined ? overrideAmount : payment.totalAmount).toFixed(2);
   
   // Create a URL-like format that might be recognized by GCash
   return `gcash://payment?number=${cleanPhone}&amount=${amount}&reference=${payment.receiptNumber}&invoice=${payment.id}`;
@@ -100,10 +103,12 @@ export function generateGCashPaymentURL(
  */
 export function generateQRPHCode(
   payment: RentPayment,
-  account: PaymentAccount
+  account: PaymentAccount,
+  overrideAmount?: number
 ): string {
   const cleanPhone = account.accountNumber.replace(/[^0-9]/g, '');
-  const amount = Math.round(payment.totalAmount * 100); // Convert to centavos
+  const paymentAmount = overrideAmount !== undefined ? overrideAmount : payment.totalAmount;
+  const amount = Math.round(paymentAmount * 100); // Convert to centavos
   const reference = payment.receiptNumber || payment.id.slice(-8).toUpperCase();
   
   // QR-PH / EMV QR Code format
@@ -368,8 +373,11 @@ function copyOriginalQRCodeWithUpdates(
 export function generateGCashQRPHCode(
   payment: RentPayment,
   account: PaymentAccount,
-  includeAmount: boolean = true
+  includeAmount: boolean = true,
+  overrideAmount?: number
 ): string {
+  // Use override amount if provided, otherwise use payment.totalAmount
+  const paymentAmount = overrideAmount !== undefined ? overrideAmount : payment.totalAmount;
   // If we have the original QR code data, use it intelligently
   if (account.qrCodeData) {
     console.log('🔍 Processing original QR code data...');
@@ -400,7 +408,7 @@ export function generateGCashQRPHCode(
           console.log('🔧 Converting PayMaya static QR code to dynamic with payment amount...');
           const modifiedQR = copyOriginalQRCodeWithUpdates(
             account.qrCodeData,
-            payment.totalAmount,
+            paymentAmount,
             payment.receiptNumber || payment.id.slice(-8).toUpperCase(),
             true // Include amount (dynamic QR code)
           );
@@ -427,7 +435,7 @@ export function generateGCashQRPHCode(
         console.log('🔧 Modifying dynamic QR code to include payment amount...');
         const modifiedQR = copyOriginalQRCodeWithUpdates(
           account.qrCodeData,
-          payment.totalAmount,
+          paymentAmount,
           payment.receiptNumber || payment.id.slice(-8).toUpperCase(),
           true // Include amount (dynamic QR code)
         );
@@ -558,7 +566,7 @@ export function generateGCashQRPHCode(
   // Transaction Amount (54) - Only include if dynamic QR (includeAmount = true)
   // Amount in centavos (smallest currency unit)
   if (includeAmount) {
-    const amountInCentavos = Math.round(payment.totalAmount * 100);
+    const amountInCentavos = Math.round(paymentAmount * 100);
     const amountStr = amountInCentavos.toString();
     const amountLength = String(amountStr.length).padStart(2, '0');
     qrString += `54${amountLength}${amountStr}`;
@@ -592,7 +600,7 @@ export function generateGCashQRPHCode(
   qrString += `6304${crc}`;
   
   // Debug log for troubleshooting
-  const amountInCentavos = includeAmount ? Math.round(payment.totalAmount * 100) : 0;
+  const amountInCentavos = includeAmount ? Math.round(paymentAmount * 100) : 0;
   console.log('🔍 Generated QR-PH Code:', {
     type: account.type,
     guid,
@@ -618,7 +626,8 @@ export function generateGCashQRPHCode(
 export function getQRCodeProps(
   payment: RentPayment,
   account: PaymentAccount,
-  size: number = 200
+  size: number = 200,
+  overrideAmount?: number
 ) {
   // Determine if we should include amount in QR code
   // GCash personal accounts: Only static QR codes (no amount)
@@ -655,7 +664,7 @@ export function getQRCodeProps(
   }
   
   // Generate QR-PH format QR code that works with both GCash and PayMaya
-  const qrData = generateGCashQRPHCode(payment, account, includeAmount);
+  const qrData = generateGCashQRPHCode(payment, account, includeAmount, overrideAmount);
   
   console.log('🔍 Generating QR code:', {
     hasOriginalData: hasOriginalQRData,

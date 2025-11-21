@@ -454,11 +454,17 @@ export default function BookNowScreen() {
     }, [showSuccessAnimation, isProcessing, propertyData, selectedRoom])
   );
 
-  // Calculate total amount when property data changes
+  // Calculate total amount when property data changes (including advance deposit)
   useEffect(() => {
     if (propertyData) {
       const monthlyRent = propertyData.monthlyRent || 0;
-      setTotalAmount(monthlyRent);
+      const advanceDepositMonths = propertyData.advanceDepositMonths || 0;
+      
+      // Total = first month's rent + (advance months * monthly rent)
+      const advanceAmount = advanceDepositMonths > 0 ? advanceDepositMonths * monthlyRent : 0;
+      const total = monthlyRent + advanceAmount;
+      
+      setTotalAmount(total);
     }
   }, [propertyData]);
 
@@ -849,10 +855,6 @@ export default function BookNowScreen() {
               <Text style={styles.detailLabel}>Monthly Rent</Text>
               <Text style={styles.detailValue}>₱{propertyData.monthlyRent?.toLocaleString()}</Text>
             </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Security Deposit</Text>
-              <Text style={styles.detailValue}>₱{(propertyData.securityDeposit || 0).toLocaleString()}</Text>
-            </View>
           </View>
                   </View>
 
@@ -860,6 +862,90 @@ export default function BookNowScreen() {
         <View style={styles.formCard}>
           <Text style={styles.formTitle}>Booking Details</Text>
           
+          {/* Room Selection - Only show if property has room capacities */}
+          {propertyData.roomCapacities && propertyData.roomCapacities.length > 0 && (() => {
+            // Filter to only show rooms with available slots
+            const availableRooms = propertyData.roomCapacities
+              .map((roomCapacity: number, roomIndex: number) => ({
+                roomIndex,
+                roomCapacity,
+                available: roomAvailability[roomIndex] || 0
+              }))
+              .filter((room: { roomIndex: number; roomCapacity: number; available: number }) => room.available > 0);
+            
+            const allRoomsOccupied = availableRooms.length === 0;
+            
+            return (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Select Room</Text>
+                <Text style={styles.inputHint}>Choose which room you'd like to book</Text>
+                
+                {allRoomsOccupied ? (
+                  <View style={styles.noRoomsAvailableContainer}>
+                    <Text style={styles.noRoomsAvailableText}>
+                      All rooms are currently fully occupied. Please check back later or contact the property owner.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.roomSelectionContainer}>
+                      {availableRooms.map((room: { roomIndex: number; roomCapacity: number; available: number }) => {
+                        const { roomIndex, roomCapacity, available } = room;
+                        const isSelected = selectedRoom === roomIndex;
+                        
+                        return (
+                          <TouchableOpacity
+                            key={roomIndex}
+                            style={[
+                              styles.roomOption,
+                              isSelected && styles.roomOptionSelected
+                            ]}
+                            onPress={() => {
+                              // Double-check availability before allowing selection
+                              const currentAvailable = roomAvailability[roomIndex] || 0;
+                              if (currentAvailable > 0) {
+                                setSelectedRoom(roomIndex);
+                              } else {
+                                Alert.alert(
+                                  'Room Unavailable',
+                                  `Room ${roomIndex + 1} is now fully occupied. Please select another room.`
+                                );
+                                // Refresh availability
+                                loadPropertyData();
+                              }
+                            }}
+                          >
+                            <View style={styles.roomOptionContent}>
+                              <Text style={[
+                                styles.roomOptionTitle,
+                                isSelected && styles.roomOptionTitleSelected
+                              ]}>
+                                Room {roomIndex + 1}
+                              </Text>
+                              <Text style={styles.roomOptionSubtitle}>
+                                {available} of {roomCapacity} {available === 1 ? 'slot' : 'slots'} available
+                              </Text>
+                            </View>
+                            {isSelected && (
+                              <View style={styles.roomSelectedIndicator}>
+                                <CheckCircle size={20} color="#10B981" />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {selectedRoom !== undefined && (
+                      <Text style={styles.roomSelectionHint}>
+                        Selected: Room {selectedRoom + 1}
+                      </Text>
+                    )}
+                  </>
+                )}
+              </View>
+            );
+          })()}
+
           {/* Start Date */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Preferred Start Date</Text>
@@ -948,90 +1034,6 @@ export default function BookNowScreen() {
           </View>
         )}
 
-        {/* Room Selection - Only show if property has room capacities */}
-        {propertyData.roomCapacities && propertyData.roomCapacities.length > 0 && (() => {
-          // Filter to only show rooms with available slots
-          const availableRooms = propertyData.roomCapacities
-            .map((roomCapacity: number, roomIndex: number) => ({
-              roomIndex,
-              roomCapacity,
-              available: roomAvailability[roomIndex] || 0
-            }))
-            .filter(room => room.available > 0);
-          
-          const allRoomsOccupied = availableRooms.length === 0;
-          
-          return (
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Select Room</Text>
-              <Text style={styles.inputHint}>Choose which room you'd like to book</Text>
-              
-              {allRoomsOccupied ? (
-                <View style={styles.noRoomsAvailableContainer}>
-                  <Text style={styles.noRoomsAvailableText}>
-                    All rooms are currently fully occupied. Please check back later or contact the property owner.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <View style={styles.roomSelectionContainer}>
-                    {availableRooms.map((room) => {
-                      const { roomIndex, roomCapacity, available } = room;
-                      const isSelected = selectedRoom === roomIndex;
-                      
-                      return (
-                        <TouchableOpacity
-                          key={roomIndex}
-                          style={[
-                            styles.roomOption,
-                            isSelected && styles.roomOptionSelected
-                          ]}
-                          onPress={() => {
-                            // Double-check availability before allowing selection
-                            const currentAvailable = roomAvailability[roomIndex] || 0;
-                            if (currentAvailable > 0) {
-                              setSelectedRoom(roomIndex);
-                            } else {
-                              Alert.alert(
-                                'Room Unavailable',
-                                `Room ${roomIndex + 1} is now fully occupied. Please select another room.`
-                              );
-                              // Refresh availability
-                              loadPropertyData();
-                            }
-                          }}
-                        >
-                          <View style={styles.roomOptionContent}>
-                            <Text style={[
-                              styles.roomOptionTitle,
-                              isSelected && styles.roomOptionTitleSelected
-                            ]}>
-                              Room {roomIndex + 1}
-                            </Text>
-                            <Text style={styles.roomOptionSubtitle}>
-                              {available} of {roomCapacity} {available === 1 ? 'slot' : 'slots'} available
-                            </Text>
-                          </View>
-                          {isSelected && (
-                            <View style={styles.roomSelectedIndicator}>
-                              <CheckCircle size={20} color="#10B981" />
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  {selectedRoom !== undefined && (
-                    <Text style={styles.roomSelectionHint}>
-                      Selected: Room {selectedRoom + 1}
-                    </Text>
-                  )}
-                </>
-              )}
-            </View>
-          );
-        })()}
-
         {/* Special Requests */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Special Requests (Optional)</Text>
@@ -1049,20 +1051,32 @@ export default function BookNowScreen() {
 
         {/* Cost Breakdown */}
         <View style={styles.costCard}>
-          <Text style={styles.costTitle}>Monthly Rental</Text>
+          <Text style={styles.costTitle}>Payment Summary</Text>
           
           <View style={styles.costItem}>
-            <Text style={styles.costLabel}>Monthly Rent</Text>
+            <Text style={styles.costLabel}>First Month's Rent</Text>
             <Text style={styles.costValue}>₱{(propertyData.monthlyRent || 0).toLocaleString()}</Text>
-            </View>
+          </View>
           
-          <View style={styles.costDivider} />
+          {(propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0) && (
+            <>
+              <View style={styles.costItem}>
+                <Text style={styles.costLabel}>
+                  Advance Deposit ({propertyData.advanceDepositMonths} {propertyData.advanceDepositMonths === 1 ? 'month' : 'months'})
+                </Text>
+                <Text style={styles.costValue}>
+                  ₱{((propertyData.advanceDepositMonths || 0) * (propertyData.monthlyRent || 0)).toLocaleString()}
+                </Text>
+              </View>
+              <View style={styles.costDivider} />
+            </>
+          )}
           
           <View style={styles.costItem}>
-            <Text style={styles.totalLabel}>Monthly Amount</Text>
+            <Text style={styles.totalLabel}>Total Amount (First Payment)</Text>
             <Text style={styles.totalValue}>₱{totalAmount.toLocaleString()}</Text>
-              </View>
-              </View>
+          </View>
+        </View>
 
         {/* Booking Terms */}
         <View style={styles.termsCard}>

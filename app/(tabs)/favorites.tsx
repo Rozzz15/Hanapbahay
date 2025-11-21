@@ -160,7 +160,7 @@ export default function FavoritesScreen() {
       rentalType: listing.rentalType,
       availabilityStatus: listing.availabilityStatus,
       leaseTerm: listing.leaseTerm,
-      securityDeposit: listing.securityDeposit,
+      securityDeposit: 0, // Security deposit feature removed
       paymentMethods: listing.paymentMethods || [],
       ownerName: listing.ownerName,
       businessName: listing.businessName,

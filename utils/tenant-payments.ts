@@ -1,5 +1,5 @@
 import { db, generateId } from './db';
-import { BookingRecord, PublishedListingRecord } from '../types';
+import { BookingRecord, PublishedListingRecord, MessageRecord, ConversationRecord } from '../types';
 
 export interface RentPayment {
   id: string;
@@ -71,6 +71,89 @@ export function calculateLateFee(
   
   // Round to 2 decimal places
   return Math.round(lateFee * 100) / 100;
+}
+
+/**
+ * Get the current month in YYYY-MM format
+ */
+export function getCurrentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Get the correct payment amount for a payment based on whether it's the first payment
+ * This ensures advance deposit is only applied to the first payment (before tenant is added to owner's list)
+ * All subsequent payments should have the original monthly rent (after tenant is added to owner's list)
+ * 
+ * @param payment - The payment to get the correct amount for
+ * @param booking - The booking record
+ * @param allPayments - Optional: All payments for this booking to check if there are paid payments. If not provided, will fetch from DB (async)
+ */
+export async function getCorrectPaymentAmount(
+  payment: RentPayment,
+  booking: BookingRecord,
+  allPayments?: RentPayment[]
+): Promise<number> {
+  const monthlyRent = booking.monthlyRent || 0;
+  
+  // Get all payments - either from provided list or fetch from DB
+  let allBookingPayments: RentPayment[];
+  if (allPayments) {
+    allBookingPayments = allPayments;
+  } else {
+    allBookingPayments = await getRentPaymentsByBooking(booking.id);
+  }
+  
+  // Check if there are any paid payments (excluding this payment)
+  const paidPayments = allBookingPayments.filter(
+    p => p.status === 'paid' && p.id !== payment.id
+  );
+  const isFirstPayment = paidPayments.length === 0;
+  
+  // CRITICAL: The first payment should ALWAYS have totalAmount (includes advance deposit)
+  // This happens BEFORE tenant is added to owner's list
+  // All subsequent payments should have monthlyRent only
+  // This happens AFTER tenant is added to owner's list
+  if (isFirstPayment) {
+    // This is the first payment - it should include advance deposit
+    if (booking.totalAmount && booking.totalAmount > monthlyRent) {
+      return booking.totalAmount;
+    }
+  }
+  
+  return monthlyRent;
+}
+
+/**
+ * Synchronous version that uses provided payment list
+ * Use this in UI components where you already have the payment list
+ */
+export function getCorrectPaymentAmountSync(
+  payment: RentPayment,
+  booking: BookingRecord,
+  allPayments: RentPayment[]
+): number {
+  const monthlyRent = booking.monthlyRent || 0;
+  
+  // Check if there are any paid payments (excluding this payment)
+  const paidPayments = allPayments.filter(
+    p => p.status === 'paid' && p.id !== payment.id
+  );
+  const isFirstPayment = paidPayments.length === 0;
+  
+  // CRITICAL: The first payment should ALWAYS have totalAmount (includes advance deposit)
+  // This happens BEFORE tenant is added to owner's list
+  // All subsequent payments should have monthlyRent only
+  // This happens AFTER tenant is added to owner's list
+  if (isFirstPayment) {
+    // This is the first payment - it should include advance deposit
+    if (booking.totalAmount && booking.totalAmount > monthlyRent) {
+      return booking.totalAmount;
+    }
+  }
+  
+  return monthlyRent;
 }
 
 /**
@@ -241,15 +324,155 @@ export async function createRentPayment(
       p => p.bookingId === bookingId && p.paymentMonth === paymentMonth
     );
 
+    // Get all payments for this booking to check if there are any paid payments
+    const bookingPayments = await getRentPaymentsByBooking(bookingId);
+    const paidPayments = bookingPayments.filter(p => p.status === 'paid');
+    const hasPaidPayments = paidPayments.length > 0;
+    
+    // Check if there are any other payments (not just this one) to determine if this is the first payment created
+    const otherPayments = bookingPayments.filter(p => p.id !== existing?.id);
+    const hasOtherPayments = otherPayments.length > 0;
+    
+    // CRITICAL: The payment flow is:
+    // 1. First payment (for current month) - advance deposit is applied (totalAmount) - BEFORE tenant is added to owner's list
+    // 2. Second payment (for next month) - original monthly rent (monthlyRent) - AFTER tenant is added to owner's list
+    // We determine this by checking if there are any paid payments yet
+    // If no paid payments exist, this is the FIRST payment and should include advance deposit
+    // If paid payments exist, this is a subsequent payment and should use monthlyRent only
+
     if (existing) {
+      const monthlyRent = booking.monthlyRent || 0;
+      const paymentBaseAmount = existing.totalAmount - (existing.lateFee || 0);
+      
+      // Check if this is the first payment (no paid payments exist yet)
+      const isFirstPayment = !hasPaidPayments;
+      
+      console.log('🔍 Checking existing payment:', {
+        paymentMonth,
+        existingAmount: existing.amount,
+        paymentBaseAmount,
+        monthlyRent,
+        bookingTotalAmount: booking.totalAmount,
+        existingStatus: existing.status,
+        hasPaidPayments,
+        isFirstPayment,
+        hasOtherPayments
+      });
+      
+      // CRITICAL: The first payment should ALWAYS have totalAmount (includes advance deposit)
+      // All subsequent payments should have monthlyRent only
+      if (isFirstPayment) {
+        // This is the first payment - verify it has the correct amount (totalAmount includes advance deposit)
+        const expectedFirstPaymentAmount = booking.totalAmount || monthlyRent;
+        if (existing.amount !== expectedFirstPaymentAmount && paymentBaseAmount !== expectedFirstPaymentAmount) {
+          console.log('⚠️ First payment has wrong amount, fixing...', {
+            paymentMonth,
+            currentAmount: existing.amount,
+            expectedAmount: expectedFirstPaymentAmount
+          });
+          
+          const updatedPayment = {
+            ...existing,
+            amount: expectedFirstPaymentAmount,
+            totalAmount: expectedFirstPaymentAmount + (existing.lateFee || 0),
+            notes: 'First payment (includes advance deposit)',
+            receiptNumber: existing.receiptNumber?.startsWith('RENT-')
+              ? `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+              : existing.receiptNumber,
+            updatedAt: new Date().toISOString()
+          };
+          
+          await db.upsert('rent_payments', existing.id, updatedPayment);
+          console.log('✅ Fixed first payment:', existing.id, 'amount:', updatedPayment.amount);
+          return updatedPayment;
+        }
+      } else {
+        // This is NOT the first payment - it should ONLY be monthlyRent
+        // Fix any subsequent payments that incorrectly have advance deposit amount
+        if (existing.amount !== monthlyRent || paymentBaseAmount !== monthlyRent) {
+          console.warn('⚠️ Existing payment has wrong amount for subsequent payment, fixing...', {
+            paymentMonth,
+            currentAmount: existing.amount,
+            currentBaseAmount: paymentBaseAmount,
+            expectedAmount: monthlyRent,
+            bookingTotalAmount: booking.totalAmount,
+            existingStatus: existing.status,
+            hasPaidPayments
+          });
+          
+          // Update the existing payment to use only monthlyRent
+          const updatedPayment = {
+            ...existing,
+            amount: monthlyRent,
+            totalAmount: monthlyRent + (existing.lateFee || 0),
+            notes: undefined, // Remove advance deposit note
+            receiptNumber: existing.receiptNumber?.startsWith('INITIAL-') 
+              ? `RENT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+              : existing.receiptNumber,
+            updatedAt: new Date().toISOString()
+          };
+          
+          await db.upsert('rent_payments', existing.id, updatedPayment);
+          console.log('✅ Fixed existing payment:', existing.id, 'amount:', updatedPayment.amount, 'totalAmount:', updatedPayment.totalAmount);
+          return updatedPayment;
+        }
+      }
+      
       return existing;
     }
 
     const monthlyRent = booking.monthlyRent || 0;
+    
+    // Check if this is the first payment (no paid payments exist yet)
+    const isFirstPayment = !hasPaidPayments;
+    
+    console.log('🔍 Creating rent payment:', {
+      paymentMonth,
+      dueDate,
+      monthlyRent: booking.monthlyRent,
+      bookingTotalAmount: booking.totalAmount,
+      advanceDepositMonths: booking.advanceDepositMonths,
+      hasPaidPayments,
+      isFirstPayment,
+      hasOtherPayments
+    });
+    
+    // CRITICAL: Determine payment amount based on whether this is the first payment
+    // First payment = totalAmount (includes advance deposit) - BEFORE tenant is added to owner's list
+    // Subsequent payments = monthlyRent ONLY - AFTER tenant is added to owner's list
+    let paymentAmount: number;
+    
+    if (isFirstPayment && booking.totalAmount) {
+      // This is the first payment - use totalAmount which includes advance deposit
+      // This payment happens BEFORE tenant is added to owner's list
+      paymentAmount = booking.totalAmount;
+      console.log(`💰 First payment detected: using totalAmount ${paymentAmount} (includes advance deposit) - BEFORE tenant added to owner's list`);
+    } else {
+      // This is a subsequent payment - MUST use monthlyRent only
+      // This payment happens AFTER tenant is added to owner's list
+      paymentAmount = monthlyRent;
+      console.log(`💰 Subsequent payment detected: using monthlyRent ${paymentAmount} - AFTER tenant added to owner's list`);
+    }
+    
+    // FINAL SAFETY CHECK: Ensure subsequent payments NEVER use totalAmount
+    // This is a critical safeguard to prevent advance deposit from being applied to wrong payments
+    if (!isFirstPayment && paymentAmount !== monthlyRent) {
+      console.error('❌ CRITICAL: Subsequent payment has wrong amount! Forcing monthlyRent', {
+        paymentMonth,
+        isFirstPayment,
+        hasPaidPayments,
+        paymentAmount,
+        monthlyRent,
+        bookingTotalAmount: booking.totalAmount,
+        dueDate
+      });
+      paymentAmount = monthlyRent;
+    }
+    
     const isOverdue = isPaymentOverdue(dueDate);
     const daysOverdue = isOverdue ? getDaysOverdue(dueDate) : 0;
-    const lateFee = calculateLateFee(monthlyRent, daysOverdue);
-    const totalAmount = monthlyRent + lateFee;
+    const lateFee = calculateLateFee(paymentAmount, daysOverdue);
+    const totalAmount = paymentAmount + lateFee;
 
     const payment: RentPayment = {
       id: generateId('rent_payment'),
@@ -257,19 +480,28 @@ export async function createRentPayment(
       tenantId: booking.tenantId,
       ownerId: booking.ownerId,
       propertyId: booking.propertyId,
-      amount: monthlyRent,
+      amount: paymentAmount,
       lateFee,
       totalAmount,
       paymentMonth,
       dueDate,
       status: isOverdue ? 'overdue' : 'pending',
-      receiptNumber: `RENT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+      receiptNumber: isFirstPayment 
+        ? `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+        : `RENT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+      notes: isFirstPayment ? 'First payment (includes advance deposit) - before tenant added to owner\'s list' : undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     await db.upsert('rent_payments', payment.id, payment);
-    console.log('✅ Created rent payment:', payment.id);
+    console.log(`✅ Created ${isFirstPayment ? 'first' : 'subsequent'} payment:`, payment.id, {
+      isFirstPayment,
+      hasPaidPayments,
+      amount: paymentAmount,
+      totalAmount,
+      advanceDepositMonths: booking.advanceDepositMonths
+    });
     
     return payment;
   } catch (error) {
@@ -297,6 +529,9 @@ export async function getRentPaymentsByTenant(tenantId: string): Promise<RentPay
 
 /**
  * Get all rent payments for an owner (across all their bookings)
+ * Also fixes any payments that incorrectly have advance deposit for subsequent payments
+ * First payment should have advance deposit (before tenant added to owner's list)
+ * Subsequent payments should have monthlyRent only (after tenant added to owner's list)
  */
 export async function getRentPaymentsByOwner(ownerId: string): Promise<RentPayment[]> {
   try {
@@ -305,7 +540,96 @@ export async function getRentPaymentsByOwner(ownerId: string): Promise<RentPayme
       .filter(p => p.ownerId === ownerId)
       .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
     
-    return ownerPayments;
+    // Fix any payments that incorrectly have advance deposit for subsequent payments
+    const allBookings = await db.list<any>('bookings');
+    const fixedPayments: RentPayment[] = [];
+    let fixedCount = 0;
+    
+    for (const payment of ownerPayments) {
+      const booking = allBookings.find(b => b.id === payment.bookingId);
+      if (!booking) {
+        fixedPayments.push(payment);
+        continue;
+      }
+      
+      const monthlyRent = booking.monthlyRent || 0;
+      
+      // Get all payments for this booking to check if there are paid payments
+      const bookingPayments = await getRentPaymentsByBooking(payment.bookingId);
+      const paidPayments = bookingPayments.filter(
+        p => p.status === 'paid' && p.id !== payment.id
+      );
+      const isFirstPayment = paidPayments.length === 0;
+      
+      const paymentBaseAmount = payment.totalAmount - (payment.lateFee || 0);
+      const expectedFirstPaymentAmount = booking.totalAmount || monthlyRent;
+      
+      // Fix payments with incorrect amounts
+      if (isFirstPayment) {
+        // This is the first payment - it should have totalAmount (includes advance deposit)
+        // This happens BEFORE tenant is added to owner's list
+        if (payment.amount !== expectedFirstPaymentAmount && paymentBaseAmount !== expectedFirstPaymentAmount) {
+          console.log('⚠️ Owner first payment has wrong amount, fixing...', {
+            paymentId: payment.id,
+            paymentMonth: payment.paymentMonth,
+            currentAmount: payment.amount,
+            expectedAmount: expectedFirstPaymentAmount
+          });
+          
+          const fixedPayment = {
+            ...payment,
+            amount: expectedFirstPaymentAmount,
+            totalAmount: expectedFirstPaymentAmount + (payment.lateFee || 0),
+            notes: 'First payment (includes advance deposit) - before tenant added to owner\'s list',
+            receiptNumber: payment.receiptNumber?.startsWith('RENT-')
+              ? `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+              : payment.receiptNumber,
+            updatedAt: new Date().toISOString()
+          };
+          
+          await db.upsert('rent_payments', payment.id, fixedPayment);
+          fixedPayments.push(fixedPayment);
+          fixedCount++;
+        } else {
+          fixedPayments.push(payment);
+        }
+      } else {
+        // This is NOT the first payment - it should ONLY have monthlyRent
+        // This happens AFTER tenant is added to owner's list
+        if (payment.amount !== monthlyRent || paymentBaseAmount !== monthlyRent) {
+          console.log('⚠️ Owner payment has wrong amount for subsequent payment, fixing...', {
+            paymentId: payment.id,
+            paymentMonth: payment.paymentMonth,
+            currentAmount: payment.amount,
+            expectedAmount: monthlyRent,
+            hasPaidPayments: paidPayments.length > 0
+          });
+          
+          const fixedPayment = {
+            ...payment,
+            amount: monthlyRent,
+            totalAmount: monthlyRent + (payment.lateFee || 0),
+            notes: undefined,
+            receiptNumber: payment.receiptNumber?.startsWith('INITIAL-')
+              ? `RENT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+              : payment.receiptNumber,
+            updatedAt: new Date().toISOString()
+          };
+          
+          await db.upsert('rent_payments', payment.id, fixedPayment);
+          fixedPayments.push(fixedPayment);
+          fixedCount++;
+        } else {
+          fixedPayments.push(payment);
+        }
+      }
+    }
+    
+    if (fixedCount > 0) {
+      console.log(`✅ Fixed ${fixedCount} owner payments with incorrect advance deposit amounts`);
+    }
+    
+    return fixedPayments;
   } catch (error) {
     console.error('❌ Error getting rent payments for owner:', error);
     return [];
@@ -332,23 +656,127 @@ export async function getRentPaymentsByBooking(bookingId: string): Promise<RentP
 /**
  * Get rent history summary for a tenant
  */
-export async function getRentHistorySummary(tenantId: string): Promise<RentHistorySummary> {
+export async function getRentHistorySummary(tenantId: string, bookingId?: string): Promise<RentHistorySummary> {
   try {
-    const payments = await getRentPaymentsByTenant(tenantId);
+    let payments = await getRentPaymentsByTenant(tenantId);
     
-    const totalPaid = payments
+    // Filter by bookingId if provided to ensure only payments for the current booking are shown
+    // This prevents previous booking payments from appearing in the rent history
+    if (bookingId) {
+      payments = payments.filter(p => p.bookingId === bookingId);
+    }
+    
+    const now = new Date();
+    now.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
+    
+    // Get next due date first to ensure current due payment is always shown
+    const bookings = await db.list<BookingRecord>('bookings');
+    let activeBooking: BookingRecord | undefined;
+    
+    if (bookingId) {
+      // If bookingId is provided, use that specific booking
+      // This ensures we're working with the correct active booking
+      activeBooking = bookings.find(b => b.id === bookingId && b.tenantId === tenantId);
+    } else {
+      // Fallback: find the active booking (approved and paid)
+      activeBooking = bookings.find(
+        b => b.tenantId === tenantId && 
+        b.status === 'approved' && 
+        b.paymentStatus === 'paid'
+      );
+    }
+
+    let nextDueDate: string | undefined;
+    if (activeBooking) {
+      const lastPaidPayment = payments
+        .filter(p => p.status === 'paid')
+        .sort((a, b) => new Date(b.paidDate || '').getTime() - new Date(a.paidDate || '').getTime())[0];
+      
+      nextDueDate = getNextDueDate(
+        activeBooking.startDate,
+        lastPaidPayment?.paidDate
+      );
+    }
+
+    // Filter payments for rent history - only show payments that are:
+    // 1. Paid (actual history) - ALL paid payments must be shown
+    // 2. Overdue (past due, should be shown)
+    // 3. Pending/Rejected that are due today or in the past (not future)
+    // 4. Current due payment (matching nextDueDate) even if slightly in future
+    // 5. Exclude future pending payments that haven't been paid yet
+    const historyPayments = payments.filter(payment => {
+      // CRITICAL: Always show ALL paid payments for the current booking
+      // This ensures complete payment history is displayed
+      if (payment.status === 'paid') {
+        return true;
+      }
+      
+      // Always show overdue payments
+      if (payment.status === 'overdue') {
+        return true;
+      }
+      
+      // Show rejected payments (they need to be paid again)
+      if ((payment as any).rejectedAt) {
+        return true;
+      }
+      
+      // Always show the current due payment (matching nextDueDate) even if it's slightly in the future
+      // This ensures the "Pay Rent" button can find the current payment
+      if (nextDueDate && payment.dueDate === nextDueDate) {
+        return true;
+      }
+      
+      // For pending/pending_owner_confirmation payments, only show if due date is today or in the past
+      // Don't show future pending payments that aren't due yet (e.g., Feb, Jan, Dec if current month is earlier)
+      if (payment.status === 'pending' || payment.status === 'pending_owner_confirmation') {
+        const dueDate = new Date(payment.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+        // Only include if due date is today or in the past
+        // This filters out future months that haven't been paid yet
+        const isDueOrPast = dueDate <= now;
+        return isDueOrPast;
+      }
+      
+      // Exclude all other statuses and future payments
+      return false;
+    });
+    
+    // Sort payments for rent history display:
+    // 1. Primary: by paymentMonth descending (newest month first)
+    // 2. Secondary: by dueDate descending for same month
+    // 3. Tertiary: by paidDate descending for paid payments in same month
+    const sortedPayments = [...historyPayments].sort((a, b) => {
+      // First, sort by paymentMonth (YYYY-MM) descending
+      const monthCompare = b.paymentMonth.localeCompare(a.paymentMonth);
+      if (monthCompare !== 0) return monthCompare;
+      
+      // If same month, prioritize paid payments by paidDate
+      if (a.status === 'paid' && b.status === 'paid') {
+        const aPaidDate = a.paidDate ? new Date(a.paidDate).getTime() : 0;
+        const bPaidDate = b.paidDate ? new Date(b.paidDate).getTime() : 0;
+        return bPaidDate - aPaidDate;
+      }
+      
+      // Otherwise, sort by dueDate descending
+      const aDueDate = new Date(a.dueDate).getTime();
+      const bDueDate = new Date(b.dueDate).getTime();
+      return bDueDate - aDueDate;
+    });
+    
+    const totalPaid = sortedPayments
       .filter(p => p.status === 'paid')
       .reduce((sum, p) => sum + p.totalAmount, 0);
     
-    const now = new Date();
     const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const twoMonthsFromNow = new Date(now.getFullYear(), now.getMonth() + 2, 1);
     
-    const totalPending = payments
+    const totalPending = sortedPayments
       .filter(p => {
-        // Don't count rejected payments as pending
-        if (p.status === 'rejected') return false;
+        // Don't count payments that are marked as rejected (check rejectedAt field)
+        // Note: Rejected payments now have status 'pending' or 'overdue' but are marked by rejectedAt
+        if ((p as any).rejectedAt && p.status !== 'paid') return false;
         
         // Only count pending or pending_owner_confirmation statuses
         if (p.status === 'pending' || p.status === 'pending_owner_confirmation') {
@@ -363,34 +791,17 @@ export async function getRentHistorySummary(tenantId: string): Promise<RentHisto
       })
       .reduce((sum, p) => sum + p.totalAmount, 0);
     
-    const totalOverdue = payments
+    const totalOverdue = sortedPayments
       .filter(p => p.status === 'overdue')
       .reduce((sum, p) => sum + p.totalAmount, 0);
     
-    const totalLateFees = payments
+    const totalLateFees = sortedPayments
       .filter(p => p.lateFee > 0)
       .reduce((sum, p) => sum + p.lateFee, 0);
 
-    // Get next due date from active booking
-    const bookings = await db.list<BookingRecord>('bookings');
-    const activeBooking = bookings.find(
-      b => b.tenantId === tenantId && 
-      b.status === 'approved' && 
-      b.paymentStatus === 'paid'
-    );
-
-    let nextDueDate: string | undefined;
+    // Calculate next due amount
     let nextDueAmount: number | undefined;
-
     if (activeBooking) {
-      const lastPaidPayment = payments
-        .filter(p => p.status === 'paid')
-        .sort((a, b) => new Date(b.paidDate || '').getTime() - new Date(a.paidDate || '').getTime())[0];
-      
-      nextDueDate = getNextDueDate(
-        activeBooking.startDate,
-        lastPaidPayment?.paidDate
-      );
       nextDueAmount = activeBooking.monthlyRent;
     }
 
@@ -399,7 +810,7 @@ export async function getRentHistorySummary(tenantId: string): Promise<RentHisto
       totalPending,
       totalOverdue,
       totalLateFees,
-      payments,
+      payments: sortedPayments,
       nextDueDate,
       nextDueAmount,
     };
@@ -429,11 +840,18 @@ export async function markRentPaymentAsPaid(
     }
 
     // Set status to 'pending_owner_confirmation' so owner can verify before confirming
+    // Clear rejection fields if this was a previously rejected payment
     const updatedPayment: RentPayment = {
       ...payment,
       status: 'pending_owner_confirmation',
       paidDate: new Date().toISOString(),
       paymentMethod,
+      // Clear rejection-related fields since tenant is paying again
+      rejectedAt: undefined,
+      rejectedBy: undefined,
+      originalPaidDate: undefined,
+      originalPaymentMethod: undefined,
+      originalStatus: undefined,
       updatedAt: new Date().toISOString(),
     };
 
@@ -474,9 +892,7 @@ export async function markRentPaymentAsPaid(
  */
 async function sendPaymentNotificationToOwner(payment: RentPayment): Promise<void> {
   try {
-    const { BookingRecord, MessageRecord, ConversationRecord } = await import('../types');
     const { createOrFindConversation } = await import('./conversation-utils');
-    const { generateId } = await import('./db');
     
     const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
     if (!booking) {
@@ -796,7 +1212,6 @@ async function sendPaymentDueDateNotificationToTenant(
   daysUntilDue: number
 ): Promise<void> {
   try {
-    const { MessageRecord, ConversationRecord } = await import('../types');
     const { createOrFindConversation } = await import('./conversation-utils');
     
     const messageText = `📅 Payment Reminder\n\n` +
@@ -854,7 +1269,6 @@ export async function sendPaymentDueDateNotificationToOwner(
   daysUntilDue: number
 ): Promise<void> {
   try {
-    const { MessageRecord, ConversationRecord } = await import('../types');
     const { createOrFindConversation } = await import('./conversation-utils');
     
     const messageText = `📅 Payment Reminder\n\n` +
@@ -999,10 +1413,29 @@ export async function initializeMonthlyPayments(bookingId: string): Promise<void
     const moveInDay = startDate.getDate(); // Day of month when tenant moved in
     const now = new Date();
     
+    // Get all existing payments to determine if there are any paid payments
+    const existingPayments = await getRentPaymentsByBooking(bookingId);
+    const paidPayments = existingPayments.filter(p => p.status === 'paid');
+    const hasPaidPayments = paidPayments.length > 0;
+    
+    // Calculate the current/next due payment to exclude it from advance deposit MONTHS application
+    // The current payment should always be paid normally by the tenant, not automatically covered by advance deposit months
+    const lastPaidPayment = paidPayments
+      .sort((a, b) => new Date(b.paidDate || '').getTime() - new Date(a.paidDate || '').getTime())[0];
+    
+    // Calculate the next due date (current payment that tenant needs to pay)
+    const nextDueDate = getNextDueDate(booking.startDate, lastPaidPayment?.paidDate);
+    const nextDueDateObj = new Date(nextDueDate);
+    const currentPaymentMonth = `${nextDueDateObj.getFullYear()}-${String(nextDueDateObj.getMonth() + 1).padStart(2, '0')}`;
+    
+    console.log(`📅 Has paid payments: ${hasPaidPayments}`);
+    console.log(`📅 Current payment month to exclude from advance deposit months: ${currentPaymentMonth}`);
+    
     // Create payments for each month from start date to now
     // Payments are monthly and due on the same day of month as move-in date
     let currentDate = new Date(startDate);
     currentDate.setMonth(currentDate.getMonth() + 1); // First payment is due one month after start
+    let paymentIndex = 0; // Track which payment we're creating
 
     while (currentDate <= now) {
       const paymentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -1014,8 +1447,44 @@ export async function initializeMonthlyPayments(bookingId: string): Promise<void
       const targetDay = Math.min(moveInDay, lastDayOfMonth);
       dueDate.setDate(targetDay);
       
-      await createRentPayment(bookingId, paymentMonth, dueDate.toISOString().split('T')[0]);
+      // Check if this is the first payment (no paid payments exist yet)
+      // First payment should have advance deposit (totalAmount) - BEFORE tenant is added to owner's list
+      // Second payment and beyond should have monthlyRent only - AFTER tenant is added to owner's list
+      const isFirstPayment = !hasPaidPayments && paymentIndex === 0;
       
+      // Check if this is the current/next due payment
+      const isCurrentPayment = paymentMonth === currentPaymentMonth;
+      
+      if (isFirstPayment) {
+        // CRITICAL: The first payment should ALWAYS have the advance deposit amount
+        // This payment happens BEFORE tenant is added to owner's list
+        // We use createRentPayment which will detect it's the first payment and use totalAmount
+        console.log(`💰 Creating FIRST payment for month: ${paymentMonth} (will include advance deposit amount - BEFORE tenant added to owner's list)`);
+        await createRentPayment(bookingId, paymentMonth, dueDate.toISOString().split('T')[0]);
+      } else if (isCurrentPayment) {
+        // For current payment (but not the first), always create regular payment (don't apply advance deposit months)
+        // This ensures the tenant always sees and pays the current due payment
+        console.log(`💰 Creating regular payment for current due month: ${paymentMonth} (skipping advance deposit months)`);
+        await createRentPayment(bookingId, paymentMonth, dueDate.toISOString().split('T')[0]);
+      } else {
+        // For past or future payments (not the first, not the current one), check if we should use advance deposit months
+        try {
+          const { checkAndUseAdvanceMonthForPayment } = await import('./advance-deposit');
+          const advanceResult = await checkAndUseAdvanceMonthForPayment(bookingId, paymentMonth);
+          
+          if (!advanceResult.usedAdvanceMonth) {
+            // No advance month available, create regular payment
+            await createRentPayment(bookingId, paymentMonth, dueDate.toISOString().split('T')[0]);
+          }
+          // If advance month was used, payment record is already created in checkAndUseAdvanceMonthForPayment
+        } catch (advanceError) {
+          // If advance deposit check fails, fall back to creating regular payment
+          console.warn('⚠️ Could not check advance deposit, creating regular payment:', advanceError);
+          await createRentPayment(bookingId, paymentMonth, dueDate.toISOString().split('T')[0]);
+        }
+      }
+      
+      paymentIndex++;
       // Move to next month
       currentDate.setMonth(currentDate.getMonth() + 1);
     }

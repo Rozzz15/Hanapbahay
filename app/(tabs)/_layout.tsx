@@ -11,6 +11,7 @@ import { db } from '@/utils/db';
 import { ConversationRecord, BookingRecord } from '@/types';
 import { useFocusEffect } from '@react-navigation/native';
 import { getUnviewedBookingNotificationsCount, markBookingNotificationsAsViewed, getBookingsByTenant } from '@/utils/booking';
+import { addCustomEventListener } from '@/utils/custom-events';
 
 export default function TabLayout() {
     const { permissions, setPermissions } = usePermissions();
@@ -75,8 +76,10 @@ export default function TabLayout() {
             // Only show active rental dashboard for bookings that are:
             // 1. Status = 'approved' (not pending, rejected, cancelled, or completed)
             // 2. PaymentStatus = 'paid' (not pending, partial, or refunded)
+            // OR have active termination countdown
             const active = bookings.find(
-                b => b.status === 'approved' && b.paymentStatus === 'paid'
+                b => (b.status === 'approved' && b.paymentStatus === 'paid') ||
+                     (b.terminationInitiatedAt && b.terminationMode === 'countdown')
             );
             
             const hasActive = !!active;
@@ -163,6 +166,33 @@ export default function TabLayout() {
             }
         }, [user?.id]) // Remove function dependencies
     );
+
+    // Listen for booking completed events to update active rental status
+    useEffect(() => {
+        if (!user?.id) return;
+
+        const handleBookingCompleted = async (event?: any) => {
+            const eventDetail = event?.detail || {};
+            console.log('🔄 Tab Layout: Booking completed event received:', eventDetail);
+            
+            // Check if this event is for the current user
+            if (eventDetail.tenantId === user.id) {
+                console.log('🔄 Tab Layout: Re-checking active rental after booking completed for current tenant');
+                // Re-check active rental status immediately
+                await checkActiveRental();
+            }
+        };
+
+        // Listen for bookingCompleted events
+        const removeBookingCompleted = addCustomEventListener('bookingCompleted', handleBookingCompleted);
+        
+        console.log('👂 Tab Layout: Added bookingCompleted event listener');
+        
+        return () => {
+            removeBookingCompleted();
+            console.log('🔇 Tab Layout: Removed bookingCompleted event listener');
+        };
+    }, [user?.id, checkActiveRental]);
 
     // Show notification when user changes
     useEffect(() => {

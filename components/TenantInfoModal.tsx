@@ -405,7 +405,7 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
                   <Ionicons name="people" size={20} color="#10B981" />
                 </View>
                 <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Tenant Type</Text>
+                  <Text style={styles.infoLabel}>Family Type</Text>
                   <Text style={styles.infoValue}>
                     {tenantProfile.familyType 
                       ? tenantProfile.familyType.charAt(0).toUpperCase() + tenantProfile.familyType.slice(1)

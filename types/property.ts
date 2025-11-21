@@ -23,7 +23,8 @@ export interface PropertyListing {
   coverPhoto: string | null;
   
   // Pricing & Payment
-  securityDeposit: number;
+  securityDeposit: number; // Deprecated - use advanceDepositMonths instead
+  advanceDepositMonths?: number; // Optional: Number of months for advance deposit
   paymentMethods: string[];
   
   // Contact & Owner
@@ -68,7 +69,8 @@ export interface MediaData {
 }
 
 export interface PricingPaymentData {
-  securityDeposit: number;
+  securityDeposit: number; // Deprecated - use advanceDepositMonths instead
+  advanceDepositMonths?: number; // Optional: Number of months for advance deposit
   paymentMethods: string[];
 }
 

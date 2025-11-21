@@ -275,7 +275,7 @@ export default function ListingDashboard() {
         availabilityStatus: sourceListing.availabilityStatus || 'available',
         leaseTerm: sourceListing.leaseTerm || '',
         monthlyRent: sourceListing.monthlyRent?.toString() || '0',
-        securityDeposit: sourceListing.securityDeposit?.toString() || '',
+        securityDeposit: '0', // Security deposit feature removed
         paymentMethods: sourceListing.paymentMethods ? JSON.stringify(sourceListing.paymentMethods) : '',
         ownerName: sourceListing.ownerName || '',
         businessName: sourceListing.businessName || '',

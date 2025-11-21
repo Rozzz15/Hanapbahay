@@ -637,16 +637,6 @@ export default function PropertiesPage() {
                         {formatCurrency(selectedProperty.monthlyRent || 0)}
                       </Text>
                     </View>
-                    {selectedProperty.securityDeposit > 0 && (
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: designTokens.typography.sm, color: designTokens.colors.textSecondary }}>
-                          Security Deposit
-                        </Text>
-                        <Text style={{ fontSize: designTokens.typography.base, fontWeight: '600', color: designTokens.colors.success }}>
-                          {formatCurrency(selectedProperty.securityDeposit)}
-                        </Text>
-                      </View>
-                    )}
                   </View>
                 </View>
 

@@ -75,6 +75,45 @@ export default function ListingPropertyDetailsScreen() {
   const [pendingAction, setPendingAction] = useState<'message' | 'book' | null>(null);
   const [shouldExecuteAction, setShouldExecuteAction] = useState(false);
   
+  // Property data state
+  const [propertyData, setPropertyData] = useState({
+    id: params.id as string || 'unknown',
+    title: "Loading...",
+    address: "Loading...",
+    price: 0,
+    rooms: 1,
+    bathrooms: 0,
+    size: 0,
+    rating: 0,
+    reviews: 0,
+    amenities: [] as string[],
+    photos: [] as string[],
+    description: "Loading...",
+    rules: [] as string[],
+    ownerName: 'Loading...',
+    businessName: '',
+    contactNumber: 'Loading...',
+    email: 'Loading...',
+    ownerUserId: '',
+    monthlyRent: 0,
+    securityDeposit: 0,
+    advanceDepositMonths: undefined as number | undefined,
+    propertyType: 'Property',
+    rentalType: 'Not specified',
+    availabilityStatus: 'Available',
+    leaseTerm: 'Not specified',
+    paymentMethods: [] as string[],
+    emergencyContact: '',
+    videos: [] as string[],
+    coverPhoto: '',
+    publishedAt: '',
+    capacity: undefined as number | undefined,
+    occupiedSlots: undefined as number | undefined
+  });
+
+  // Loading state for property data
+  const [isLoadingProperty, setIsLoadingProperty] = useState(true);
+
   // Execute pending action after successful login
   useEffect(() => {
     if (shouldExecuteAction && isAuthenticated && user?.id && pendingAction) {
@@ -137,46 +176,6 @@ export default function ListingPropertyDetailsScreen() {
       executeAction();
     }
   }, [shouldExecuteAction, isAuthenticated, user?.id, pendingAction, propertyData, router]);
-  
-
-
-  // Property data state
-  const [propertyData, setPropertyData] = useState({
-    id: params.id as string || 'unknown',
-    title: "Loading...",
-    address: "Loading...",
-    price: 0,
-    rooms: 1,
-    bathrooms: 0,
-    size: 0,
-    rating: 0,
-    reviews: 0,
-    amenities: [] as string[],
-    photos: [] as string[],
-    description: "Loading...",
-    rules: [] as string[],
-    ownerName: 'Loading...',
-    businessName: '',
-    contactNumber: 'Loading...',
-    email: 'Loading...',
-    ownerUserId: '',
-    monthlyRent: 0,
-    securityDeposit: undefined as number | undefined,
-    propertyType: 'Property',
-    rentalType: 'Not specified',
-    availabilityStatus: 'Available',
-    leaseTerm: 'Not specified',
-    paymentMethods: [] as string[],
-    emergencyContact: '',
-    videos: [] as string[],
-    coverPhoto: '',
-    publishedAt: '',
-    capacity: undefined as number | undefined,
-    occupiedSlots: undefined as number | undefined
-  });
-
-  // Loading state for property data
-  const [isLoadingProperty, setIsLoadingProperty] = useState(true);
 
   // Check if this is an owner viewing their own listing
   const isOwnerView = params.isOwnerView === 'true';
@@ -295,7 +294,8 @@ export default function ListingPropertyDetailsScreen() {
         email: listing.email || 'Email not provided',
         ownerUserId: listing.ownerUserId || listing.userId || '',
         monthlyRent: listing.monthlyRent || listing.price || 0,
-        securityDeposit: listing.securityDeposit || undefined,
+        securityDeposit: 0, // Security deposit feature removed
+        advanceDepositMonths: listing.advanceDepositMonths || undefined,
         propertyType: listing.propertyType || 'Property',
         rentalType: listing.rentalType || 'Not specified',
         availabilityStatus: listing.availabilityStatus || 'Available',
@@ -778,7 +778,7 @@ const goToNextPhoto = () => {
                 const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
                 return monthlyRent > 0 ? (
                   <Text style={[styles.propertyPrice, isMobile && styles.propertyPriceMobile]}>
-                    {'₱' + monthlyRent.toLocaleString()}
+                    {'₱' + monthlyRent.toLocaleString() + '/month'}
                   </Text>
                 ) : null;
               })()}
@@ -818,6 +818,67 @@ const goToNextPhoto = () => {
             <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Description</Text>
             <Text style={[styles.descriptionText, isMobile && styles.descriptionTextMobile]}>{String(propertyData.description || 'Property details not provided.')}</Text>
           </View>
+
+          {/* Rental Details Section */}
+          {(() => {
+            const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
+            return (monthlyRent && monthlyRent > 0) ||
+              (propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0) ||
+              (propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '') ||
+              (propertyData.paymentMethods && propertyData.paymentMethods.length > 0);
+          })() && (
+            <View style={[styles.rentalDetailsCard, isMobile && styles.rentalDetailsCardMobile]}>
+              <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Rental Details</Text>
+              <View style={styles.rentalDetailsList}>
+                {(() => {
+                  const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
+                  return monthlyRent && monthlyRent > 0;
+                })() && (
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Monthly Rent:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      ₱{(() => {
+                        const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
+                        return monthlyRent.toLocaleString();
+                      })()}
+                    </Text>
+                  </View>
+                )}
+                {propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0 && (
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>
+                      Advance Deposit ({propertyData.advanceDepositMonths} {propertyData.advanceDepositMonths === 1 ? 'month' : 'months'}):
+                    </Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      ₱{((propertyData.advanceDepositMonths || 0) * ((propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price || 0)).toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+                {propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0 && (
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Total First Payment:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      ₱{(((propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price || 0) + ((propertyData.advanceDepositMonths || 0) * ((propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price || 0))).toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+                {propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '' && (
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Availability:</Text>
+                    <Text style={[styles.availabilityStatus, isMobile && styles.rentalDetailValueMobile]}>{propertyData.availabilityStatus}</Text>
+                  </View>
+                )}
+                {propertyData.paymentMethods && propertyData.paymentMethods.length > 0 && (
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Payment Methods:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      {propertyData.paymentMethods.join(', ')}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
 
           {/* Amenities Section */}
           {propertyData.amenities && Array.isArray(propertyData.amenities) && propertyData.amenities.length > 0 && (

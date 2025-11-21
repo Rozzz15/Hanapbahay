@@ -109,26 +109,39 @@ export default function OwnerMessages() {
             setImageErrors(new Set()); // Clear image errors when reloading
             console.log('🔄 Loading conversations for owner:', user.id);
 
-            // Get all conversations where user is the owner
-            const allConversations = await db.list('conversations');
-            const ownerConversations = allConversations.filter((conv: any) => 
-                conv.ownerId === user.id || 
-                (conv.participantIds && conv.participantIds.includes(user.id))
-            );
+            // Get all conversations where user is the owner (including barangay conversations)
+            const allConversations = await db.list('conversations') || [];
+            const ownerConversations = (Array.isArray(allConversations) ? allConversations : []).filter((conv: any) => {
+                const isOwner = conv.ownerId === user.id;
+                const isParticipant = conv.participantIds && Array.isArray(conv.participantIds) && conv.participantIds.includes(user.id);
+                const isBrgyConversation = (conv as any).isBrgyConversation === true && isOwner;
+                return isOwner || isParticipant || isBrgyConversation;
+            });
 
             console.log(`📊 Found ${ownerConversations.length} conversations for owner`);
 
             // Get all messages to check which conversations have actual messages
-            // Filter out notifications - they shouldn't appear in conversation list
+            // Include notifications for barangay conversations (they should appear)
             const allMessages = await db.list('messages');
+            
+            // Create a map of barangay conversations for quick lookup
+            const brgyConversationIds = new Set(
+                ownerConversations
+                    .filter((conv: any) => (conv as any).isBrgyConversation === true)
+                    .map((conv: any) => conv.id)
+            );
+            
             const conversationsWithMessages = new Set(
                 allMessages
-                    .filter((msg: any) => 
-                        msg.conversationId && 
-                        msg.text && 
-                        msg.text.trim() !== '' &&
-                        msg.type !== 'notification' // Exclude notifications
-                    )
+                    .filter((msg: any) => {
+                        if (!msg.conversationId || !msg.text || msg.text.trim() === '') {
+                            return false;
+                        }
+                        // Check if this is a barangay conversation
+                        const isBrgyConv = brgyConversationIds.has(msg.conversationId);
+                        // Include notifications for barangay conversations, exclude for regular conversations
+                        return isBrgyConv || msg.type !== 'notification';
+                    })
                     .map((msg: any) => msg.conversationId)
             );
 
@@ -136,17 +149,19 @@ export default function OwnerMessages() {
 
             const conversationsWithDetails: Conversation[] = await Promise.all(
                 ownerConversations.map(async (conv: any) => {
+                    const isBrgyConversation = (conv as any).isBrgyConversation === true;
                     const tenantId = conv.tenantId || conv.participantIds?.find((id: string) => id !== user.id);
                     
-                    console.log('🔍 Processing conversation tenant:', {
+                    console.log('🔍 Processing conversation:', {
                         conversationId: conv.id,
                         tenantId: tenantId,
                         hasTenantId: !!tenantId,
-                        hasMessages: conversationsWithMessages.has(conv.id)
+                        hasMessages: conversationsWithMessages.has(conv.id),
+                        isBrgyConversation
                     });
                     
-                    // Get tenant details
-                    let tenantName = 'Unknown Tenant';
+                    // Get tenant/barangay official details
+                    let tenantName = isBrgyConversation ? 'Barangay Official' : 'Unknown Tenant';
                     let tenantAvatar = '';
                     let tenantEmail = '';
                     let tenantPhone = '';
@@ -159,10 +174,20 @@ export default function OwnerMessages() {
                         } else {
                             const tenantRecord = await db.get('users', tenantId);
                             if (tenantRecord) {
-                                tenantName = (tenantRecord as any).name || tenantName;
+                                // For barangay conversations, use the barangay official's name
+                                if (isBrgyConversation) {
+                                    const barangay = (conv as any).barangay || '';
+                                    tenantName = (tenantRecord as any).name || `Barangay ${barangay} Official`;
+                                    // Add barangay indicator to the name
+                                    if (barangay) {
+                                        tenantName = `${tenantName} - ${barangay}`;
+                                    }
+                                } else {
+                                    tenantName = (tenantRecord as any).name || tenantName;
+                                }
                                 tenantEmail = (tenantRecord as any).email || '';
                                 tenantPhone = (tenantRecord as any).phone || '';
-                                console.log('✅ Found tenant record:', tenantName, tenantEmail, tenantPhone);
+                                console.log('✅ Found user record:', tenantName, tenantEmail, tenantPhone, isBrgyConversation ? '(Barangay)' : '(Tenant)');
                                 
                                 // Load profile photo from user_profile_photos table
                                 try {
@@ -269,16 +294,16 @@ export default function OwnerMessages() {
                             }
                         }
 
-                        // Get property title if available
-                        if (conv.propertyId) {
+                        // Get property title if available (skip for barangay conversations)
+                        if (!isBrgyConversation && conv.propertyId) {
                             const property = await db.get('published_listings', conv.propertyId);
                             if (property) {
                                 propertyTitle = (property as any).propertyType || '';
                             }
                         }
 
-                        // Get booking status
-                        if (tenantId) {
+                        // Get booking status (skip for barangay conversations)
+                        if (!isBrgyConversation && tenantId) {
                             try {
                                 const allBookings = await db.list('bookings');
                                 const booking = allBookings.find((booking: any) => 
@@ -304,32 +329,39 @@ export default function OwnerMessages() {
                         console.log('Error loading tenant details:', error);
                     }
 
-                    // Get the last non-notification message for preview
+                    // Get the last message for preview
+                    // For barangay conversations, include notifications; for regular conversations, exclude them
                     let lastMessage = conv.lastMessageText || 'Start conversation';
                     let lastMessageAt = conv.lastMessageAt;
                     
-                    // If last message is a notification, find the last regular message
-                    if (conv.lastMessageText) {
+                    if (conv.id) {
                         try {
                             const conversationMessages = allMessages
-                                .filter((msg: any) => 
-                                    msg.conversationId === conv.id && 
-                                    msg.type !== 'notification' &&
-                                    msg.text && 
-                                    msg.text.trim() !== ''
-                                )
+                                .filter((msg: any) => {
+                                    if (msg.conversationId !== conv.id || !msg.text || msg.text.trim() === '') {
+                                        return false;
+                                    }
+                                    // For barangay conversations, include notifications; for regular, exclude them
+                                    return isBrgyConversation || msg.type !== 'notification';
+                                })
                                 .sort((a: any, b: any) => 
                                     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
                                 );
                             
                             if (conversationMessages.length > 0) {
-                                const lastRegularMessage = conversationMessages[0];
-                                lastMessage = lastRegularMessage.text || 'Start conversation';
-                                lastMessageAt = lastRegularMessage.createdAt || conv.lastMessageAt;
+                                const lastMsg = conversationMessages[0];
+                                lastMessage = lastMsg.text || 'Start conversation';
+                                lastMessageAt = lastMsg.createdAt || conv.lastMessageAt;
                             }
                         } catch (error) {
-                            console.log('Error getting last regular message:', error);
+                            console.log('Error getting last message:', error);
                         }
+                    }
+                    
+                    // Skip property title and booking status for barangay conversations
+                    if (isBrgyConversation) {
+                        propertyTitle = '';
+                        bookingStatus = undefined;
                     }
 
                     return {
@@ -442,14 +474,15 @@ export default function OwnerMessages() {
 
         // Navigate to chat room
         router.push({
-            pathname: '/chat-room',
+            pathname: `/(owner)/chat-room/${conversation.id}` as any,
             params: {
                 conversationId: conversation.id,
                 tenantName: conversation.tenantName,
                 tenantAvatar: conversation.tenantAvatar || '',
-                propertyTitle: conversation.propertyTitle || ''
+                propertyTitle: conversation.propertyTitle || '',
+                ownerName: user?.name || ''
             }
-        });
+        } as any);
     };
 
     const handleAvatarPress = (conversation: Conversation) => {
@@ -542,15 +575,17 @@ export default function OwnerMessages() {
                 console.log('Error loading read notifications:', error);
             }
 
-            // Get all conversations where user is the owner
-            const allConversations = await db.list('conversations');
-            const ownerConversations = allConversations.filter((conv: any) => 
-                conv.ownerId === user.id || 
-                (conv.participantIds && conv.participantIds.includes(user.id))
-            );
+            // Get all conversations where user is the owner (including barangay conversations)
+            const allConversations = await db.list('conversations') || [];
+            const ownerConversations = (Array.isArray(allConversations) ? allConversations : []).filter((conv: any) => {
+                const isOwner = conv.ownerId === user.id;
+                const isParticipant = conv.participantIds && Array.isArray(conv.participantIds) && conv.participantIds.includes(user.id);
+                const isBrgyConversation = (conv as any).isBrgyConversation === true && isOwner;
+                return isOwner || isParticipant || isBrgyConversation;
+            });
 
             // Get all notification messages
-            const allMessages = await db.list('messages');
+            const allMessages = await db.list('messages') || [];
             const notificationMessages = allMessages.filter((msg: any) => {
                 const msgConversationId = msg.conversationId || msg.conversation_id;
                 const isOwnerConversation = ownerConversations.some((conv: any) => conv.id === msgConversationId);
@@ -753,7 +788,7 @@ export default function OwnerMessages() {
                             </View>
                             <Text style={styles.emptyStateTitle}>No conversations yet</Text>
                             <Text style={styles.emptyStateText}>
-                                Tenants can start conversations with you by messaging from your property listings
+                                Messages from tenants and barangay officials will appear here
                             </Text>
                         </View>
                     ) : (

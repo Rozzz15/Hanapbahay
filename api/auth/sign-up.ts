@@ -187,6 +187,14 @@ export async function signUpUser(data: SignUpData) {
                 try {
                     await db.upsert('owner_applications', applicationId, ownerApplication);
                     console.log('✅ Owner application created');
+                    
+                    // Clear approval cache to ensure fresh data
+                    try {
+                        const { clearOwnerApprovalCache } = await import('../../utils/owner-approval');
+                        clearOwnerApprovalCache();
+                    } catch (cacheError) {
+                        // Ignore cache clearing errors
+                    }
 
                     // Create notification for barangay officials
                     const notificationId = generateId('brgy_notif');

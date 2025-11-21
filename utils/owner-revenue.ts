@@ -73,8 +73,9 @@ export async function getMonthlyRevenueOverview(
     
     const allPendingPayments = activePayments.filter(
       (p) => {
-        // Don't count rejected payments as pending
-        if (p.status === 'rejected') return false;
+        // Don't count payments that are marked as rejected (check rejectedAt field)
+        // Note: Rejected payments now have status 'pending' or 'overdue' but are marked by rejectedAt
+        if ((p as any).rejectedAt && p.status !== 'paid') return false;
         
         // Only count pending or pending_owner_confirmation statuses
         if (p.status === 'pending' || p.status === 'pending_owner_confirmation') {

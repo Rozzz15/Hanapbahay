@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, Image, Alert, Modal, StyleShe
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { db, clearCache } from '../../utils/db';
+import { clearOwnerApprovalCache } from '../../utils/owner-approval';
 import { OwnerApplicationRecord, BrgyNotificationRecord, OwnerApplicationDocument, DbUserRecord, PublishedListingRecord } from '../../types';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { loadUserProfilePhoto } from '../../utils/user-profile-photos';
@@ -23,7 +24,9 @@ import {
   ZoomIn,
   X,
   Bell,
-  Building
+  Building,
+  Trash2,
+  RotateCw,
 } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -153,6 +156,7 @@ export default function OwnerApplications() {
 
           // Clear cache to ensure fresh data
           await clearCache();
+          clearOwnerApprovalCache();
 
           // Update user role to owner
           const userRecord = await db.get('users', application.userId);
@@ -180,6 +184,7 @@ export default function OwnerApplications() {
             await db.remove('brgy_notifications', notification.id);
             console.log('✅ Notification deleted');
           }
+
 
           // Close modals
           setConfirmationDialog(null);
@@ -236,6 +241,7 @@ export default function OwnerApplications() {
 
           // Clear cache to ensure fresh data
           await clearCache();
+          clearOwnerApprovalCache();
 
           // Delete notification
           const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');
@@ -247,6 +253,7 @@ export default function OwnerApplications() {
             await db.remove('brgy_notifications', notification.id);
             console.log('✅ Notification deleted');
           }
+
 
           // Close modals
           setConfirmationDialog(null);
@@ -582,35 +589,161 @@ export default function OwnerApplications() {
     );
   };
 
-  const renderApplication = (application: OwnerApplicationRecord, index: number) => (
-    <TouchableOpacity
-      key={application.id}
-      style={[sharedStyles.listItem, { marginBottom: 16 }]}
-      onPress={() => openModal(application)}
-    >
-      <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
-        <FileText size={20} color="#3B82F6" />
-      </View>
-      <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
-        <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
-          {application.name}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {getStatusIcon(application.status)}
-          <Text style={[sharedStyles.statSubtitle, { 
-            color: getStatusColor(application.status),
-            textTransform: 'capitalize'
-          }]}>
-            {application.status}
-          </Text>
+  const handleDeleteRejectedApplication = async (application: OwnerApplicationRecord) => {
+    setConfirmationDialog({
+      visible: true,
+      title: 'Delete Rejected Application',
+      message: `Are you sure you want to permanently delete ${application.name}'s rejected application? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      isLoading: false,
+      onConfirm: async () => {
+        try {
+          setConfirmationDialog(prev => prev ? { ...prev, isLoading: true } : null);
+          console.log('🗑️ Deleting rejected application:', application.id);
+          
+          // Delete the application
+          await db.remove('owner_applications', application.id);
+          console.log('✅ Application deleted');
+          
+          // Clear cache
+          await clearCache();
+          clearOwnerApprovalCache();
+          
+          // Close dialog and refresh
+          setConfirmationDialog(null);
+          await loadData();
+          
+          if (Platform.OS === 'web') {
+            window.alert('Success\n\nApplication deleted successfully.');
+          } else {
+            Alert.alert('Success', 'Application deleted successfully.');
+          }
+        } catch (error) {
+          console.error('❌ Error deleting application:', error);
+          const errorMessage = `Failed to delete application: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          setConfirmationDialog(null);
+          if (Platform.OS === 'web') {
+            window.alert(`Error\n\n${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      },
+    });
+  };
+
+  const handleRequestReapplication = async (application: OwnerApplicationRecord) => {
+    setConfirmationDialog({
+      visible: true,
+      title: 'Request Reapplication',
+      message: `Request ${application.name} to edit and resubmit their application? They will be able to update their credentials and documents.`,
+      confirmText: 'Request Reapply',
+      cancelText: 'Cancel',
+      isDestructive: false,
+      isLoading: false,
+      onConfirm: async () => {
+        try {
+          setConfirmationDialog(prev => prev ? { ...prev, isLoading: true } : null);
+          console.log('🔄 Requesting reapplication for:', application.id);
+          
+          // Update application to pending status and set reapplication flag
+          const updatedApplication = {
+            ...application,
+            status: 'pending' as const,
+            reapplicationRequested: true,
+            reapplicationRequestedAt: new Date().toISOString(),
+            reapplicationRequestedBy: user?.id,
+            reviewedBy: undefined, // Clear previous review
+            reviewedAt: undefined, // Clear previous review date
+            reason: undefined, // Clear rejection reason
+          };
+          
+          await db.upsert('owner_applications', application.id, updatedApplication);
+          console.log('✅ Reapplication requested');
+          
+          // Clear cache
+          await clearCache();
+          clearOwnerApprovalCache();
+          
+          // Close modals and refresh
+          setConfirmationDialog(null);
+          setShowModal(false);
+          await loadData();
+          
+          if (Platform.OS === 'web') {
+            window.alert('Success\n\nOwner has been requested to reapply. They can now edit their credentials.');
+          } else {
+            Alert.alert('Success', 'Owner has been requested to reapply. They can now edit their credentials.');
+          }
+        } catch (error) {
+          console.error('❌ Error requesting reapplication:', error);
+          const errorMessage = `Failed to request reapplication: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          setConfirmationDialog(null);
+          if (Platform.OS === 'web') {
+            window.alert(`Error\n\n${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      },
+    });
+  };
+
+  const renderApplication = (application: OwnerApplicationRecord, index: number) => {
+    const isRejected = application.status === 'rejected';
+    
+    return (
+      <TouchableOpacity
+        key={application.id}
+        style={[sharedStyles.listItem, { marginBottom: 16 }]}
+        onPress={() => openModal(application)}
+        onLongPress={isRejected ? () => handleDeleteRejectedApplication(application) : undefined}
+        delayLongPress={500}
+      >
+        <View style={[sharedStyles.statIcon, iconBackgrounds.blue]}>
+          <FileText size={20} color="#3B82F6" />
         </View>
-        <Text style={[sharedStyles.statSubtitle, { marginTop: 4 }]}>
-          {application.street}, {application.barangay}
-        </Text>
-      </View>
-      <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
-    </TouchableOpacity>
-  );
+        <View style={{ flex: 1, marginLeft: designTokens.spacing.lg }}>
+          <Text style={[sharedStyles.statLabel, { marginBottom: 4 }]}>
+            {application.name}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {getStatusIcon(application.status)}
+            <Text style={[sharedStyles.statSubtitle, { 
+              color: getStatusColor(application.status),
+              textTransform: 'capitalize'
+            }]}>
+              {application.status}
+            </Text>
+            {application.reapplicationRequested && (
+              <Text style={[sharedStyles.statSubtitle, { 
+                color: '#F59E0B',
+                fontSize: 11
+              }]}>
+                • Reapplication Requested
+              </Text>
+            )}
+          </View>
+          <Text style={[sharedStyles.statSubtitle, { marginTop: 4 }]}>
+            {application.street}, {application.barangay}
+          </Text>
+          {isRejected && (
+            <Text style={[sharedStyles.statSubtitle, { 
+              marginTop: 4, 
+              fontSize: 11, 
+              color: '#6B7280',
+              fontStyle: 'italic'
+            }]}>
+              Hold to delete
+            </Text>
+          )}
+        </View>
+        <Text style={{ fontSize: 20, color: designTokens.colors.textMuted }}>›</Text>
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
@@ -759,7 +892,7 @@ export default function OwnerApplications() {
                 onPress={() => setConfirmationDialog(null)}
                 disabled={confirmationDialog?.isLoading}
               >
-                <Text style={styles.confirmationCancelText}>
+                <Text style={styles.confirmationCancelText} numberOfLines={1}>
                   {confirmationDialog?.cancelText || 'Cancel'}
                 </Text>
               </TouchableOpacity>
@@ -777,7 +910,7 @@ export default function OwnerApplications() {
                 {confirmationDialog?.isLoading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.confirmationConfirmText}>
+                  <Text style={styles.confirmationConfirmText} numberOfLines={2} ellipsizeMode="tail">
                     {confirmationDialog?.confirmText || 'Confirm'}
                   </Text>
                 )}
@@ -1025,6 +1158,41 @@ export default function OwnerApplications() {
                     <XCircle size={18} color="white" />
                     <Text style={sharedStyles.primaryButtonText}>Reject Application</Text>
                   </TouchableOpacity>
+                </View>
+              )}
+
+              {selectedApplication.status === 'rejected' && (
+                <View style={{ marginTop: 32, gap: 12 }}>
+                  <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                    <TouchableOpacity
+                      style={[sharedStyles.primaryButton, { 
+                        backgroundColor: '#3B82F6',
+                        flex: 1,
+                        justifyContent: 'center',
+                        minWidth: 0
+                      }]}
+                      onPress={() => handleRequestReapplication(selectedApplication)}
+                    >
+                      <RotateCw size={18} color="white" />
+                      <Text style={[sharedStyles.primaryButtonText, { flexShrink: 1 }]} numberOfLines={2} ellipsizeMode="tail">
+                        Request Reapplication
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[sharedStyles.primaryButton, { 
+                        backgroundColor: '#EF4444',
+                        flex: 1,
+                        justifyContent: 'center',
+                        minWidth: 0
+                      }]}
+                      onPress={() => handleDeleteRejectedApplication(selectedApplication)}
+                    >
+                      <Trash2 size={18} color="white" />
+                      <Text style={[sharedStyles.primaryButtonText, { flexShrink: 1 }]} numberOfLines={2} ellipsizeMode="tail">
+                        Delete Application
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
             </View>
@@ -1364,11 +1532,13 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '100%',
     maxWidth: 400,
+    minWidth: 280,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+    overflow: 'hidden',
   },
   confirmationTitle: {
     fontSize: 20,
@@ -1381,40 +1551,50 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginBottom: 24,
     lineHeight: 24,
+    flexShrink: 1,
   },
   confirmationButtons: {
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'flex-end',
+    alignItems: 'stretch',
+    width: '100%',
+    marginTop: 8,
   },
   confirmationButton: {
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
-    minWidth: 100,
     alignItems: 'center',
     justifyContent: 'center',
+    flex: 0,
+    minWidth: 100,
   },
   confirmationCancelButton: {
     backgroundColor: '#F3F4F6',
+    minWidth: 100,
   },
   confirmationConfirmButton: {
     backgroundColor: '#10B981',
+    minWidth: 140,
   },
   confirmationDestructiveButton: {
     backgroundColor: '#EF4444',
+    minWidth: 140,
   },
   confirmationButtonDisabled: {
     opacity: 0.6,
   },
   confirmationCancelText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#374151',
+    textAlign: 'center',
   },
   confirmationConfirmText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
+    textAlign: 'center',
   },
 });

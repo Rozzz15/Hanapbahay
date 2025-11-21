@@ -108,7 +108,7 @@ export default function ListingsPage() {
           bathrooms: Number(listing.bathrooms) || 0,
           size: Number(listing.size) || 0,
           baseRent: Number(listing.baseRent) || 0,
-          securityDeposit: Number(listing.securityDeposit) || 0,
+          securityDeposit: 0, // Security deposit feature removed
           views: Number(listing.views) || 0,
           inquiries: Number(listing.inquiries) || 0,
           createdAt: String(listing.createdAt || new Date().toISOString()),
@@ -438,13 +438,6 @@ export default function ListingsPage() {
                             </Text>
                             <Text style={styles.priceLabel}>per month</Text>
                           </View>
-                          {listing.securityDeposit && listing.securityDeposit > 0 ? (
-                            <View style={styles.additionalCosts}>
-                              <Text style={styles.additionalCostText}>
-                                Deposit: ₱{String(Number(listing.securityDeposit || 0).toLocaleString())}
-                              </Text>
-                            </View>
-                          ) : null}
                         </View>
                         <View style={styles.dateInfo}>
                           <Text style={styles.dateText}>

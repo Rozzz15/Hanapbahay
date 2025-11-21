@@ -71,7 +71,6 @@ export interface OwnerListing {
   availabilityStatus?: string;
   leaseTerm?: string;
   baseRent?: number;
-  securityDeposit?: number;
   ownerName?: string;
   contactNumber?: string;
   email?: string;
@@ -299,7 +298,7 @@ export async function getOwnerListings(ownerId: string): Promise<OwnerListing[]>
         availabilityStatus: listing.availabilityStatus,
         leaseTerm: listing.leaseTerm,
         baseRent: listing.baseRent,
-        securityDeposit: listing.securityDeposit,
+        securityDeposit: 0, // Security deposit feature removed
         ownerName: listing.ownerName,
         contactNumber: listing.contactNumber,
         email: listing.email,

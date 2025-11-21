@@ -18,7 +18,7 @@ import {
   getPaymentsPendingConfirmation, 
   removePaidPayment
 } from '@/utils/owner-payment-confirmation';
-import { getRentPaymentsByBooking } from '@/utils/tenant-payments';
+import { getRentPaymentsByBooking, getCurrentMonth } from '@/utils/tenant-payments';
 import TenantInfoModal from './TenantInfoModal';
 import { loadPropertyMedia } from '@/utils/media-storage';
 
@@ -161,62 +161,41 @@ export default function ApprovedBookingsPayment({ ownerId }: ApprovedBookingsPay
 
   const updatePaymentStatus = async (booking: BookingWithPayment, newStatus: 'paid' | 'partial' | 'pending') => {
     try {
+      // Ensure remainingAdvanceMonths is initialized when marking booking as paid
+      // This is the first payment from tenant to owner and must include advance deposit
       const updatedBooking: BookingRecord = {
         ...booking,
         paymentStatus: newStatus,
         updatedAt: new Date().toISOString()
       };
+      
+      // Initialize remainingAdvanceMonths if booking has advance deposit and is being marked as paid
+      if (newStatus === 'paid' && booking.advanceDepositMonths && booking.advanceDepositMonths > 0) {
+        if (updatedBooking.remainingAdvanceMonths === undefined || updatedBooking.remainingAdvanceMonths === null) {
+          updatedBooking.remainingAdvanceMonths = booking.advanceDepositMonths;
+          console.log('✅ Initialized remainingAdvanceMonths for first payment:', updatedBooking.remainingAdvanceMonths);
+        }
+      }
 
       await db.upsert('bookings', booking.id, updatedBooking);
       
       console.log(`✅ Updated payment status to: ${newStatus}`);
       
-      // If payment status is updated to 'paid', create a rent payment record for payment history
+      // If payment status is updated to 'paid', create or update first payment record with advance deposit
+      // This ensures the first payment always includes the advance deposit
+      // This is the first payment of the tenant for the owner and must include advance deposit
       if (newStatus === 'paid') {
         try {
-          // Check if a rent payment already exists for this booking's initial payment
-          const { getRentPaymentsByBooking } = await import('../utils/tenant-payments');
-          const { generateId } = await import('../utils/db');
-          const existingPayments = await getRentPaymentsByBooking(booking.id);
+          const { createOrUpdateFirstPaymentForPaidBooking } = await import('../utils/booking');
+          const result = await createOrUpdateFirstPaymentForPaidBooking(booking.id, ownerId);
           
-          // Check if there's already a payment for the booking start month
-          const startDate = new Date(booking.startDate);
-          const paymentMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
-          const existingInitialPayment = existingPayments.find(
-            p => p.paymentMonth === paymentMonth && p.status === 'paid'
-          );
-          
-          // Only create if it doesn't exist
-          if (!existingInitialPayment) {
-            const now = new Date();
-            const paidDate = now.toISOString();
-            
-            // Create initial booking payment record
-            const initialPayment: RentPaymentRecord = {
-              id: generateId('rent_payment'),
-              bookingId: booking.id,
-              tenantId: booking.tenantId,
-              ownerId: booking.ownerId,
-              propertyId: booking.propertyId,
-              amount: booking.monthlyRent || booking.totalAmount,
-              lateFee: 0,
-              totalAmount: booking.totalAmount,
-              paymentMonth: paymentMonth,
-              dueDate: booking.startDate,
-              paidDate: paidDate,
-              status: 'paid',
-              paymentMethod: booking.selectedPaymentMethod || 'Manual',
-              receiptNumber: `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-              notes: 'Initial booking payment',
-              createdAt: paidDate,
-              updatedAt: paidDate,
-            };
-            
-            await db.upsert('rent_payments', initialPayment.id, initialPayment);
-            console.log('✅ Created initial booking payment record in payment history:', initialPayment.id);
+          if (!result.success) {
+            console.error('❌ Error creating/updating first payment:', result.error);
+          } else {
+            console.log('✅ First payment created/updated with advance deposit:', result.paymentId);
           }
         } catch (paymentError) {
-          console.error('❌ Error creating initial payment record:', paymentError);
+          console.error('❌ Error creating/updating initial payment record:', paymentError);
           // Don't fail the whole operation if payment history creation fails
         }
         
@@ -487,11 +466,21 @@ export default function ApprovedBookingsPayment({ ownerId }: ApprovedBookingsPay
             {/* Amount Info */}
             <View style={styles.amountContainer}>
               <View style={styles.amountRow}>
-                <Text style={styles.amountLabel}>Monthly Rent:</Text>
+                <Text style={styles.amountLabel}>First Month's Rent:</Text>
                 <Text style={styles.amountValue}>₱{booking.monthlyRent.toLocaleString()}</Text>
               </View>
+              {booking.advanceDepositMonths && booking.advanceDepositMonths > 0 && (
+                <View style={styles.amountRow}>
+                  <Text style={styles.amountLabel}>
+                    Advance Deposit ({booking.advanceDepositMonths} {booking.advanceDepositMonths === 1 ? 'month' : 'months'}):
+                  </Text>
+                  <Text style={[styles.amountValue, { color: '#3B82F6' }]}>
+                    ₱{((booking.advanceDepositMonths || 0) * (booking.monthlyRent || 0)).toLocaleString()}
+                  </Text>
+                </View>
+              )}
               <View style={styles.amountRow}>
-                <Text style={styles.amountLabel}>Total Amount:</Text>
+                <Text style={styles.amountLabel}>Total First Payment:</Text>
                 <Text style={styles.amountValueBold}>₱{booking.totalAmount.toLocaleString()}</Text>
               </View>
             </View>

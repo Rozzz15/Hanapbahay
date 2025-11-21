@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { getBookingsByOwner, updateBookingStatus, getStatusColor, getStatusIcon, deleteBookingByOwner } from '@/utils/booking';
-import { BookingRecord } from '@/types';
+import { BookingRecord, RentPaymentRecord } from '@/types';
 import { showAlert } from '../../utils/alert';
 import TenantInfoModal from '../../components/TenantInfoModal';
 import { createOrFindConversation } from '@/utils/conversation-utils';
@@ -410,17 +410,18 @@ export default function BookingsPage() {
                       onLongPress={() => handleDeleteBooking(booking)}
                       style={({ pressed }) => [
                         sharedStyles.card,
+                        { padding: designTokens.spacing.md },
                         pressed && { opacity: 0.7 }
                       ]}
                     >
                       <View>
                     {/* Header */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.lg }}>
-                      <View style={{ flex: 1, marginRight: designTokens.spacing.md }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.md }}>
+                      <View style={{ flex: 1, marginRight: designTokens.spacing.sm }}>
                         <Text style={[sharedStyles.sectionTitle, { fontSize: designTokens.typography.lg, marginBottom: designTokens.spacing.xs }]}>
                           {booking.propertyTitle}
                         </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: designTokens.spacing.xs }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
                           <User size={14} color={designTokens.colors.textSecondary} />
                           <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs }]}>
                             {booking.tenantName}
@@ -446,131 +447,127 @@ export default function BookingsPage() {
                     <TouchableOpacity 
                       onPress={() => handleViewTenantInfo(booking)}
                       activeOpacity={0.7}
-                      style={{ marginBottom: designTokens.spacing.lg }}
+                      style={{ marginBottom: designTokens.spacing.md }}
                     >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.md }}>
-                        <Text style={[sharedStyles.formLabel, { marginBottom: 0 }]}>Tenant Information</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: designTokens.colors.infoLight, paddingHorizontal: designTokens.spacing.sm, paddingVertical: designTokens.spacing.xs, borderRadius: designTokens.borderRadius.md }}>
-                          <User size={14} color={designTokens.colors.info} />
-                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, color: designTokens.colors.info, fontWeight: '500' as const }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
+                        <Text style={[sharedStyles.formLabel, { marginBottom: 0, fontSize: designTokens.typography.sm }]}>Tenant Information</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: designTokens.colors.infoLight, paddingHorizontal: designTokens.spacing.sm, paddingVertical: 4, borderRadius: designTokens.borderRadius.md }}>
+                          <User size={12} color={designTokens.colors.info} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, color: designTokens.colors.info, fontWeight: '500' as const, fontSize: designTokens.typography.xs }]}>
                             View Profile
                           </Text>
                         </View>
                       </View>
-                      {booking.tenantAddress && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                          <MapPin size={14} color={designTokens.colors.textSecondary} />
-                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm, flex: 1 }]}>
-                            {booking.tenantAddress}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
+                        {booking.tenantAddress && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                            <MapPin size={12} color={designTokens.colors.textSecondary} />
+                            <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, flex: 1 }]} numberOfLines={1}>
+                              {booking.tenantAddress}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                          <Phone size={12} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs }]}>
+                            {booking.tenantPhone}
                           </Text>
                         </View>
-                      )}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                        <Phone size={14} color={designTokens.colors.textSecondary} />
-                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
-                          {booking.tenantPhone}
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Mail size={14} color={designTokens.colors.textSecondary} />
-                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
-                          {booking.tenantEmail}
-                        </Text>
-                      </View>
-                      {booking.tenantType && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: designTokens.spacing.sm }}>
-                          <Users size={14} color={designTokens.colors.textSecondary} />
-                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
-                            Tenant Type: {booking.tenantType.charAt(0).toUpperCase() + booking.tenantType.slice(1)}
-                            {booking.numberOfPeople && (booking.tenantType === 'family' || booking.tenantType === 'group') && (
-                              <Text style={{ fontWeight: '600' as const }}>
-                                {' '}({booking.numberOfPeople} {booking.numberOfPeople === 1 ? 'person' : 'people'})
-                              </Text>
-                            )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                          <Mail size={12} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, flex: 1 }]} numberOfLines={1}>
+                            {booking.tenantEmail}
                           </Text>
                         </View>
-                      )}
+                        {booking.tenantType && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                            <Users size={12} color={designTokens.colors.textSecondary} />
+                            <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs }]}>
+                              {booking.tenantType.charAt(0).toUpperCase() + booking.tenantType.slice(1)}
+                              {booking.numberOfPeople && (booking.tenantType === 'family' || booking.tenantType === 'group') && (
+                                <Text style={{ fontWeight: '600' as const }}>
+                                  {' '}({booking.numberOfPeople})
+                                </Text>
+                              )}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </TouchableOpacity>
 
                     {/* Payment Details */}
-                    <View style={{ marginBottom: designTokens.spacing.lg, paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
-                      <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.md }]}>Payment Details</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                        <Calendar size={14} color={designTokens.colors.textSecondary} />
-                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
-                          Move-in: {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
-                        </Text>
-                      </View>
-                      {booking.selectedRoom !== undefined && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                          <Home size={14} color={designTokens.colors.success} />
-                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm, color: designTokens.colors.success, fontWeight: '600' as const }]}>
-                            Selected Room: Room {booking.selectedRoom + 1}
+                    <View style={{ marginBottom: designTokens.spacing.md, paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                      <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.sm, fontSize: designTokens.typography.sm }]}>Payment Details</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: designTokens.spacing.sm }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                          <Calendar size={12} color={designTokens.colors.textSecondary} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs }]}>
+                            {booking.startDate ? String(new Date(booking.startDate).toLocaleDateString()) : 'N/A'}
                           </Text>
                         </View>
-                      )}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                        <View style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 14,
-                          backgroundColor: designTokens.colors.primary + '15',
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}>
-                          <Text style={{
-                            fontSize: 12,
-                            fontWeight: '700',
-                            color: designTokens.colors.primary,
-                          }}>
-                            ₱
+                        {booking.selectedRoom !== undefined && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                            <Home size={12} color={designTokens.colors.success} />
+                            <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, color: designTokens.colors.success, fontWeight: '600' as const }]}>
+                              Room {booking.selectedRoom + 1}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                          <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs }]}>
+                            Rent: ₱{booking.monthlyRent ? String(booking.monthlyRent.toLocaleString()) : '0'}
                           </Text>
                         </View>
-                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm }]}>
-                          Monthly: ₱{booking.monthlyRent ? String(booking.monthlyRent.toLocaleString()) : '0'}
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: designTokens.spacing.sm }}>
-                        <Wallet size={14} color={designTokens.colors.success} />
-                        <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.sm, fontWeight: '600' as const, color: designTokens.colors.success }]}>
-                          Total: ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
-                        </Text>
-                      </View>
-                      {booking.status === 'approved' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          {booking.paymentStatus === 'paid' ? (
-                            <CheckCircle size={14} color={designTokens.colors.success} />
-                          ) : (
-                            <Clock size={14} color={designTokens.colors.warning} />
-                          )}
-                          <Text style={[
-                            sharedStyles.statLabel, 
-                            { 
-                              marginLeft: designTokens.spacing.sm,
-                              fontWeight: '600' as const,
-                              color: booking.paymentStatus === 'paid' ? designTokens.colors.success : designTokens.colors.warning
-                            }
-                          ]}>
-                            Payment: {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                        {booking.advanceDepositMonths && booking.advanceDepositMonths > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                            <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.xs, color: designTokens.colors.info }]}>
+                              Advance: {booking.advanceDepositMonths}m (₱{((booking.advanceDepositMonths || 0) * (booking.monthlyRent || 0)).toLocaleString()})
+                            </Text>
+                          </View>
+                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                          <Wallet size={12} color={designTokens.colors.success} />
+                          <Text style={[sharedStyles.statLabel, { marginLeft: designTokens.spacing.xs, fontSize: designTokens.typography.xs, fontWeight: '600' as const, color: designTokens.colors.success }]}>
+                            Total: ₱{booking.totalAmount ? String(booking.totalAmount.toLocaleString()) : '0'}
                           </Text>
                         </View>
-                      )}
+                        {booking.status === 'approved' && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: '48%' }}>
+                            {booking.paymentStatus === 'paid' ? (
+                              <CheckCircle size={12} color={designTokens.colors.success} />
+                            ) : (
+                              <Clock size={12} color={designTokens.colors.warning} />
+                            )}
+                            <Text style={[
+                              sharedStyles.statLabel, 
+                              { 
+                                marginLeft: designTokens.spacing.xs,
+                                fontSize: designTokens.typography.xs,
+                                fontWeight: '600' as const,
+                                color: booking.paymentStatus === 'paid' ? designTokens.colors.success : designTokens.colors.warning
+                              }
+                            ]}>
+                              {booking.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
 
                     {/* Special Requests */}
                     {booking.specialRequests && (
-                      <View style={{ marginBottom: designTokens.spacing.lg, paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
-                        <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.sm }]}>Special Requests</Text>
-                        <Text style={[sharedStyles.statLabel, { lineHeight: 20 }]}>{booking.specialRequests}</Text>
+                      <View style={{ marginBottom: designTokens.spacing.md, paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                        <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.xs, fontSize: designTokens.typography.sm }]}>Special Requests</Text>
+                        <Text style={[sharedStyles.statLabel, { lineHeight: 18, fontSize: designTokens.typography.xs }]} numberOfLines={3}>{booking.specialRequests}</Text>
                       </View>
                     )}
 
                     {/* Action Buttons */}
                     {booking.status === 'pending' && (
-                      <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm, paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                      <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm, paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
                         <TouchableOpacity
                           onPress={() => handleBookingAction(booking.id, 'approve')}
-                          style={[sharedStyles.primaryButton, { flex: 1 }]}
+                          style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: designTokens.spacing.sm }]}
                         >
                           <CheckCircle size={16} color={designTokens.colors.white} />
                           <Text style={sharedStyles.primaryButtonText}>Approve</Text>
@@ -578,7 +575,7 @@ export default function BookingsPage() {
                         
                         <TouchableOpacity
                           onPress={() => handleBookingAction(booking.id, 'reject')}
-                          style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error }]}
+                          style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.sm }]}
                         >
                           <XCircle size={16} color={designTokens.colors.white} />
                           <Text style={sharedStyles.primaryButtonText}>Reject</Text>
@@ -588,7 +585,7 @@ export default function BookingsPage() {
 
                     {/* Mark as Paid - For approved bookings not yet paid */}
                     {booking.status === 'approved' && booking.paymentStatus !== 'paid' && (
-                      <View style={{ paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                      <View style={{ paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
                         <TouchableOpacity
                           onPress={async () => {
                           if (!user?.id) return;
@@ -602,11 +599,21 @@ export default function BookingsPage() {
                                 text: 'Yes, Mark as Paid',
                                 onPress: async () => {
                                   try {
+                                    // Ensure remainingAdvanceMonths is initialized when marking booking as paid
+                                    // This is the first payment from tenant to owner and must include advance deposit
                                     const updatedBooking: BookingRecord = {
                                       ...booking,
                                       paymentStatus: 'paid',
                                       updatedAt: new Date().toISOString()
                                     };
+                                    
+                                    // Initialize remainingAdvanceMonths if booking has advance deposit
+                                    if (booking.advanceDepositMonths && booking.advanceDepositMonths > 0) {
+                                      if (updatedBooking.remainingAdvanceMonths === undefined || updatedBooking.remainingAdvanceMonths === null) {
+                                        updatedBooking.remainingAdvanceMonths = booking.advanceDepositMonths;
+                                        console.log('✅ Initialized remainingAdvanceMonths for first payment:', updatedBooking.remainingAdvanceMonths);
+                                      }
+                                    }
 
                                     await db.upsert('bookings', booking.id, updatedBooking);
                                     
@@ -620,51 +627,20 @@ export default function BookingsPage() {
                                       console.error('❌ Error checking listing capacity:', capacityError);
                                     }
                                     
-                                    // Create initial payment record for payment history
+                                    // Create or update first payment record with advance deposit
+                                    // This ensures the first payment always includes the advance deposit
+                                    // This is the first payment of the tenant for the owner and must include advance deposit
                                     try {
-                                      const { getRentPaymentsByBooking } = await import('../../utils/tenant-payments');
-                                      const { generateId } = await import('../../utils/db');
-                                      const existingPayments = await getRentPaymentsByBooking(booking.id);
+                                      const { createOrUpdateFirstPaymentForPaidBooking } = await import('../../utils/booking');
+                                      const result = await createOrUpdateFirstPaymentForPaidBooking(booking.id, user.id);
                                       
-                                      // Check if there's already a payment for the booking start month
-                                      const startDate = new Date(booking.startDate);
-                                      const paymentMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
-                                      const existingInitialPayment = existingPayments.find(
-                                        p => p.paymentMonth === paymentMonth && p.status === 'paid'
-                                      );
-                                      
-                                      // Only create if it doesn't exist
-                                      if (!existingInitialPayment) {
-                                        const { RentPaymentRecord } = await import('../../types');
-                                        const now = new Date();
-                                        const paidDate = now.toISOString();
-                                        
-                                        // Create initial booking payment record
-                                        const initialPayment: RentPaymentRecord = {
-                                          id: generateId('rent_payment'),
-                                          bookingId: booking.id,
-                                          tenantId: booking.tenantId,
-                                          ownerId: booking.ownerId,
-                                          propertyId: booking.propertyId,
-                                          amount: booking.monthlyRent || booking.totalAmount,
-                                          lateFee: 0,
-                                          totalAmount: booking.totalAmount,
-                                          paymentMonth: paymentMonth,
-                                          dueDate: booking.startDate,
-                                          paidDate: paidDate,
-                                          status: 'paid',
-                                          paymentMethod: booking.selectedPaymentMethod || 'Manual',
-                                          receiptNumber: `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-                                          notes: 'Initial booking payment',
-                                          createdAt: paidDate,
-                                          updatedAt: paidDate,
-                                        };
-                                        
-                                        await db.upsert('rent_payments', initialPayment.id, initialPayment);
-                                        console.log('✅ Created initial booking payment record:', initialPayment.id);
+                                      if (!result.success) {
+                                        console.error('❌ Error creating/updating first payment:', result.error);
+                                      } else {
+                                        console.log('✅ First payment created/updated with advance deposit:', result.paymentId);
                                       }
                                     } catch (paymentError) {
-                                      console.error('❌ Error creating initial payment record:', paymentError);
+                                      console.error('❌ Error creating/updating first payment record:', paymentError);
                                     }
                                     
                                     // Dispatch event to notify other parts of the app
@@ -708,7 +684,7 @@ export default function BookingsPage() {
 
                     {/* Contact Tenant - For approved/rejected */}
                     {(booking.status === 'approved' || booking.status === 'rejected') && (
-                      <View style={{ paddingTop: designTokens.spacing.lg, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                      <View style={{ paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
                         <TouchableOpacity
                           onPress={async () => {
                           if (!user?.id) {
@@ -777,7 +753,7 @@ export default function BookingsPage() {
                     )}
 
                         {/* Delete hint */}
-                        <View style={{ marginTop: designTokens.spacing.md, paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                        <View style={{ marginTop: designTokens.spacing.sm, paddingTop: designTokens.spacing.sm, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
                           <Text style={[sharedStyles.statSubtitle, { fontSize: 11, textAlign: 'center', fontStyle: 'italic' }]}>
                             💡 Tap and hold to delete
                           </Text>
@@ -885,22 +861,81 @@ export default function BookingsPage() {
                                 if (!user?.id) return;
                                 Alert.alert(
                                   'Mark as Paid',
-                                  `Have you received the payment from ${booking.tenantName}?`,
+                                  `Have you received the payment from ${booking.tenantName}?\n\nThis will mark the booking as paid and add the tenant to your tenants list.`,
                                   [
                                     { text: 'Cancel', style: 'cancel' },
                                     {
                                       text: 'Yes, Mark as Paid',
                                       onPress: async () => {
                                         try {
+                                          // Ensure remainingAdvanceMonths is initialized when marking booking as paid
+                                          // This is the first payment from tenant to owner and must include advance deposit
                                           const updatedBooking: BookingRecord = {
                                             ...booking,
                                             paymentStatus: 'paid',
                                             updatedAt: new Date().toISOString()
                                           };
+                                          
+                                          // Initialize remainingAdvanceMonths if booking has advance deposit
+                                          if (booking.advanceDepositMonths && booking.advanceDepositMonths > 0) {
+                                            if (updatedBooking.remainingAdvanceMonths === undefined || updatedBooking.remainingAdvanceMonths === null) {
+                                              updatedBooking.remainingAdvanceMonths = booking.advanceDepositMonths;
+                                              console.log('✅ Initialized remainingAdvanceMonths for first payment:', updatedBooking.remainingAdvanceMonths);
+                                            }
+                                          }
+                                          
                                           await db.upsert('bookings', booking.id, updatedBooking);
-                                          showAlert('Success', 'Booking marked as paid.');
+                                          
+                                          console.log(`✅ Marked booking as paid: ${booking.id}`);
+                                          
+                                          // Check if listing has reached capacity and update availability status
+                                          try {
+                                            const { checkAndRejectPendingBookings } = await import('../../utils/listing-capacity');
+                                            await checkAndRejectPendingBookings(booking.propertyId);
+                                          } catch (capacityError) {
+                                            console.error('❌ Error checking listing capacity:', capacityError);
+                                          }
+                                          
+                                          // Create or update first payment record with advance deposit
+                                          // This ensures the first payment always includes the advance deposit
+                                          // This is the first payment of the tenant for the owner and must include advance deposit
+                                          try {
+                                            const { createOrUpdateFirstPaymentForPaidBooking } = await import('../../utils/booking');
+                                            const result = await createOrUpdateFirstPaymentForPaidBooking(booking.id, user.id);
+                                            
+                                            if (!result.success) {
+                                              console.error('❌ Error creating/updating first payment:', result.error);
+                                            } else {
+                                              console.log('✅ First payment created/updated with advance deposit:', result.paymentId);
+                                            }
+                                          } catch (paymentError) {
+                                            console.error('❌ Error creating/updating first payment record:', paymentError);
+                                          }
+                                          
+                                          // Dispatch event to notify other parts of the app
+                                          try {
+                                            const { dispatchCustomEvent } = await import('../../utils/custom-events');
+                                            dispatchCustomEvent('bookingStatusChanged', {
+                                              bookingId: booking.id,
+                                              status: 'approved',
+                                              paymentStatus: 'paid',
+                                              ownerId: user.id,
+                                              timestamp: new Date().toISOString()
+                                            });
+                                            dispatchCustomEvent('paymentUpdated', {
+                                              bookingId: booking.id,
+                                              ownerId: user.id,
+                                              tenantId: booking.tenantId,
+                                              status: 'paid',
+                                            });
+                                          } catch (eventError) {
+                                            console.warn('⚠️ Could not dispatch events:', eventError);
+                                          }
+                                          
+                                          showAlert('Success', 'Booking marked as paid. Tenant has been added to your tenants list.');
                                           loadBookings();
                                         } catch (error) {
+                                          console.error('❌ Error marking booking as paid:', error);
                                           showAlert('Error', 'Failed to mark booking as paid');
                                         }
                                       }

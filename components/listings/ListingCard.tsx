@@ -35,7 +35,6 @@ export type ListingType = {
     rentalType?: string;
     availabilityStatus?: string;
     leaseTerm?: string;
-    securityDeposit?: number;
     paymentMethods?: string[];
     ownerName?: string;
     businessName?: string;
@@ -71,7 +70,6 @@ const ListingCard: React.FC<ListingType> = ({
     rentalType,
     availabilityStatus,
     leaseTerm,
-    securityDeposit,
     paymentMethods,
     ownerName,
     businessName,
@@ -186,7 +184,7 @@ const ListingCard: React.FC<ListingType> = ({
                 availabilityStatus: availabilityStatus || 'Available',
                 leaseTerm: leaseTerm || 'Not specified',
                 monthlyRent: price.toString(),
-                securityDeposit: securityDeposit && securityDeposit > 0 ? securityDeposit.toString() : '',
+                securityDeposit: '',
                 paymentMethods: paymentMethods ? JSON.stringify(paymentMethods) : '',
                 ownerName: ownerName || 'Property Owner',
                 businessName: businessName || '',

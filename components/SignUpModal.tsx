@@ -316,16 +316,27 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
             const result = await signUpUser(signUpData);
 
             if (result.success) {
+                // Reset loading state immediately after successful signup
+                setIsSubmitting(false);
+                
                 await refreshUser();
                 await new Promise(resolve => setTimeout(resolve, 200));
 
-                toast.show('Account Created! Welcome to HanapBahay! Your account has been created successfully. 🎉');
-
+                // Show success toast
                 const roles = (result as any).roles || (result as any).user?.roles || [];
                 const userId = (result as any).user?.id || (result as any).id;
+                const isOwner = Array.isArray(roles) && roles.includes('owner');
                 
+                // Show appropriate toast message based on role
+                if (isOwner) {
+                    toast.show('Owner account created! Your application is pending approval from your Barangay. 🎉');
+                } else {
+                    toast.show('Account Created! Welcome to HanapBahay! Your account has been created successfully. 🎉');
+                }
+                
+                // Redirect after a short delay
                 setTimeout(async () => {
-                    if (Array.isArray(roles) && roles.includes('owner')) {
+                    if (isOwner) {
                         let ownerId = userId;
                         
                         try {
@@ -350,8 +361,9 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                     if (onSignUpSuccess) {
                         onSignUpSuccess();
                     }
-                }, 100);
+                }, 500);
             } else {
+                setIsSubmitting(false);
                 showSimpleAlert(
                     'Sign Up Failed ❌',
                     result.error || 'Unable to create your account. Please try again.'
@@ -359,12 +371,11 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
             }
         } catch (error) {
             console.error('Sign-up error:', error);
+            setIsSubmitting(false);
             showSimpleAlert(
                 'Sign Up Failed ❌',
                 error instanceof Error ? error.message : 'Unable to create your account. Please try again.'
             );
-        } finally {
-            setIsSubmitting(false);
         }
     };
 

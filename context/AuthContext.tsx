@@ -51,12 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isOwnerApproved: authUser.isOwnerApproved
         };
         
-        console.log('🔍 Auth user ID debug:', {
-          originalId: authUser.id,
-          fallbackId: `user-${Date.now()}`,
-          finalId: userWithFallbacks.id,
-          hasOriginalId: !!authUser.id
-        });
+        // Reduced logging for performance
+        // console.log('🔍 Auth user ID debug:', { originalId: authUser.id, finalId: userWithFallbacks.id });
         
         // Only update user if it's actually different to prevent infinite loops
         setUser(prevUser => {
@@ -73,32 +69,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           roles: userWithFallbacks.roles 
         });
         
-        // Refresh property media for tenant accounts
+        // Refresh property media for tenant accounts - run in background to not block login
         if (userWithFallbacks.roles.includes('tenant')) {
-          console.log('🔄 Tenant logged in - refreshing property media and profile photo...');
-          try {
-            // Clear expired cache first
+          // Run heavy operations in background without blocking
+          (async () => {
             try {
-              const { clearExpiredCachedPropertyMedia } = await import('../utils/property-media-cache');
-              await clearExpiredCachedPropertyMedia();
-              console.log('✅ Cleared expired property media cache');
-            } catch (cacheError) {
-              console.log('⚠️ Could not clear expired cache:', cacheError);
-            }
-            
-            const { refreshAllPropertyMedia } = await import('../utils/media-storage');
-            await refreshAllPropertyMedia();
-            console.log('✅ Property media refreshed for tenant');
-            
-            // Dispatch property media refreshed event
-            dispatchCustomEvent('propertyMediaRefreshed', { 
-              userId: userWithFallbacks.id, 
-              timestamp: new Date().toISOString() 
-            });
+              console.log('🔄 Tenant logged in - refreshing property media and profile photo...');
+              // Clear expired cache first
+              try {
+                const { clearExpiredCachedPropertyMedia } = await import('../utils/property-media-cache');
+                await clearExpiredCachedPropertyMedia();
+                console.log('✅ Cleared expired property media cache');
+              } catch (cacheError) {
+                console.log('⚠️ Could not clear expired cache:', cacheError);
+              }
+              
+              const { refreshAllPropertyMedia } = await import('../utils/media-storage');
+              await refreshAllPropertyMedia();
+              console.log('✅ Property media refreshed for tenant');
+              
+              // Dispatch property media refreshed event
+              dispatchCustomEvent('propertyMediaRefreshed', { 
+                userId: userWithFallbacks.id, 
+                timestamp: new Date().toISOString() 
+              });
 
-            // Also dispatch individual media loaded events for each listing (like profile photos)
-            // This is done in the background to avoid blocking the auth flow
-            (async () => {
+              // Also dispatch individual media loaded events for each listing
               try {
                 const publishedListings = await db.list('published_listings');
                 for (const listing of publishedListings) {
@@ -122,80 +118,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               } catch (mediaEventError) {
                 console.log('⚠️ Could not dispatch property media loaded events (tenant):', mediaEventError);
               }
-            })();
 
-            // Also refresh tenant profile photo
-            try {
-              const { loadUserProfilePhoto, migratePhotoRecords } = await import('../utils/user-profile-photos');
-              
-              // Run migration first to fix any data issues
-              await migratePhotoRecords();
-              
-              const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
-              if (profilePhoto) {
-                console.log('✅ Tenant profile photo loaded from database');
-                // Dispatch event to update profile photo in UI
-                dispatchCustomEvent('profilePhotoLoaded', { 
-                  userId: userWithFallbacks.id, 
-                  photoUri: profilePhoto 
-                });
-              } else {
-                console.log('📸 No profile photo found for tenant:', userWithFallbacks.id);
+              // Also refresh tenant profile photo
+              try {
+                const { loadUserProfilePhoto, migratePhotoRecords } = await import('../utils/user-profile-photos');
+                
+                // Run migration first to fix any data issues
+                await migratePhotoRecords();
+                
+                const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
+                if (profilePhoto) {
+                  console.log('✅ Tenant profile photo loaded from database');
+                  // Dispatch event to update profile photo in UI
+                  dispatchCustomEvent('profilePhotoLoaded', { 
+                    userId: userWithFallbacks.id, 
+                    photoUri: profilePhoto 
+                  });
+                } else {
+                  console.log('📸 No profile photo found for tenant:', userWithFallbacks.id);
+                }
+              } catch (photoError) {
+                console.error('❌ Failed to refresh tenant profile photo:', photoError);
               }
-            } catch (photoError) {
-              console.error('❌ Failed to refresh tenant profile photo:', photoError);
+            } catch (error) {
+              console.error('❌ Failed to refresh property media:', error);
             }
-          } catch (error) {
-            console.error('❌ Failed to refresh property media:', error);
-          }
+          })();
         }
         
-        // Refresh property media for owner accounts
+        // Refresh property media for owner accounts - run in background to not block login
         if (userWithFallbacks.roles.includes('owner')) {
-          console.log('🔄 Owner logged in - refreshing property media and profile photo...');
-          try {
-            const { refreshAllPropertyMedia } = await import('../utils/media-storage');
-            await refreshAllPropertyMedia();
-            console.log('✅ Property media refreshed for owner');
-            
-            // Also refresh owner profile photo
+          (async () => {
             try {
-              const { loadUserProfilePhoto, migratePhotoRecords } = await import('../utils/user-profile-photos');
+              console.log('🔄 Owner logged in - refreshing property media and profile photo...');
+              const { refreshAllPropertyMedia } = await import('../utils/media-storage');
+              await refreshAllPropertyMedia();
+              console.log('✅ Property media refreshed for owner');
               
-              // Run migration first to fix any data issues
-              await migratePhotoRecords();
-              
-              const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
-              if (profilePhoto) {
-                console.log('✅ Owner profile photo loaded from database');
-                // Dispatch event to update profile photo in UI
-                dispatchCustomEvent('profilePhotoLoaded', { 
-                  userId: userWithFallbacks.id, 
-                  photoUri: profilePhoto 
-                });
-              } else {
-                console.log('📸 No profile photo found for owner:', userWithFallbacks.id);
+              // Also refresh owner profile photo
+              try {
+                const { loadUserProfilePhoto, migratePhotoRecords } = await import('../utils/user-profile-photos');
+                
+                // Run migration first to fix any data issues
+                await migratePhotoRecords();
+                
+                const profilePhoto = await loadUserProfilePhoto(userWithFallbacks.id);
+                if (profilePhoto) {
+                  console.log('✅ Owner profile photo loaded from database');
+                  // Dispatch event to update profile photo in UI
+                  dispatchCustomEvent('profilePhotoLoaded', { 
+                    userId: userWithFallbacks.id, 
+                    photoUri: profilePhoto 
+                  });
+                } else {
+                  console.log('📸 No profile photo found for owner:', userWithFallbacks.id);
+                }
+              } catch (photoError) {
+                console.error('❌ Failed to refresh owner profile photo:', photoError);
               }
-            } catch (photoError) {
-              console.error('❌ Failed to refresh owner profile photo:', photoError);
+            } catch (error) {
+              console.error('❌ Failed to refresh property media:', error);
             }
-          } catch (error) {
-            console.error('❌ Failed to refresh property media:', error);
-          }
+          })();
         }
       } else {
         // No authenticated user - user needs to login
-        console.log('🔧 No auth user found - user needs to login');
         setUser(prevUser => prevUser === null ? prevUser : null);
-        console.log('✅ User is not authenticated - showing login screen');
       }
     } catch (error) {
       console.error('Error refreshing user:', error);
-      
       // On error, set user to null so they can login
-      console.log('🔧 Error occurred, user needs to login');
       setUser(prevUser => prevUser === null ? prevUser : null);
-      console.log('✅ User is not authenticated due to error - showing login screen');
     } finally {
       setIsLoading(false);
     }
@@ -226,7 +219,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const { getBookingsByTenant } = await import('../utils/booking');
           const bookings = await getBookingsByTenant(userId);
           const activeBooking = bookings.find(
-            b => b.status === 'approved' && b.paymentStatus === 'paid'
+            b => (b.status === 'approved' && b.paymentStatus === 'paid') ||
+                 (b.terminationInitiatedAt && b.terminationMode === 'countdown')
           );
           
           if (activeBooking) {
@@ -252,8 +246,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const redirectOwnerBasedOnListings = async (ownerId: string) => {
     try {
       console.log('🔍 Owner redirection - always going to dashboard:', ownerId);
-      // Refresh user in background, don't block redirect
-      refreshUser().catch(err => console.log('Background user refresh:', err));
+      // Don't refresh user here - it's already refreshed in SignUpModal
+      // Refresh user in background only if needed, don't block redirect
+      // refreshUser().catch(err => console.log('Background user refresh:', err));
       
       // Redirect immediately - approval checks happen in layout
       console.log('🔄 Redirecting owner to dashboard...');
@@ -268,6 +263,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const redirectBrgyOfficial = async () => {
     try {
       console.log('🏛️ Redirecting barangay official to dashboard');
+      // Don't refresh user here - it's already refreshed in LoginModal
+      // Redirect immediately
       router.replace('/(brgy)/dashboard');
     } catch (error) {
       console.error('❌ Error redirecting barangay official:', error);

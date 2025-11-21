@@ -183,53 +183,25 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                 setPassword('');
                 setErrors({ email: '', password: '' });
                 
-                // Refresh user state
-                await refreshUser();
-                // Wait a bit longer to ensure user state is fully updated in AuthContext
-                await new Promise(resolve => setTimeout(resolve, 400));
+                // Refresh user state (non-blocking for UI responsiveness)
+                refreshUser().catch(err => console.warn('Background user refresh:', err));
                 
-                toast.show(notifications.loginSuccess());
-
-                // Get roles and userId from auth storage to ensure we have the latest data
-                let roles: string[] = [];
-                let userId: string | undefined;
+                // Get roles and userId immediately from login result
+                // Don't wait for refreshUser to complete - it can happen in background
+                let roles: string[] = (result as any).roles || (result as any).user?.roles || [];
+                let userId: string | undefined = (result as any).user?.id || (result as any).id;
                 
-                // Try multiple times to get the user data (in case of race conditions)
-                let attempts = 0;
-                const maxAttempts = 3;
-                
-                while (attempts < maxAttempts && (!roles || roles.length === 0 || !userId)) {
+                // Quick fallback check if not in result (single attempt, no retry loop)
+                if (!roles || roles.length === 0 || !userId) {
                     try {
                         const { getAuthUser } = await import('@/utils/auth-user');
                         const authUser = await getAuthUser();
                         if (authUser) {
-                            roles = authUser.roles || [];
-                            userId = authUser.id;
-                            
-                            if (roles.length > 0 && userId) {
-                                break; // Success, exit loop
-                            }
+                            roles = authUser.roles || roles || [];
+                            userId = authUser.id || userId;
                         }
                     } catch (authError) {
-                        console.warn(`⚠️ Attempt ${attempts + 1}: Could not get user from auth storage:`, authError);
-                    }
-                    
-                    // Fallback to login result if auth storage doesn't have it yet
-                    if ((!roles || roles.length === 0) && (result as any).roles) {
-                        roles = (result as any).roles || (result as any).user?.roles || [];
-                    }
-                    if (!userId && (result as any).user?.id) {
-                        userId = (result as any).user?.id || (result as any).id;
-                    }
-                    
-                    if (roles.length > 0 && userId) {
-                        break; // Success, exit loop
-                    }
-                    
-                    attempts++;
-                    if (attempts < maxAttempts) {
-                        // Wait a bit before retrying
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                        console.warn('⚠️ Could not get user from auth storage:', authError);
                     }
                 }
                 
@@ -241,7 +213,9 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                     userId = (result as any).user?.id || (result as any).id;
                 }
                 
-                console.log('🔍 Login redirect - roles:', roles, 'userId:', userId, 'attempts:', attempts + 1);
+                toast.show(notifications.loginSuccess());
+                
+                console.log('🔍 Login redirect - roles:', roles, 'userId:', userId);
                 
                 if (!roles || roles.length === 0) {
                     console.error('❌ No roles found after login, defaulting to tenant');

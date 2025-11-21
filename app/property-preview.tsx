@@ -89,7 +89,8 @@ export default function PropertyPreviewScreen() {
     email: 'Loading...',
     ownerUserId: '',
     monthlyRent: 0,
-    securityDeposit: undefined as number | undefined,
+    securityDeposit: 0,
+    advanceDepositMonths: undefined as number | undefined,
     propertyType: 'Property',
     rentalType: 'Not specified',
     availabilityStatus: 'Available',
@@ -223,7 +224,8 @@ export default function PropertyPreviewScreen() {
         email: listing.email || 'Email not provided',
         ownerUserId: listing.ownerUserId || listing.userId || '',
         monthlyRent: listing.monthlyRent || listing.price || 0,
-        securityDeposit: listing.securityDeposit || undefined,
+        securityDeposit: 0, // Security deposit feature removed
+        advanceDepositMonths: listing.advanceDepositMonths || undefined,
         propertyType: listing.propertyType || 'Property',
         rentalType: listing.rentalType || 'Not specified',
         availabilityStatus: listing.availabilityStatus || 'Available',
@@ -689,7 +691,7 @@ const goToNextPhoto = () => {
                   ₱{(() => {
                     const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
                     return monthlyRent.toLocaleString();
-                  })()}
+                  })()}/month
                 </Text>
               )}
             </View>
@@ -858,7 +860,7 @@ const goToNextPhoto = () => {
           {(() => {
             const monthlyRent = (propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price;
             return (monthlyRent && monthlyRent > 0) ||
-              (propertyData.securityDeposit && propertyData.securityDeposit > 0) ||
+              (propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0) ||
               (propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '') ||
               (propertyData.paymentMethods && propertyData.paymentMethods.length > 0);
           })() && (
@@ -879,10 +881,22 @@ const goToNextPhoto = () => {
                     </Text>
                   </View>
                 )}
-                {propertyData.securityDeposit && propertyData.securityDeposit > 0 && (
+                {propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0 && (
                   <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
-                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Security Deposit:</Text>
-                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>₱{propertyData.securityDeposit!.toLocaleString()}</Text>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>
+                      Advance Deposit ({propertyData.advanceDepositMonths} {propertyData.advanceDepositMonths === 1 ? 'month' : 'months'}):
+                    </Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      ₱{((propertyData.advanceDepositMonths || 0) * ((propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price || 0)).toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+                {propertyData.advanceDepositMonths && propertyData.advanceDepositMonths > 0 && (
+                  <View style={[styles.rentalDetailItem, isMobile && styles.rentalDetailItemMobile]}>
+                    <Text style={[styles.rentalDetailLabel, isMobile && styles.rentalDetailLabelMobile]}>Total First Payment:</Text>
+                    <Text style={[styles.rentalDetailValue, isMobile && styles.rentalDetailValueMobile]}>
+                      ₱{(((propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price || 0) + ((propertyData.advanceDepositMonths || 0) * ((propertyData.monthlyRent && propertyData.monthlyRent > 0) ? propertyData.monthlyRent : propertyData.price || 0))).toLocaleString()}
+                    </Text>
                   </View>
                 )}
                 {propertyData.availabilityStatus && propertyData.availabilityStatus.trim() !== '' && (

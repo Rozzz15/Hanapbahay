@@ -111,7 +111,8 @@ export default function DashboardScreen() {
         const { getBookingsByTenant } = await import('../../utils/booking');
         const bookings = await getBookingsByTenant(user.id);
         const activeBooking = bookings.find(
-          b => b.status === 'approved' && b.paymentStatus === 'paid'
+          b => (b.status === 'approved' && b.paymentStatus === 'paid') ||
+               (b.terminationInitiatedAt && b.terminationMode === 'countdown')
         );
 
         if (activeBooking) {

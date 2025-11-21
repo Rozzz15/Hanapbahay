@@ -1,6 +1,51 @@
 import { db } from './db';
 import { OwnerApplicationRecord, DbUserRecord } from '../types';
 
+// Cache for owner applications to avoid repeated database queries
+let ownerApplicationsCache: { data: OwnerApplicationRecord[] | null; timestamp: number } = {
+  data: null,
+  timestamp: 0
+};
+const CACHE_DURATION = 5000; // 5 seconds cache
+
+/**
+ * Get owner applications with caching to reduce database calls
+ */
+async function getOwnerApplicationsCached(): Promise<OwnerApplicationRecord[]> {
+  const now = Date.now();
+  if (ownerApplicationsCache.data && (now - ownerApplicationsCache.timestamp) < CACHE_DURATION) {
+    return ownerApplicationsCache.data;
+  }
+  
+  const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+  ownerApplicationsCache = {
+    data: allApplications,
+    timestamp: now
+  };
+  return allApplications;
+}
+
+/**
+ * Find owner application for a user with efficient matching
+ */
+function findOwnerApplication(applications: OwnerApplicationRecord[], userId: string): OwnerApplicationRecord | null {
+  // Try exact match first (most common case)
+  let application = applications.find(app => app.userId === userId);
+  if (application) return application;
+  
+  // Try string comparison (in case of type mismatch)
+  application = applications.find(app => String(app.userId) === String(userId));
+  if (application) return application;
+  
+  // Try case-insensitive string comparison
+  const normalizedUserId = String(userId).toLowerCase().trim();
+  application = applications.find(app => 
+    String(app.userId).toLowerCase().trim() === normalizedUserId
+  );
+  
+  return application || null;
+}
+
 /**
  * Check if an owner's application has been approved by Barangay officials
  * @param userId - The user ID to check
@@ -8,67 +53,16 @@ import { OwnerApplicationRecord, DbUserRecord } from '../types';
  */
 export async function isOwnerApproved(userId: string): Promise<boolean> {
   try {
-    console.log('🔍 Checking owner approval status for user:', userId);
-    console.log('📝 User ID type:', typeof userId, 'User ID value:', JSON.stringify(userId));
-    
-    // List all owner applications and find the one for this user
-    // Note: Applications are stored with application.id as the key, not userId
-    const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
-    console.log(`📊 Total applications in database: ${allApplications.length}`);
-    
-    // Log all applications for debugging
-    if (allApplications.length > 0) {
-      console.log('📋 All applications in database:');
-      allApplications.forEach((app, index) => {
-        console.log(`  ${index + 1}. Application ID: ${app.id}, User ID: ${app.userId} (type: ${typeof app.userId}), Status: ${app.status}`);
-        console.log(`     Match check: ${app.userId} === ${userId} ? ${app.userId === userId}`);
-        console.log(`     String match: "${app.userId}" === "${userId}" ? ${String(app.userId) === String(userId)}`);
-      });
-    } else {
-      console.log('⚠️ No applications found in database');
-    }
-    
-    // Try exact match first
-    let application = allApplications.find(app => app.userId === userId);
-    
-    // If no exact match, try string comparison (in case of type mismatch)
-    if (!application) {
-      console.log('⚠️ No exact match found, trying string comparison...');
-      application = allApplications.find(app => String(app.userId) === String(userId));
-    }
-    
-    // If still no match, try case-insensitive string comparison
-    if (!application) {
-      console.log('⚠️ No string match found, trying case-insensitive comparison...');
-      application = allApplications.find(app => 
-        String(app.userId).toLowerCase().trim() === String(userId).toLowerCase().trim()
-      );
-    }
+    const allApplications = await getOwnerApplicationsCached();
+    const application = findOwnerApplication(allApplications, userId);
     
     if (!application) {
-      console.log('❌ No owner application found for user:', userId);
-      console.log('🔍 Available user IDs in applications:', allApplications.map(app => app.userId));
       return false;
     }
     
-    const isApproved = application.status === 'approved';
-    console.log('📋 Owner application status:', {
-      userId,
-      applicationId: application.id,
-      applicationUserId: application.userId,
-      status: application.status,
-      isApproved,
-      reviewedBy: application.reviewedBy,
-      reviewedAt: application.reviewedAt,
-      barangay: application.barangay
-    });
-    
-    return isApproved;
+    return application.status === 'approved';
   } catch (error) {
     console.error('❌ Error checking owner approval status:', error);
-    if (error instanceof Error) {
-      console.error('❌ Error stack:', error.stack);
-    }
     return false;
   }
 }
@@ -80,26 +74,8 @@ export async function isOwnerApproved(userId: string): Promise<boolean> {
  */
 export async function getOwnerApplication(userId: string): Promise<OwnerApplicationRecord | null> {
   try {
-    // List all owner applications and find the one for this user
-    // Note: Applications are stored with application.id as the key, not userId
-    const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
-    
-    // Try exact match first
-    let application = allApplications.find(app => app.userId === userId);
-    
-    // If no exact match, try string comparison (in case of type mismatch)
-    if (!application) {
-      application = allApplications.find(app => String(app.userId) === String(userId));
-    }
-    
-    // If still no match, try case-insensitive string comparison
-    if (!application) {
-      application = allApplications.find(app => 
-        String(app.userId).toLowerCase().trim() === String(userId).toLowerCase().trim()
-      );
-    }
-    
-    return application || null;
+    const allApplications = await getOwnerApplicationsCached();
+    return findOwnerApplication(allApplications, userId);
   } catch (error) {
     console.error('❌ Error getting owner application:', error);
     return null;
@@ -113,30 +89,42 @@ export async function getOwnerApplication(userId: string): Promise<OwnerApplicat
  */
 export async function hasPendingOwnerApplication(userId: string): Promise<boolean> {
   try {
-    // List all owner applications and find the one for this user
-    // Note: Applications are stored with application.id as the key, not userId
-    const allApplications = await db.list<OwnerApplicationRecord>('owner_applications');
+    const allApplications = await getOwnerApplicationsCached();
+    const application = findOwnerApplication(allApplications, userId);
     
-    // Try exact match first
-    let application = allApplications.find(app => app.userId === userId);
-    
-    // If no exact match, try string comparison (in case of type mismatch)
     if (!application) {
-      application = allApplications.find(app => String(app.userId) === String(userId));
+      return false;
     }
     
-    // If still no match, try case-insensitive string comparison
-    if (!application) {
-      application = allApplications.find(app => 
-        String(app.userId).toLowerCase().trim() === String(userId).toLowerCase().trim()
-      );
-    }
-    
-    return application?.status === 'pending' || false;
+    // Include applications that are pending or have reapplication requested
+    return application.status === 'pending' || application.reapplicationRequested === true;
   } catch (error) {
     console.error('❌ Error checking pending owner application:', error);
     return false;
   }
+}
+
+// Cache for users to avoid repeated database queries
+let usersCache: { data: DbUserRecord[] | null; timestamp: number } = {
+  data: null,
+  timestamp: 0
+};
+
+/**
+ * Get users with caching to reduce database calls
+ */
+async function getUsersCached(): Promise<DbUserRecord[]> {
+  const now = Date.now();
+  if (usersCache.data && (now - usersCache.timestamp) < CACHE_DURATION) {
+    return usersCache.data;
+  }
+  
+  const allUsers = await db.list<DbUserRecord>('users');
+  usersCache = {
+    data: allUsers,
+    timestamp: now
+  };
+  return allUsers;
 }
 
 /**
@@ -151,14 +139,14 @@ export async function getBarangayOfficialContact(barangay: string): Promise<{
   logo?: string | null;
 } | null> {
   try {
-    const allUsers = await db.list<DbUserRecord>('users');
+    const allUsers = await getUsersCached();
+    const normalizedBarangay = barangay.toUpperCase();
     const official = allUsers.find(
       user => user.role === 'brgy_official' && 
-      user.barangay?.toUpperCase() === barangay.toUpperCase()
+      user.barangay?.toUpperCase() === normalizedBarangay
     );
     
     if (!official) {
-      console.log(`⚠️ No barangay official found for ${barangay}`);
       return null;
     }
     
@@ -175,4 +163,12 @@ export async function getBarangayOfficialContact(barangay: string): Promise<{
     console.error('❌ Error getting barangay official contact:', error);
     return null;
   }
+}
+
+/**
+ * Clear caches - useful when data is updated
+ */
+export function clearOwnerApprovalCache() {
+  ownerApplicationsCache = { data: null, timestamp: 0 };
+  usersCache = { data: null, timestamp: 0 };
 }

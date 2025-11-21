@@ -126,6 +126,20 @@ export default function BookingStatusModal({
                 Monthly Rent: ₱{booking.monthlyRent?.toLocaleString() || '0'}
               </Text>
             </View>
+            {booking.advanceDepositMonths && booking.advanceDepositMonths > 0 && (
+              <View style={styles.propertyRow}>
+                <Coins size={16} color="#3B82F6" />
+                <Text style={styles.propertyText}>
+                  Advance Deposit: {booking.advanceDepositMonths} {booking.advanceDepositMonths === 1 ? 'month' : 'months'} (₱{((booking.advanceDepositMonths || 0) * (booking.monthlyRent || 0)).toLocaleString()})
+                </Text>
+              </View>
+            )}
+            <View style={styles.propertyRow}>
+              <Coins size={16} color="#10B981" />
+              <Text style={[styles.propertyText, { fontWeight: '600', color: '#10B981' }]}>
+                Total First Payment: ₱{booking.totalAmount?.toLocaleString() || booking.monthlyRent?.toLocaleString() || '0'}
+              </Text>
+            </View>
           </View>
 
           {/* Message */}

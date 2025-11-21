@@ -39,7 +39,14 @@ interface Message {
 export default function OwnerChatRoom() {
     const router = useRouter();
     const { user } = useAuth();
-    const { conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle } = useLocalSearchParams();
+    const params = useLocalSearchParams();
+    // Safely extract parameters, handling both array and string values
+    const conversationId = Array.isArray(params.conversationId) ? params.conversationId[0] : params.conversationId;
+    const ownerName = Array.isArray(params.ownerName) ? params.ownerName[0] : params.ownerName;
+    const tenantName = Array.isArray(params.tenantName) ? params.tenantName[0] : params.tenantName;
+    const ownerAvatar = Array.isArray(params.ownerAvatar) ? params.ownerAvatar[0] : params.ownerAvatar;
+    const tenantAvatar = Array.isArray(params.tenantAvatar) ? params.tenantAvatar[0] : params.tenantAvatar;
+    const propertyTitle = Array.isArray(params.propertyTitle) ? params.propertyTitle[0] : params.propertyTitle;
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -50,9 +57,35 @@ export default function OwnerChatRoom() {
     const [participantInfo, setParticipantInfo] = useState<{
         otherParticipantName: string;
         otherParticipantAvatar: string;
-    }>({
-        otherParticipantName: Array.isArray(tenantName) ? tenantName[0] : (tenantName || Array.isArray(ownerName) ? ownerName[0] : (ownerName || 'Unknown')),
-        otherParticipantAvatar: Array.isArray(tenantAvatar) ? tenantAvatar[0] : (tenantAvatar || Array.isArray(ownerAvatar) ? ownerAvatar[0] : (ownerAvatar || ''))
+    }>(() => {
+        // Safely extract tenant name
+        let name = 'Unknown';
+        if (Array.isArray(tenantName) && tenantName[0]) {
+            name = String(tenantName[0]);
+        } else if (tenantName && typeof tenantName === 'string') {
+            name = tenantName;
+        } else if (Array.isArray(ownerName) && ownerName[0]) {
+            name = String(ownerName[0]);
+        } else if (ownerName && typeof ownerName === 'string') {
+            name = ownerName;
+        }
+        
+        // Safely extract avatar
+        let avatar = '';
+        if (Array.isArray(tenantAvatar) && tenantAvatar[0]) {
+            avatar = String(tenantAvatar[0]);
+        } else if (tenantAvatar && typeof tenantAvatar === 'string') {
+            avatar = tenantAvatar;
+        } else if (Array.isArray(ownerAvatar) && ownerAvatar[0]) {
+            avatar = String(ownerAvatar[0]);
+        } else if (ownerAvatar && typeof ownerAvatar === 'string') {
+            avatar = ownerAvatar;
+        }
+        
+        return {
+            otherParticipantName: name,
+            otherParticipantAvatar: avatar
+        };
     });
     const [ownerId, setOwnerId] = useState<string | null>(null);
     const [tenantId, setTenantId] = useState<string | null>(null);
@@ -65,53 +98,78 @@ export default function OwnerChatRoom() {
     const scrollViewRef = useRef<ScrollView>(null);
 
     const loadParticipantInfo = useCallback(async () => {
-        if (!conversationId || !user?.id) return;
+        if (!conversationId || !user?.id || typeof conversationId !== 'string' || !user) return;
 
         try {
             // Get conversation to find the other participant
-            const conversation = await db.get('conversations', conversationId as string);
-            if (!conversation) {
-                console.warn('⚠️ Conversation not found:', conversationId);
+            const conversation = await db.get('conversations', conversationId);
+            if (!conversation || typeof conversation !== 'object') {
+                console.warn('⚠️ Conversation not found or invalid:', conversationId);
                 return;
             }
+            
+            const userId = user.id;
+            if (!userId) {
+                console.warn('⚠️ User ID is missing');
+                return;
+            }
+
+            // Check if this is a barangay conversation
+            const isBrgyConversation = (conversation as any).isBrgyConversation === true;
+            const barangay = (conversation as any).barangay || '';
 
             // Store owner ID and determine if current user is owner
             const conversationOwnerId = conversation.ownerId || conversation.owner_id;
             const conversationTenantId = conversation.tenantId || conversation.tenant_id;
-            setOwnerId(conversationOwnerId);
-            setTenantId(conversationTenantId);
-            setIsCurrentUserOwner(user.id === conversationOwnerId);
+            setOwnerId(conversationOwnerId || null);
+            setTenantId(conversationTenantId || null);
+            setIsCurrentUserOwner(userId === conversationOwnerId);
 
             // Find the other participant (not the current user)
-            const otherParticipantId = conversation.participantIds?.find((id: string) => id !== user.id) || 
-                                     (conversation.ownerId === user.id ? conversation.tenantId : conversation.ownerId);
+            // Safely check if participantIds is an array before using .find()
+            const participantIds = Array.isArray(conversation.participantIds) 
+                ? conversation.participantIds 
+                : (Array.isArray((conversation as any).participant_ids) 
+                    ? (conversation as any).participant_ids 
+                    : []);
+            const otherParticipantId = participantIds.find((id: string) => id !== userId) || 
+                                     (conversation.ownerId === userId ? conversation.tenantId : conversation.ownerId);
 
             if (otherParticipantId) {
                 // Get the other participant's details from users table
                 const otherParticipant = await db.get('users', otherParticipantId);
                 if (otherParticipant) {
-                    // Prioritize business name over owner name, with proper capitalization
-                    const businessName = (otherParticipant as any).businessName;
-                    const ownerName = (otherParticipant as any).name;
-                    
                     let participantName = 'Unknown User';
-                    if (businessName && businessName.trim()) {
-                        // Use business name if available
-                        participantName = businessName.trim();
-                    } else if (ownerName && ownerName.trim()) {
-                        // Fall back to owner name if no business name
-                        participantName = ownerName.trim();
+                    
+                    // For barangay conversations, use the barangay official's name
+                    if (isBrgyConversation) {
+                        const brgyName = (otherParticipant as any).name || `Barangay ${barangay} Official`;
+                        participantName = barangay ? `${brgyName} - ${barangay}` : brgyName;
+                    } else {
+                        // Prioritize business name over owner name, with proper capitalization
+                        const businessName = (otherParticipant as any).businessName;
+                        const ownerName = (otherParticipant as any).name;
+                        
+                        if (businessName && businessName.trim()) {
+                            // Use business name if available
+                            participantName = businessName.trim();
+                        } else if (ownerName && ownerName.trim()) {
+                            // Fall back to owner name if no business name
+                            participantName = ownerName.trim();
+                        }
+                        
+                        // Capitalize the name properly
+                        if (typeof participantName === 'string' && participantName.trim()) {
+                            participantName = participantName
+                                .split(' ')
+                                .map(word => word && word.length > 0 ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word)
+                                .join(' ');
+                        }
                     }
                     
-                    // Capitalize the name properly
-                    participantName = participantName
-                        .split(' ')
-                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                        .join(' ');
-                    
                     // Load tenant email and phone for tenant info modal
-                    // Only load if current user is owner (checking conversationOwnerId directly)
-                    if (user.id === conversationOwnerId && conversationTenantId && otherParticipantId === conversationTenantId) {
+                    // Only load if current user is owner and it's not a barangay conversation
+                    if (!isBrgyConversation && userId === conversationOwnerId && conversationTenantId && otherParticipantId === conversationTenantId) {
                         const tenantEmailValue = (otherParticipant as any).email || '';
                         const tenantPhoneValue = (otherParticipant as any).phone || '';
                         setTenantEmail(tenantEmailValue);
@@ -149,11 +207,12 @@ export default function OwnerChatRoom() {
                         console.error('❌ Error loading participant profile photo:', photoError);
                         // Try fallback: query database directly
                         try {
-                            const allPhotos = await db.list('user_profile_photos');
-                            const tenantPhoto = allPhotos.find((photo: any) => {
+                            const allPhotos = await db.list('user_profile_photos') || [];
+                            const tenantPhoto = Array.isArray(allPhotos) ? allPhotos.find((photo: any) => {
+                                if (!photo || typeof photo !== 'object') return false;
                                 const photoUserId = photo.userId || photo.userid || '';
-                                return photoUserId === otherParticipantId && photo.photoData && photo.photoData.trim() !== '';
-                            });
+                                return photoUserId === otherParticipantId && photo.photoData && typeof photo.photoData === 'string' && photo.photoData.trim() !== '';
+                            }) : undefined;
                             
                             if (tenantPhoto) {
                                 const photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
@@ -226,21 +285,31 @@ export default function OwnerChatRoom() {
     }, [conversationId, user?.id, tenantName]);
 
     const loadMessages = useCallback(async () => {
-        if (!conversationId || !user?.id) {
+        if (!conversationId || !user?.id || typeof conversationId !== 'string' || !user) {
             setLoading(false);
             return;
         }
+        
+        const userId = user.id;
 
         try {
             setLoading(true);
             console.log('🔄 Loading messages for conversation:', conversationId);
 
             // Get all messages for this conversation
-            const allMessages = await db.list('messages');
-            const conversationMessages = allMessages.filter((msg: any) => {
+            const allMessages = await db.list('messages') || [];
+            // Get conversation to check if it's a barangay conversation
+            const conversation = await db.get('conversations', conversationId);
+            const isBrgyConversation = conversation && typeof conversation === 'object' && (conversation as any).isBrgyConversation === true;
+            
+            const conversationMessages = (Array.isArray(allMessages) ? allMessages : []).filter((msg: any) => {
                 // Check both conversationId and conversation_id for compatibility
                 const msgConversationId = msg.conversationId || msg.conversation_id;
-                return msgConversationId === conversationId;
+                if (msgConversationId !== conversationId) return false;
+                
+                // For barangay conversations, include notifications; for regular, exclude them
+                const msgType = msg.type || 'message';
+                return isBrgyConversation || msgType !== 'notification';
             });
             
             console.log(`📨 Found ${conversationMessages.length} total messages for conversation ${conversationId}`);
@@ -256,20 +325,27 @@ export default function OwnerChatRoom() {
             });
 
             // Sort by creation time
-            conversationMessages.sort((a: any, b: any) => 
-                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
+            if (Array.isArray(conversationMessages)) {
+                conversationMessages.sort((a: any, b: any) => {
+                    const timeA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+                    const timeB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+                    return timeA - timeB;
+                });
+            }
 
-            // Get conversation to determine owner
-            const conversation = await db.get('conversations', conversationId as string);
+            // Use the conversation we already fetched
             const conversationOwnerId = conversation?.ownerId || conversation?.owner_id;
             
             // Convert to UI format
-            const uiMessages: Message[] = conversationMessages.map((msg: any) => {
+            const uiMessages: Message[] = (Array.isArray(conversationMessages) ? conversationMessages : []).map((msg: any) => {
+                if (!msg || typeof msg !== 'object') {
+                    console.warn('⚠️ Invalid message object:', msg);
+                    return null;
+                }
                 const messageType = msg.type || 'message';
                 console.log(`🔄 Converting message ${msg.id}: type="${messageType}"`);
                 return {
-                    id: msg.id,
+                    id: msg.id || '',
                     text: msg.text || '',
                     senderId: msg.senderId || msg.sender_id || '',
                     createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
@@ -279,7 +355,7 @@ export default function OwnerChatRoom() {
                     imageWidth: msg.imageWidth || msg.image_width,
                     imageHeight: msg.imageHeight || msg.image_height
                 };
-            });
+            }).filter((msg): msg is Message => msg !== null);
 
             setMessages(uiMessages);
             console.log(`✅ Loaded ${uiMessages.length} messages`);
@@ -353,9 +429,12 @@ export default function OwnerChatRoom() {
     };
 
     const sendImageMessage = async (imageAsset: ImagePicker.ImagePickerAsset) => {
-        if (!conversationId || !user?.id || sending) {
+        if (!conversationId || !user?.id || sending || typeof conversationId !== 'string' || !user) {
             return;
         }
+
+        const userId = user.id;
+        if (!userId) return;
 
         try {
             setSending(true);
@@ -366,7 +445,7 @@ export default function OwnerChatRoom() {
             const messageRecord = {
                 id: messageId,
                 conversationId: conversationId,
-                senderId: user.id,
+                senderId: userId,
                 text: '', // Empty text for image messages
                 createdAt: now,
                 type: 'image',
@@ -382,13 +461,13 @@ export default function OwnerChatRoom() {
             let conversation = null;
             let isCurrentUserOwner = false;
             try {
-                conversation = await db.get('conversations', conversationId as string);
-                if (conversation) {
+                conversation = await db.get('conversations', conversationId);
+                if (conversation && typeof conversation === 'object') {
                     const conversationOwnerId = conversation.ownerId || conversation.owner_id;
-                    isCurrentUserOwner = user.id === conversationOwnerId;
+                    isCurrentUserOwner = userId === conversationOwnerId;
                     
-                    await db.upsert('conversations', conversationId as string, {
-                        ...conversation,
+                    await db.upsert('conversations', conversationId, {
+                        ...(conversation || {}),
                         lastMessageText: '📷 Image',
                         lastMessageAt: now,
                         unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
@@ -404,16 +483,16 @@ export default function OwnerChatRoom() {
             const newMsg: Message = {
                 id: messageId,
                 text: '',
-                senderId: user.id,
+                senderId: userId,
                 createdAt: now,
                 isOwner: isCurrentUserOwner,
                 type: 'image',
-                imageUri: imageAsset.uri,
-                imageWidth: imageAsset.width,
-                imageHeight: imageAsset.height
+                imageUri: imageAsset?.uri,
+                imageWidth: imageAsset?.width,
+                imageHeight: imageAsset?.height
             };
 
-            setMessages(prev => [...prev, newMsg]);
+            setMessages(prev => Array.isArray(prev) ? [...prev, newMsg] : [newMsg]);
 
             // Scroll to bottom
             setTimeout(() => {
@@ -430,12 +509,18 @@ export default function OwnerChatRoom() {
     };
 
     const deleteMessage = async (message: Message) => {
-        if (!message || !user?.id || message.senderId !== user.id) {
+        if (!message || !user?.id || !user) {
+            console.log('⚠️ Cannot delete message: missing user or message');
+            return;
+        }
+        
+        const userId = user.id;
+        if (message.senderId !== userId) {
             console.log('⚠️ Cannot delete message:', { 
                 hasMessage: !!message, 
-                userId: user?.id, 
+                userId: userId, 
                 messageSenderId: message?.senderId,
-                canDelete: message?.senderId === user?.id 
+                canDelete: message?.senderId === userId 
             });
             return;
         }
@@ -447,19 +532,23 @@ export default function OwnerChatRoom() {
             await db.remove('messages', message.id);
             
             // Remove message from local state
-            setMessages(prev => prev.filter(msg => msg.id !== message.id));
+            setMessages(prev => Array.isArray(prev) ? prev.filter(msg => msg && msg.id !== message.id) : []);
             
             // Update conversation's last message if this was the last message
-            const remainingMessages = messages.filter(msg => msg.id !== message.id);
+            const remainingMessages = Array.isArray(messages) ? messages.filter(msg => msg && msg.id !== message.id) : [];
             if (remainingMessages.length > 0) {
                 const lastMessage = remainingMessages[remainingMessages.length - 1];
-                const lastMessageText = lastMessage.type === 'image' ? '📷 Image' : lastMessage.text;
+                if (!lastMessage || typeof lastMessage !== 'object') {
+                    console.warn('⚠️ Invalid last message after deletion');
+                    return;
+                }
+                const lastMessageText = lastMessage.type === 'image' ? '📷 Image' : (lastMessage.text || '');
                 
                 try {
-                    const conversation = await db.get('conversations', conversationId as string);
-                    if (conversation) {
-                        await db.upsert('conversations', conversationId as string, {
-                            ...conversation,
+                    const conversation = await db.get('conversations', conversationId);
+                    if (conversation && typeof conversation === 'object' && typeof conversationId === 'string') {
+                        await db.upsert('conversations', conversationId, {
+                            ...(conversation || {}),
                             lastMessageText: lastMessageText,
                             lastMessageAt: lastMessage.createdAt,
                             updatedAt: new Date().toISOString()
@@ -498,7 +587,10 @@ export default function OwnerChatRoom() {
     };
 
     const sendMessage = async () => {
-        if (!newMessage.trim() || !conversationId || !user?.id || sending) return;
+        if (!newMessage.trim() || !conversationId || !user?.id || sending || typeof conversationId !== 'string' || !user) return;
+
+        const userId = user.id;
+        if (!userId) return;
 
         try {
             setSending(true);
@@ -509,7 +601,7 @@ export default function OwnerChatRoom() {
             const messageRecord = {
                 id: messageId,
                 conversationId: conversationId,
-                senderId: user.id,
+                senderId: userId,
                 text: newMessage.trim(),
                 createdAt: now,
                 type: 'message'
@@ -522,13 +614,13 @@ export default function OwnerChatRoom() {
             let conversation = null;
             let isCurrentUserOwner = false;
             try {
-                conversation = await db.get('conversations', conversationId as string);
-                if (conversation) {
+                conversation = await db.get('conversations', conversationId);
+                if (conversation && typeof conversation === 'object') {
                     const conversationOwnerId = conversation.ownerId || conversation.owner_id;
-                    isCurrentUserOwner = user.id === conversationOwnerId;
+                    isCurrentUserOwner = userId === conversationOwnerId;
                     
-                    await db.upsert('conversations', conversationId as string, {
-                        ...conversation,
+                    await db.upsert('conversations', conversationId, {
+                        ...(conversation || {}),
                         lastMessageText: newMessage.trim(),
                         lastMessageAt: now,
                         unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
@@ -544,13 +636,13 @@ export default function OwnerChatRoom() {
             const newMsg: Message = {
                 id: messageId,
                 text: newMessage.trim(),
-                senderId: user.id,
+                senderId: userId,
                 createdAt: now,
                 isOwner: isCurrentUserOwner,
                 type: 'message'
             };
 
-            setMessages(prev => [...prev, newMsg]);
+            setMessages(prev => Array.isArray(prev) ? [...prev, newMsg] : [newMsg]);
             setNewMessage('');
 
             // Scroll to bottom
@@ -642,7 +734,8 @@ export default function OwnerChatRoom() {
                 {/* Show avatar for other user's messages (on the left) */}
                 {!isCurrentUser && (
                     <View style={styles.avatarLeft}>
-                        {participantInfo.otherParticipantAvatar && 
+                        {participantInfo?.otherParticipantAvatar && 
+                         typeof participantInfo.otherParticipantAvatar === 'string' &&
                          participantInfo.otherParticipantAvatar.trim() && 
                          participantInfo.otherParticipantAvatar.length > 10 ? (
                             <Image 
@@ -655,7 +748,7 @@ export default function OwnerChatRoom() {
                         ) : (
                             <View style={styles.avatar}>
                                 <Text style={styles.avatarText}>
-                                    {(participantInfo.otherParticipantName || 'U').charAt(0).toUpperCase()}
+                                    {(participantInfo?.otherParticipantName || 'U').charAt(0).toUpperCase()}
                                 </Text>
                             </View>
                         )}
@@ -733,18 +826,18 @@ export default function OwnerChatRoom() {
                 
                 <View style={styles.headerInfo}>
                     <View style={styles.avatarContainer}>
-                        {participantInfo.otherParticipantAvatar ? (
+                        {participantInfo?.otherParticipantAvatar && typeof participantInfo.otherParticipantAvatar === 'string' ? (
                             <Image source={{ uri: participantInfo.otherParticipantAvatar }} style={styles.headerAvatar} />
                         ) : (
                             <View style={styles.headerAvatarFallback}>
                                 <Text style={styles.headerAvatarText}>
-                                    {participantInfo.otherParticipantName.charAt(0).toUpperCase()}
+                                    {(participantInfo?.otherParticipantName || 'U').charAt(0).toUpperCase()}
                                 </Text>
                             </View>
                         )}
                     </View>
                     <View style={styles.headerText}>
-                        <Text style={styles.headerName}>{participantInfo.otherParticipantName}</Text>
+                        <Text style={styles.headerName}>{participantInfo?.otherParticipantName || 'Unknown'}</Text>
                         {propertyTitle && (
                             <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
                         )}
@@ -769,16 +862,17 @@ export default function OwnerChatRoom() {
             >
                 {/* Sticky Payment Methods Banner */}
                 <View pointerEvents="box-none" style={styles.paymentBannerSticky}>
-                    {ownerId && tenantId && (
+                    {ownerId && tenantId && typeof ownerId === 'string' && typeof tenantId === 'string' && (
                       <PaymentMethodsDisplay 
                         ownerId={ownerId} 
                         tenantId={tenantId}
                         isCurrentUserOwner={isCurrentUserOwner}
                         onVisibilityChange={(visible) => {
                             try {
-                                // @ts-ignore - local state not typed here
-                                setPaymentBannerVisible && setPaymentBannerVisible(visible);
-                            } catch {}
+                                setPaymentBannerVisible(visible);
+                            } catch (error) {
+                                console.warn('Error setting payment banner visibility:', error);
+                            }
                         }}
                       />
                     )}
@@ -799,7 +893,9 @@ export default function OwnerChatRoom() {
                             <Text style={styles.emptyStateText}>Start a conversation</Text>
                         </View>
                     ) : (
-                        messages.map((message, index) => renderMessage(message, index))
+                        (Array.isArray(messages) ? messages : [])
+                            .filter((message): message is Message => message != null && typeof message === 'object' && !!message.id)
+                            .map((message, index) => renderMessage(message, index))
                     )}
                 </ScrollView>
 
@@ -922,11 +1018,11 @@ export default function OwnerChatRoom() {
             {isCurrentUserOwner && tenantId && (
                 <TenantInfoModal
                     visible={tenantInfoModalVisible}
-                    tenantId={tenantId}
-                    tenantName={participantInfo.otherParticipantName}
+                    tenantId={tenantId || ''}
+                    tenantName={participantInfo?.otherParticipantName || 'Unknown'}
                     tenantEmail={tenantEmail}
                     tenantPhone={tenantPhone}
-                    tenantAvatar={participantInfo.otherParticipantAvatar}
+                    tenantAvatar={participantInfo?.otherParticipantAvatar || ''}
                     onClose={() => setTenantInfoModalVisible(false)}
                 />
             )}

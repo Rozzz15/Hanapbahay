@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -9,22 +9,41 @@ import BrgyBottomNav from '../../components/BrgyBottomNav';
 export default function BrgyLayout() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const hasCheckedRef = useRef(false);
+  const isRedirectingRef = useRef(false);
+
+  // Reset refs when user changes
+  useEffect(() => {
+    hasCheckedRef.current = false;
+    isRedirectingRef.current = false;
+  }, [user?.id]);
 
   useEffect(() => {
-    if (!isLoading) {
+    const checkBrgyAccess = () => {
+      // Prevent multiple simultaneous checks
+      if (hasCheckedRef.current || isRedirectingRef.current || isLoading) {
+        return;
+      }
+
       if (!user) {
         console.log('🚫 Brgy layout: No user found, redirecting to login');
+        isRedirectingRef.current = true;
         router.replace('/login');
         return;
       }
       
       if (!user.roles?.includes('brgy_official')) {
         console.log('🚫 Brgy layout: User does not have brgy_official role, redirecting to tenant tabs');
+        isRedirectingRef.current = true;
         router.replace('/(tabs)');
         return;
       }
-    }
-  }, [user, isLoading, router]);
+
+      hasCheckedRef.current = true;
+    };
+
+    checkBrgyAccess();
+  }, [user?.id, isLoading, router]);
 
   if (isLoading) {
     return (

@@ -29,7 +29,6 @@ interface BookingInfo {
   ownerPhone: string;
   totalAmount: number;
   monthlyRent: number;
-  securityDeposit: number;
   startDate: string;
   endDate: string;
   status: string;
@@ -266,19 +265,23 @@ export default function PaymentMethods() {
                   </View>
                 )}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Monthly Rent:</Text>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>First Month's Rent:</Text>
                   <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.sm, fontWeight: '600' }]}>
                     {formatCurrency(booking.monthlyRent)}
                   </Text>
                 </View>
+                {booking.advanceDepositMonths && booking.advanceDepositMonths > 0 && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>
+                      Advance Deposit ({booking.advanceDepositMonths} {booking.advanceDepositMonths === 1 ? 'month' : 'months'}):
+                    </Text>
+                    <Text style={[sharedStyles.statLabel, { color: designTokens.colors.info, fontSize: designTokens.typography.sm, fontWeight: '600' }]}>
+                      {formatCurrency((booking.advanceDepositMonths || 0) * (booking.monthlyRent || 0))}
+                    </Text>
+                  </View>
+                )}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Security Deposit:</Text>
-                  <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.sm, fontWeight: '600' }]}>
-                    {formatCurrency(booking.securityDeposit)}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Total Amount:</Text>
+                  <Text style={[sharedStyles.statSubtitle, { fontSize: designTokens.typography.sm }]}>Total First Payment:</Text>
                   <Text style={[sharedStyles.statLabel, { color: designTokens.colors.primary, fontSize: designTokens.typography.base, fontWeight: 'bold' }]}>
                     {formatCurrency(booking.totalAmount)}
                   </Text>

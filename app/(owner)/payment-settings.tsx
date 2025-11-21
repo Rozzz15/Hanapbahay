@@ -22,7 +22,7 @@ import {
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
 import * as ImagePicker from 'expo-image-picker';
-import { extractAccountInfoFromQRCode, parseQRPHCode } from '../../utils/qr-code-generator';
+import { parseQRPHCode } from '../../utils/qr-code-generator';
 
 interface PaymentAccount {
   id: string;
@@ -61,8 +61,6 @@ export default function PaymentSettings() {
     accountDetails: '',
     qrCodeImageUri: '' as string | undefined
   });
-  const [qrCodeDataInput, setQrCodeDataInput] = useState('');
-  const [parsingQRCode, setParsingQRCode] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -385,7 +383,7 @@ export default function PaymentSettings() {
           } else {
             Alert.alert(
               'QR Code Decoding Failed',
-              'Could not automatically decode the QR code. Please scan it with your phone\'s camera app or a QR reader app, copy the data, and paste it in the "QR Code Data" field below.',
+              'Could not automatically decode the QR code. Please try uploading the image again or manually enter the account information.',
               [{ text: 'OK' }]
             );
           }
@@ -393,7 +391,7 @@ export default function PaymentSettings() {
           console.error('Error decoding QR code:', error);
           Alert.alert(
             'Error',
-            'Failed to decode QR code. Please try manually entering the account information or paste the QR code data in the field below.',
+            'Failed to decode QR code. Please try uploading the image again or manually enter the account information.',
             [{ text: 'OK' }]
           );
         }
@@ -406,7 +404,6 @@ export default function PaymentSettings() {
 
   const handleRemoveQRCode = () => {
     setFormData(prev => ({ ...prev, qrCodeImageUri: undefined, qrCodeData: undefined }));
-    setQrCodeDataInput('');
   };
 
   const handleAutoFillFromQRCode = (qrData: string, parsed: any) => {
@@ -424,61 +421,6 @@ export default function PaymentSettings() {
     );
   };
 
-  const handleParseQRCodeData = async () => {
-    if (!qrCodeDataInput.trim()) {
-      Alert.alert('Input Required', 'Please paste the QR code data string.');
-      return;
-    }
-
-    setParsingQRCode(true);
-    try {
-      // Parse the QR-PH code
-      const parsed = parseQRPHCode(qrCodeDataInput.trim());
-      
-      if (!parsed || !parsed.isValid) {
-        Alert.alert(
-          'Invalid QR Code',
-          'The QR code data is not in QR-PH format or is invalid. Please make sure you copied the complete QR code data string.'
-        );
-        setParsingQRCode(false);
-        return;
-      }
-
-      // Validate GUID matches account type
-      const expectedGUID = formData.type === 'gcash' ? '01' : '02';
-      if (parsed.guid !== expectedGUID) {
-        Alert.alert(
-          'QR Code Mismatch',
-          `This QR code is for ${parsed.guid === '01' ? 'GCash' : 'PayMaya'}, but your account type is set to ${formData.type === 'gcash' ? 'GCash' : 'PayMaya'}. Please change the account type or use the correct QR code.`
-        );
-        setParsingQRCode(false);
-        return;
-      }
-
-      // Store QR code data without auto-filling account information
-      // This allows the user to keep their manually entered account details
-      // while using the QR code structure for accurate dynamic QR generation
-      setFormData(prev => ({
-        ...prev,
-        qrCodeData: qrCodeDataInput.trim() // Store the QR code data for accurate dynamic QR generation
-      }));
-
-      Alert.alert(
-        'QR Code Data Stored',
-        'The QR code data has been successfully stored and will be used to generate accurate dynamic QR codes. Your manually entered account information will be preserved.'
-      );
-      
-      setQrCodeDataInput(''); // Clear input after successful parsing
-    } catch (error) {
-      console.error('Error parsing QR code:', error);
-      Alert.alert(
-        'Error',
-        'Failed to parse QR code data. Please make sure the data is correct and try again.'
-      );
-    } finally {
-      setParsingQRCode(false);
-    }
-  };
 
   // Dedicated handler for opening the add form
   const handleOpenAddForm = useCallback(() => {
@@ -602,17 +544,13 @@ export default function PaymentSettings() {
 
         <View style={sharedStyles.formGroup}>
           <Text style={sharedStyles.formLabel}>
-            {formData.type === 'cash' ? 'Payment Method Name *' : 'Account Name / Label *'}
+            {formData.type === 'cash' ? 'Payment Method Name *' : 'Account Name *'}
           </Text>
-          <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs, fontSize: 12, color: designTokens.colors.textMuted }]}>
-            {formData.type === 'cash' 
-              ? 'Give this payment method a name (e.g., "Property Office", "Main Entrance", "Owner - Juan dela Cruz")'
-              : formData.type === 'gcash' || formData.type === 'paymaya'
-              ? 'Account holder name or label (e.g., "Juan dela Cruz", "Property Management Office", "Main GCash Account")'
-              : formData.type === 'bank_transfer'
-              ? 'Account holder name or label (e.g., "Juan dela Cruz", "ABC Property Management", "Savings Account")'
-              : 'Account holder name or label'}
-          </Text>
+          {formData.type === 'cash' && (
+            <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs, fontSize: 12, color: designTokens.colors.textMuted }]}>
+              Give this payment method a name (e.g., "Property Office", "Main Entrance", "Owner - Juan dela Cruz")
+            </Text>
+          )}
           <TextInput
             style={sharedStyles.formInput}
             placeholder={
@@ -664,48 +602,6 @@ export default function PaymentSettings() {
               <Text style={{ fontWeight: '600', color: designTokens.colors.primary }}>Important:</Text> When selecting the image, <Text style={{ fontWeight: '600' }}>crop it to show only the QR code</Text> (not the entire screen or background). This ensures accurate decoding and dynamic QR code generation.
             </Text>
             
-            {/* QR Code Data Input - For auto-filling account info */}
-            <View style={{ marginTop: designTokens.spacing.md, marginBottom: designTokens.spacing.sm }}>
-              <Text style={[sharedStyles.formLabel, { marginBottom: designTokens.spacing.xs, fontSize: 13 }]}>
-                QR Code Data (Optional - for auto-fill)
-              </Text>
-              <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.sm, fontSize: 11 }]}>
-                Scan the QR code with your phone's camera app or a QR reader app, copy the data string, and paste it here to auto-fill account information.
-              </Text>
-              <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
-                <TextInput
-                  style={[
-                    sharedStyles.formInput,
-                    { flex: 1, fontSize: 12, fontFamily: 'monospace' }
-                  ]}
-                  placeholder="Paste QR code data string here..."
-                  value={qrCodeDataInput}
-                  onChangeText={setQrCodeDataInput}
-                  multiline
-                  numberOfLines={2}
-                />
-                <TouchableOpacity
-                  style={[
-                    sharedStyles.primaryButton,
-                    {
-                      paddingHorizontal: designTokens.spacing.md,
-                      paddingVertical: designTokens.spacing.sm,
-                      minWidth: 80,
-                      justifyContent: 'center',
-                      opacity: parsingQRCode ? 0.6 : 1
-                    }
-                  ]}
-                  onPress={handleParseQRCodeData}
-                  disabled={parsingQRCode || !qrCodeDataInput.trim()}
-                >
-                  {parsingQRCode ? (
-                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 12 }]}>Parsing...</Text>
-                  ) : (
-                    <Text style={[sharedStyles.primaryButtonText, { fontSize: 12 }]}>Parse</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
             {formData.qrCodeImageUri ? (
               <View style={{ position: 'relative', marginTop: designTokens.spacing.sm }}>
                 <Image

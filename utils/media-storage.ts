@@ -126,7 +126,7 @@ export const savePropertyMedia = async (
         listingId,
         userId,
         photoUri: media.coverPhoto,
-        photoData: media.coverPhoto, // Store base64 data for persistence
+        // Don't store photoData to avoid AsyncStorage size issues - URIs are sufficient
         fileName: `cover_photo_${Date.now()}.jpg`,
         fileSize: 0, // Will be calculated if needed
         mimeType: 'image/jpeg',
@@ -147,7 +147,7 @@ export const savePropertyMedia = async (
           listingId,
           userId,
           photoUri,
-          photoData: photoUri, // Store base64 data for persistence
+          // Don't store photoData to avoid AsyncStorage size issues - URIs are sufficient
           fileName: `property_photo_${i}_${Date.now()}.jpg`,
           fileSize: 0,
           mimeType: 'image/jpeg',

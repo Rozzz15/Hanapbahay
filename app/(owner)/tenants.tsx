@@ -74,6 +74,17 @@ export default function TenantsPage() {
 
     try {
       setLoading(true);
+      
+      // Process termination countdown in background
+      try {
+        const { processTerminationCountdown } = await import('../../utils/advance-deposit');
+        processTerminationCountdown().catch(err => {
+          console.log('Termination countdown processing completed (background)');
+        });
+      } catch (err) {
+        // Silently fail
+      }
+      
       const tenants = await getTenantsByOwner(user.id);
       setListingsWithTenants(tenants);
       console.log(`✅ Loaded ${tenants.length} listings with tenants`);
@@ -107,47 +118,22 @@ export default function TenantsPage() {
             let payments = await getRentPaymentsByBooking(tenant.bookingId);
             
             // If tenant has no payment history but their booking is marked as paid,
-            // automatically create the first manual payment record
+            // automatically create the first payment record with advance deposit
             if (payments.length === 0 && tenant.paymentStatus === 'paid') {
               try {
-                const { generateId } = await import('../../utils/db');
-                const booking = await db.get<BookingRecord>('bookings', tenant.bookingId);
+                const { createOrUpdateFirstPaymentForPaidBooking } = await import('../../utils/booking');
+                const result = await createOrUpdateFirstPaymentForPaidBooking(tenant.bookingId, user.id);
                 
-                if (booking) {
-                  const startDate = new Date(booking.startDate);
-                  const paymentMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
-                  const now = new Date();
-                  const paidDate = now.toISOString();
-                  
-                  // Create initial booking payment record
-                  const initialPayment: RentPaymentRecord = {
-                    id: generateId('rent_payment'),
-                    bookingId: booking.id,
-                    tenantId: booking.tenantId,
-                    ownerId: booking.ownerId,
-                    propertyId: booking.propertyId,
-                    amount: booking.monthlyRent || booking.totalAmount,
-                    lateFee: 0,
-                    totalAmount: booking.totalAmount,
-                    paymentMonth: paymentMonth,
-                    dueDate: booking.startDate,
-                    paidDate: paidDate,
-                    status: 'paid',
-                    paymentMethod: booking.selectedPaymentMethod || 'Manual',
-                    receiptNumber: `INITIAL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-                    notes: 'Initial booking payment',
-                    createdAt: paidDate,
-                    updatedAt: paidDate,
-                  };
-                  
-                  await db.upsert('rent_payments', initialPayment.id, initialPayment);
-                  console.log('✅ Auto-created initial payment record for tenant:', tenant.tenantName, initialPayment.id);
+                if (result.success) {
+                  console.log('✅ Auto-created first payment record with advance deposit for tenant:', tenant.tenantName, result.paymentId);
                   
                   // Reload payments to include the newly created one
                   payments = await getRentPaymentsByBooking(tenant.bookingId);
+                } else {
+                  console.error('❌ Error auto-creating first payment record:', result.error);
                 }
               } catch (paymentError) {
-                console.error('❌ Error auto-creating initial payment record:', paymentError);
+                console.error('❌ Error auto-creating first payment record:', paymentError);
                 // Don't fail the whole operation if payment creation fails
               }
             }
@@ -796,6 +782,25 @@ export default function TenantsPage() {
                               <View style={styles.slotBadge}>
                                 <Text style={styles.slotBadgeText}>Slot #{tenant.slotNumber}</Text>
                               </View>
+                              {tenant.status && tenant.status.includes('terminating') && (
+                                <View style={{
+                                  backgroundColor: designTokens.colors.warningLight,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderRadius: 12,
+                                  borderWidth: 1,
+                                  borderColor: designTokens.colors.warning,
+                                  marginLeft: 8,
+                                }}>
+                                  <Text style={{
+                                    fontSize: 10,
+                                    fontWeight: '600',
+                                    color: designTokens.colors.warning,
+                                  }}>
+                                    {tenant.status}
+                                  </Text>
+                                </View>
+                              )}
                             </View>
                           </TouchableOpacity>
                           <TouchableOpacity
@@ -855,8 +860,9 @@ export default function TenantsPage() {
                             // Advance payments should only show when they're awaiting confirmation, not as pending
                             // Rejected payments should not show as pending
                             const pendingPayments = payments.filter(p => {
-                              // Don't count rejected payments as pending
-                              if (p.status === 'rejected') return false;
+                              // Don't count payments that are marked as rejected (check rejectedAt field)
+                              // Note: Rejected payments now have status 'pending' or 'overdue' but are marked by rejectedAt
+                              if ((p as any).rejectedAt && p.status !== 'paid') return false;
                               if (p.status === 'pending' || p.status === 'overdue') {
                                 // Check if this is an advance payment (future month)
                                 const paymentMonth = new Date(p.paymentMonth + '-01');
@@ -868,7 +874,8 @@ export default function TenantsPage() {
                             });
                             const paidPayments = payments.filter(p => p.status === 'paid');
                             const overduePayments = payments.filter(p => p.status === 'overdue');
-                            const rejectedPayments = payments.filter(p => p.status === 'rejected');
+                            // Check for rejectedAt field instead of status, since rejected payments now have status 'pending' or 'overdue'
+                            const rejectedPayments = payments.filter(p => (p as any).rejectedAt && p.status !== 'paid');
                             const pendingConfirmationPayments = payments.filter(p => p.status === 'pending_owner_confirmation');
                             
                             if (payments.length === 0) {
@@ -1098,32 +1105,37 @@ export default function TenantsPage() {
                     <View key={payment.id} style={styles.paymentHistoryCard}>
                       <View style={styles.paymentHistoryHeader}>
                         <View style={styles.paymentHistoryHeaderLeft}>
-                          <View style={[
-                            styles.paymentHistoryStatusBadge,
-                            payment.status === 'paid' && styles.paymentHistoryStatusBadgePaid,
-                            payment.status === 'pending' && styles.paymentHistoryStatusBadgePending,
-                            payment.status === 'overdue' && styles.paymentHistoryStatusBadgeOverdue,
-                            payment.status === 'pending_owner_confirmation' && styles.paymentHistoryStatusBadgePending,
-                            payment.status === 'rejected' && styles.paymentHistoryStatusBadgeRejected,
-                          ]}>
-                            {payment.status === 'paid' && <CheckCircle size={14} color="#10B981" />}
-                            {payment.status === 'pending' && <Clock size={14} color="#F59E0B" />}
-                            {payment.status === 'overdue' && <XCircle size={14} color="#EF4444" />}
-                            {payment.status === 'pending_owner_confirmation' && <AlertCircle size={14} color="#F59E0B" />}
-                            {payment.status === 'rejected' && <XCircle size={14} color="#EF4444" />}
-                            <Text style={[
-                              styles.paymentHistoryStatusText,
-                              payment.status === 'paid' && styles.paymentHistoryStatusTextPaid,
-                              payment.status === 'pending' && styles.paymentHistoryStatusTextPending,
-                              payment.status === 'overdue' && styles.paymentHistoryStatusTextOverdue,
-                              payment.status === 'pending_owner_confirmation' && styles.paymentHistoryStatusTextPending,
-                              payment.status === 'rejected' && styles.paymentHistoryStatusTextRejected,
-                            ]}>
-                              {payment.status === 'pending_owner_confirmation' ? 'Pending Confirmation' : 
-                               payment.status === 'rejected' ? 'Rejected' :
-                               payment.status.toUpperCase()}
-                            </Text>
-                          </View>
+                          {(() => {
+                            const wasRejected = (payment as any).rejectedAt && payment.status !== 'paid';
+                            return (
+                              <View style={[
+                                styles.paymentHistoryStatusBadge,
+                                payment.status === 'paid' && styles.paymentHistoryStatusBadgePaid,
+                                payment.status === 'pending' && styles.paymentHistoryStatusBadgePending,
+                                payment.status === 'overdue' && styles.paymentHistoryStatusBadgeOverdue,
+                                payment.status === 'pending_owner_confirmation' && styles.paymentHistoryStatusBadgePending,
+                                (payment.status === 'rejected' || wasRejected) && styles.paymentHistoryStatusBadgeRejected,
+                              ]}>
+                                {payment.status === 'paid' && <CheckCircle size={14} color="#10B981" />}
+                                {payment.status === 'pending' && !wasRejected && <Clock size={14} color="#F59E0B" />}
+                                {payment.status === 'overdue' && !wasRejected && <XCircle size={14} color="#EF4444" />}
+                                {payment.status === 'pending_owner_confirmation' && <AlertCircle size={14} color="#F59E0B" />}
+                                {(payment.status === 'rejected' || wasRejected) && <XCircle size={14} color="#EF4444" />}
+                                <Text style={[
+                                  styles.paymentHistoryStatusText,
+                                  payment.status === 'paid' && styles.paymentHistoryStatusTextPaid,
+                                  payment.status === 'pending' && !wasRejected && styles.paymentHistoryStatusTextPending,
+                                  payment.status === 'overdue' && !wasRejected && styles.paymentHistoryStatusTextOverdue,
+                                  payment.status === 'pending_owner_confirmation' && styles.paymentHistoryStatusTextPending,
+                                  (payment.status === 'rejected' || wasRejected) && styles.paymentHistoryStatusTextRejected,
+                                ]}>
+                                  {payment.status === 'pending_owner_confirmation' ? 'Pending Confirmation' : 
+                                   (payment.status === 'rejected' || wasRejected) ? 'Rejected' :
+                                   payment.status.toUpperCase()}
+                                </Text>
+                              </View>
+                            );
+                          })()}
                           <Text style={styles.paymentHistoryAmount}>
                             ₱{payment.totalAmount.toLocaleString()}
                           </Text>
@@ -1187,7 +1199,7 @@ export default function TenantsPage() {
                       </View>
 
                       {/* Restore/Delete Buttons for Rejected Payments */}
-                      {payment.status === 'rejected' && (
+                      {((payment as any).rejectedAt && payment.status !== 'paid') && (
                         <View style={styles.paymentHistoryActionsContainer}>
                           <Text style={styles.paymentHistoryActionsTitle}>
                             ⚠️ This payment was previously rejected

@@ -260,7 +260,8 @@ export default function BrgyDashboard() {
     };
 
     loadInitialData();
-  }, [user, loadDashboardData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]); // Only depend on user.id to prevent multiple calls
 
   // Reload data when screen comes into focus (e.g., returning from settings)
   useFocusEffect(
@@ -286,6 +287,14 @@ export default function BrgyDashboard() {
       };
       
       await db.upsert('owner_applications', application.id, updatedApplication);
+      
+      // Clear approval cache
+      try {
+        const { clearOwnerApprovalCache } = await import('../../utils/owner-approval');
+        clearOwnerApprovalCache();
+      } catch (cacheError) {
+        // Ignore cache clearing errors
+      }
       
       // Update user role to owner
       const userRecord = await db.get<DbUserRecord>('users', application.userId);
@@ -343,6 +352,14 @@ export default function BrgyDashboard() {
               };
               
               await db.upsert('owner_applications', application.id, updatedApplication);
+              
+              // Clear approval cache
+              try {
+                const { clearOwnerApprovalCache } = await import('../../utils/owner-approval');
+                clearOwnerApprovalCache();
+              } catch (cacheError) {
+                // Ignore cache clearing errors
+              }
               
               // Delete notification if exists
               const notifications = await db.list<BrgyNotificationRecord>('brgy_notifications');

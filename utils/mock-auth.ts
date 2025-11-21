@@ -193,16 +193,64 @@ export const updateMockUser = async (userId: string, updates: Partial<{ email: s
     // Continue anyway - user might still be in memory
   }
   
-  // Find the user by id
-  for (const [email, userData] of mockUsers.entries()) {
-    if (userData.id === userId) {
-      const updatedUser = { ...userData, ...updates };
-      mockUsers.set(email, updatedUser);
-      console.log('✅ Updated mock user:', email, updatedUser);
+  // Check if email is being updated
+  const isEmailUpdate = updates.email && updates.email.trim();
+  
+  if (isEmailUpdate) {
+    // Email is the key, so we need to find by userId, remove old email entry, and add new email entry
+    let oldEmailKey: string | null = null;
+    let userData: any = null;
+    
+    // Find the user by id and get the old email
+    for (const [email, data] of mockUsers.entries()) {
+      if (data.id === userId) {
+        oldEmailKey = email;
+        userData = data;
+        break;
+      }
+    }
+    
+    if (oldEmailKey && userData) {
+      const newEmailKey = updates.email.trim().toLowerCase();
       
-      // Save to persistent storage
-      await saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
-      return true;
+      // Only update if email actually changed
+      if (oldEmailKey.toLowerCase() !== newEmailKey) {
+        console.log(`🔄 Changing email from ${oldEmailKey} to ${newEmailKey}`);
+        
+        // Remove old email entry
+        mockUsers.delete(oldEmailKey);
+        console.log('✅ Removed old email entry:', oldEmailKey);
+        
+        // Add new entry with new email as key
+        const updatedUser = { ...userData, ...updates, email: newEmailKey };
+        mockUsers.set(newEmailKey, updatedUser);
+        console.log('✅ Added new email entry:', newEmailKey);
+        
+        // Save to persistent storage
+        await saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
+        return true;
+      } else {
+        // Email is the same, just update other fields
+        const updatedUser = { ...userData, ...updates };
+        mockUsers.set(oldEmailKey, updatedUser);
+        console.log('✅ Updated mock user (same email):', oldEmailKey, updatedUser);
+        await saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
+        return true;
+      }
+    }
+  } else {
+    // No email change, just update other fields
+    // Find the user by id
+    for (const [email, userData] of mockUsers.entries()) {
+      if (userData.id === userId) {
+        const updatedUser = { ...userData, ...updates };
+        mockUsers.set(email, updatedUser);
+        console.log('✅ Updated mock user:', email, updatedUser);
+        
+        // Save to persistent storage
+        await saveUsersToStorage().catch(err => console.error('Failed to save to storage:', err));
+        return true;
+      }
     }
   }
   
@@ -380,7 +428,7 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
     const normalizedEmail = email.trim().toLowerCase();
     console.log(`🔑 Attempting sign-in for: ${normalizedEmail}`);
     
-    // Ensure users are loaded from storage
+    // Always reload from storage to get latest data (especially important after email changes)
     await loadUsersFromStorage();
     console.log(`📊 Current database size: ${mockUsers.size} users`);
     
@@ -416,6 +464,8 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
     console.log('✅ Password verified for user:', user.id);
 
     // IMPORTANT: Check database for updated user data
+    // But only update if the email in database matches the login email
+    // This prevents old emails from being re-added after email change
     let dbUserData = null;
     try {
       const { db } = await import('./db');
@@ -424,14 +474,18 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
       if (dbUserData) {
         console.log('📊 Found user data in database:', dbUserData);
         
-        // If database has updatedAt and it's newer than mockUsers, use database data
-        if (dbUserData.updatedAt) {
+        // Check if database email matches the login email
+        const dbEmail = dbUserData.email?.toLowerCase().trim();
+        const loginEmailMatchesDb = dbEmail && dbEmail === normalizedEmail;
+        
+        // If database has updatedAt and it's newer than mockUsers, and email matches, use database data
+        if (dbUserData.updatedAt && loginEmailMatchesDb) {
           const mockUserUpdated = user.updatedAt || user.createdAt;
           const dbUserUpdated = dbUserData.updatedAt;
           
           if (new Date(dbUserUpdated) > new Date(mockUserUpdated)) {
             console.log('🔄 Database has newer data, updating mockUsers');
-            // Update mockUsers with database data
+            // Update mockUsers with database data (email matches, so safe to update)
             mockUsers.set(normalizedEmail, {
               ...user,
               name: dbUserData.name || user.name || user.email.split('@')[0],
@@ -452,6 +506,10 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
             user.barangay = dbUserData.barangay || user.barangay;
             user.updatedAt = dbUserData.updatedAt;
           }
+        } else if (dbEmail && dbEmail !== normalizedEmail) {
+          // Database has different email - this means email was changed
+          // Don't update mockUsers with old email, user should login with new email
+          console.log(`⚠️ Database email (${dbEmail}) differs from login email (${normalizedEmail}) - email may have been changed`);
         }
       }
     } catch (dbError) {
@@ -459,11 +517,13 @@ export async function mockSignIn(email: string, password: string): Promise<MockA
     }
 
     // IMPORTANT: Save/update user data to the database so other parts of the app can access it
+    // Use the email from mockUsers (which should match the login email) to avoid overwriting with wrong email
     try {
       const { db } = await import('./db');
+      const userEmailToSave = user.email || normalizedEmail;
       await db.upsert('users', user.id, {
         id: user.id,
-        email: user.email,
+        email: userEmailToSave,
         name: user.name || user.email.split('@')[0],
         roles: user.roles,
         role: (user.role || user.roles[0]) as 'tenant' | 'owner' | 'brgy_official',

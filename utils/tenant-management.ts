@@ -33,7 +33,7 @@ export interface ListingWithTenants {
 
 /**
  * Get all tenants grouped by listing for an owner
- * Only includes approved and paid bookings (active tenants)
+ * Only includes approved and paid bookings that are not deleted (active tenants)
  */
 export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTenants[]> {
   try {
@@ -45,10 +45,28 @@ export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTen
       booking => 
         booking.ownerId === ownerId &&
         booking.status === 'approved' &&
-        booking.paymentStatus === 'paid'
+        booking.paymentStatus === 'paid' &&
+        !booking.isDeleted
     );
     
-    console.log(`✅ Found ${ownerBookings.length} active tenant bookings`);
+    // Also include bookings with active termination countdown
+    const bookingsWithCountdown = allBookings.filter(
+      booking => 
+        booking.ownerId === ownerId &&
+        booking.terminationInitiatedAt &&
+        booking.terminationMode === 'countdown' &&
+        !booking.isDeleted
+    );
+    
+    // Merge and deduplicate
+    const allActiveBookings = [...ownerBookings];
+    for (const booking of bookingsWithCountdown) {
+      if (!allActiveBookings.find(b => b.id === booking.id)) {
+        allActiveBookings.push(booking);
+      }
+    }
+    
+    console.log(`✅ Found ${allActiveBookings.length} active tenant bookings (including countdown)`);
     
     // Get all listings for this owner
     const allListings = await db.list<PublishedListingRecord>('published_listings');
@@ -77,7 +95,7 @@ export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTen
     }
     
     // Sort bookings by creation date (oldest first) to assign slot numbers
-    const sortedBookings = ownerBookings.sort(
+    const sortedBookings = allActiveBookings.sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     
@@ -106,6 +124,12 @@ export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTen
         }
       }
       
+      // Check if booking has termination countdown
+      const hasTerminationCountdown = booking.terminationInitiatedAt && booking.terminationMode === 'countdown';
+      const terminationEndDate = booking.terminationEndDate ? new Date(booking.terminationEndDate) : null;
+      const now = new Date();
+      const daysRemaining = terminationEndDate ? Math.ceil((terminationEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
+      
       const tenantInfo: TenantInfo = {
         bookingId: booking.id,
         tenantId: booking.tenantId,
@@ -120,7 +144,7 @@ export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTen
         monthlyRent: booking.monthlyRent,
         startDate: booking.startDate,
         endDate: booking.endDate,
-        status: booking.status,
+        status: hasTerminationCountdown ? `terminating (${daysRemaining} days)` : booking.status,
         paymentStatus: booking.paymentStatus,
         createdAt: booking.createdAt
       };

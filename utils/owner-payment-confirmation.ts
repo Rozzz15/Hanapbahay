@@ -6,6 +6,7 @@
 import { db, generateId } from './db';
 import { RentPaymentRecord, BookingRecord, MessageRecord, ConversationRecord } from '../types';
 import { createOrFindConversation } from './conversation-utils';
+import { isPaymentOverdue, getDaysOverdue, calculateLateFee } from './tenant-payments';
 
 /**
  * Confirm payment receipt by owner
@@ -44,27 +45,108 @@ export async function confirmPaymentByOwner(
       };
     }
 
+    // Get booking to check if this is the first payment and needs advance deposit
+    const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
+    if (!booking) {
+      return {
+        success: false,
+        error: 'Booking not found',
+      };
+    }
+
+    // Check if this is the first payment and ensure it includes advance deposit
+    // When owner confirms payment, the first payment MUST include advance deposit
+    // This is the first payment of the tenant for the owner and must include advance deposit
+    let paymentAmount = payment.amount;
+    let needsAmountUpdate = false;
+    let isFirstPayment = false;
+    
+    try {
+      const { getRentPaymentsByBooking } = await import('./tenant-payments');
+      const existingPayments = await getRentPaymentsByBooking(payment.bookingId);
+      const paidPayments = existingPayments.filter(p => p.status === 'paid' && p.id !== paymentId);
+      isFirstPayment = paidPayments.length === 0;
+      
+      const hasAdvanceDeposit = booking.advanceDepositMonths && booking.advanceDepositMonths > 0;
+      const monthlyRent = booking.monthlyRent || 0;
+      
+      // CRITICAL: First payment MUST include advance deposit (totalAmount)
+      // This is the first payment of the tenant for the owner and must include advance deposit
+      // Subsequent payments use monthlyRent only
+      if (isFirstPayment) {
+        let expectedAmount: number;
+        
+        // Calculate expected amount for first payment
+        if (booking.totalAmount && booking.totalAmount > 0) {
+          expectedAmount = booking.totalAmount;
+        } else if (hasAdvanceDeposit && booking.advanceDepositMonths) {
+          // Calculate: first month + advance months
+          expectedAmount = monthlyRent + (booking.advanceDepositMonths * monthlyRent);
+        } else {
+          // No advance deposit, just first month's rent
+          expectedAmount = monthlyRent;
+        }
+        
+        // Update payment amount if it doesn't match expected amount with advance deposit
+        if (payment.amount !== expectedAmount) {
+          console.log('🔄 Updating first payment amount to include advance deposit:', {
+            paymentId,
+            currentAmount: payment.amount,
+            expectedAmount,
+            advanceDepositMonths: booking.advanceDepositMonths,
+            monthlyRent,
+            bookingTotalAmount: booking.totalAmount,
+            isFirstPayment: true
+          });
+          paymentAmount = expectedAmount;
+          needsAmountUpdate = true;
+        }
+      }
+    } catch (paymentCheckError) {
+      console.warn('⚠️ Could not check if this is first payment:', paymentCheckError);
+    }
+
     // Update payment status to paid
     // If payment doesn't have a paidDate, set it to now
+    // If this is the first payment, ensure amount includes advance deposit
     const updatedPayment: RentPaymentRecord = {
       ...payment,
+      amount: paymentAmount, // Use correct amount with advance deposit for first payment
+      totalAmount: paymentAmount + (payment.lateFee || 0),
       status: 'paid',
       paidDate: payment.paidDate || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
+    // Update notes if this is the first payment with advance deposit
+    if (isFirstPayment && booking.advanceDepositMonths && booking.advanceDepositMonths > 0) {
+      updatedPayment.notes = `First payment (includes ${booking.advanceDepositMonths} month${booking.advanceDepositMonths !== 1 ? 's' : ''} advance deposit) - before tenant added to owner's list`;
+    } else if (isFirstPayment && needsAmountUpdate) {
+      updatedPayment.notes = `First payment - before tenant added to owner's list`;
+    }
+
     await db.upsert('rent_payments', paymentId, updatedPayment);
-    console.log('✅ Owner confirmed payment:', paymentId);
+    console.log('✅ Owner confirmed payment:', paymentId, needsAmountUpdate ? '(updated amount to include advance deposit)' : '', isFirstPayment ? '(first payment)' : '');
 
     // Update booking's paymentStatus to 'paid' if this is the first payment or booking is not yet paid
+    // Also ensure remainingAdvanceMonths is properly initialized for the first payment
     try {
-      const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
-      if (booking && booking.status === 'approved' && booking.paymentStatus !== 'paid') {
+      if (booking.status === 'approved' && booking.paymentStatus !== 'paid') {
         const updatedBooking: BookingRecord = {
           ...booking,
           paymentStatus: 'paid',
           updatedAt: new Date().toISOString(),
         };
+        
+        // If this is the first payment and booking has advance deposit, ensure remainingAdvanceMonths is set
+        if (isFirstPayment && booking.advanceDepositMonths && booking.advanceDepositMonths > 0) {
+          // Initialize remainingAdvanceMonths if not already set
+          if (updatedBooking.remainingAdvanceMonths === undefined || updatedBooking.remainingAdvanceMonths === null) {
+            updatedBooking.remainingAdvanceMonths = booking.advanceDepositMonths;
+            console.log('✅ Initialized remainingAdvanceMonths for first payment:', updatedBooking.remainingAdvanceMonths);
+          }
+        }
+        
         await db.upsert('bookings', booking.id, updatedBooking);
         console.log('✅ Updated booking paymentStatus to paid:', booking.id);
         
@@ -74,6 +156,17 @@ export async function confirmPaymentByOwner(
           await checkAndRejectPendingBookings(booking.propertyId);
         } catch (capacityError) {
           console.warn('⚠️ Could not check listing capacity:', capacityError);
+        }
+      } else if (isFirstPayment && booking.advanceDepositMonths && booking.advanceDepositMonths > 0) {
+        // Even if booking is already marked as paid, ensure remainingAdvanceMonths is set for first payment
+        if (booking.remainingAdvanceMonths === undefined || booking.remainingAdvanceMonths === null) {
+          const updatedBooking: BookingRecord = {
+            ...booking,
+            remainingAdvanceMonths: booking.advanceDepositMonths,
+            updatedAt: new Date().toISOString(),
+          };
+          await db.upsert('bookings', booking.id, updatedBooking);
+          console.log('✅ Initialized remainingAdvanceMonths for first payment:', updatedBooking.remainingAdvanceMonths);
         }
       }
     } catch (bookingError) {
@@ -164,14 +257,36 @@ export async function rejectPaymentByOwner(
     const originalPaymentMethod = payment.paymentMethod;
     const originalStatus = payment.status;
 
-    // Update payment status to 'rejected' (not pending/overdue)
-    // This clearly marks the payment as rejected, not just pending
-    // The payment can still be restored if owner made a mistake
+    // Determine the new status based on due date
+    // If payment is overdue, set to 'overdue', otherwise set to 'pending'
+    // This allows the tenant to see and pay the rejected payment again
+    const isOverdue = isPaymentOverdue(payment.dueDate);
+    const newStatus = isOverdue ? 'overdue' : 'pending';
+    
+    // Recalculate late fee if payment is overdue
+    let lateFee = payment.lateFee || 0;
+    let totalAmount = payment.totalAmount;
+    
+    if (isOverdue) {
+      // Get booking to calculate late fee
+      const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
+      if (booking) {
+        const daysOverdue = getDaysOverdue(payment.dueDate);
+        const monthlyRent = booking.monthlyRent || payment.amount || 0;
+        lateFee = calculateLateFee(monthlyRent, daysOverdue);
+        totalAmount = payment.amount + lateFee;
+      }
+    }
+
+    // Update payment status back to 'pending' or 'overdue' so tenant can pay again
+    // Store backup data to track that it was rejected
     const updatedPayment: RentPaymentRecord = {
       ...payment,
-      status: 'rejected',
-      paidDate: originalPaidDate, // Keep paid date for reference
-      paymentMethod: originalPaymentMethod, // Keep payment method for reference
+      status: newStatus,
+      paidDate: undefined, // Clear paid date so payment shows as unpaid
+      paymentMethod: undefined, // Clear payment method
+      lateFee: lateFee,
+      totalAmount: totalAmount,
       notes: reason ? `Rejected by owner: ${reason}` : 'Payment not received - rejected by owner',
       // Store backup data for potential restoration
       rejectedAt: now.toISOString(),
@@ -196,7 +311,7 @@ export async function rejectPaymentByOwner(
         bookingId: payment.bookingId,
         ownerId: payment.ownerId,
         tenantId: payment.tenantId,
-        status: 'pending',
+        status: newStatus,
       });
     } catch (eventError) {
       console.warn('⚠️ Could not dispatch payment update event:', eventError);
@@ -254,20 +369,48 @@ export async function removePaidPayment(
 
     const now = new Date();
 
-    // Update payment status to 'rejected' (not pending/overdue)
-    // This clearly marks the payment as rejected/removed
+    // Store original payment data before removal
+    const originalPaidDate = payment.paidDate;
+    const originalPaymentMethod = payment.paymentMethod;
+    const originalStatus = payment.status;
+
+    // Determine the new status based on due date
+    // If payment is overdue, set to 'overdue', otherwise set to 'pending'
+    // This allows the tenant to see and pay the removed payment again
+    const isOverdue = isPaymentOverdue(payment.dueDate);
+    const newStatus = isOverdue ? 'overdue' : 'pending';
+    
+    // Recalculate late fee if payment is overdue
+    let lateFee = payment.lateFee || 0;
+    let totalAmount = payment.totalAmount;
+    
+    if (isOverdue) {
+      // Get booking to calculate late fee
+      const booking = await db.get<BookingRecord>('bookings', payment.bookingId);
+      if (booking) {
+        const daysOverdue = getDaysOverdue(payment.dueDate);
+        const monthlyRent = booking.monthlyRent || payment.amount || 0;
+        lateFee = calculateLateFee(monthlyRent, daysOverdue);
+        totalAmount = payment.amount + lateFee;
+      }
+    }
+
+    // Update payment status back to 'pending' or 'overdue' so tenant can pay again
+    // Store backup data to track that it was removed
     const updatedPayment: RentPaymentRecord = {
       ...payment,
-      status: 'rejected',
-      paidDate: payment.paidDate, // Keep paid date for reference
-      paymentMethod: payment.paymentMethod, // Keep payment method for reference
+      status: newStatus,
+      paidDate: undefined, // Clear paid date so payment shows as unpaid
+      paymentMethod: undefined, // Clear payment method
+      lateFee: lateFee,
+      totalAmount: totalAmount,
       notes: reason ? `Payment removed by owner: ${reason}` : 'Payment removed by owner - payment not received or fraudulent',
       // Store backup data for potential restoration
       rejectedAt: now.toISOString(),
       rejectedBy: ownerId,
-      originalPaidDate: payment.paidDate,
-      originalPaymentMethod: payment.paymentMethod,
-      originalStatus: payment.status,
+      originalPaidDate: originalPaidDate,
+      originalPaymentMethod: originalPaymentMethod,
+      originalStatus: originalStatus,
       updatedAt: now.toISOString(),
     };
 
@@ -286,7 +429,7 @@ export async function removePaidPayment(
         bookingId: payment.bookingId,
         ownerId: payment.ownerId,
         tenantId: payment.tenantId,
-        status: 'pending',
+        status: newStatus,
       });
     } catch (eventError) {
       console.warn('⚠️ Could not dispatch payment update event:', eventError);
@@ -351,11 +494,21 @@ export async function restoreRejectedPayment(
       };
     }
 
-    // Only allow restoration of payments that were rejected (status is 'rejected')
-    if (payment.status !== 'rejected' || !payment.rejectedAt || !payment.originalStatus) {
+    // Only allow restoration of payments that were rejected
+    // Check for rejectedAt field instead of status, since rejected payments now have status 'pending' or 'overdue'
+    if (!payment.rejectedAt || !payment.originalStatus) {
       return {
         success: false,
         error: 'This payment cannot be restored. It was not previously rejected or backup data is missing.',
+      };
+    }
+    
+    // Only allow restoration if payment is currently pending or overdue (rejected payments are set to these statuses)
+    // This prevents restoring payments that are already paid or in other states
+    if (payment.status !== 'pending' && payment.status !== 'overdue' && payment.status !== 'rejected') {
+      return {
+        success: false,
+        error: 'This payment cannot be restored. It is not in a restorable state.',
       };
     }
 
@@ -464,10 +617,19 @@ export async function deleteRejectedPayment(
     }
 
     // Only allow deletion of rejected payments
-    if (payment.status !== 'rejected') {
+    // Check for rejectedAt field instead of status, since rejected payments now have status 'pending' or 'overdue'
+    if (!payment.rejectedAt) {
       return {
         success: false,
-        error: 'Only rejected payments can be permanently deleted. This payment is not rejected.',
+        error: 'Only rejected payments can be permanently deleted. This payment was not previously rejected.',
+      };
+    }
+    
+    // Only allow deletion if payment is currently pending, overdue, or rejected
+    if (payment.status !== 'pending' && payment.status !== 'overdue' && payment.status !== 'rejected') {
+      return {
+        success: false,
+        error: 'This payment cannot be deleted. It is not in a deletable state.',
       };
     }
 
@@ -595,8 +757,10 @@ export async function autoDeleteOldRejectedPayments(): Promise<{
     const now = new Date();
     const twoDaysAgo = new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000)); // 2 days ago
     
+    // Find payments that were rejected (check rejectedAt field instead of status)
+    // Rejected payments now have status 'pending' or 'overdue' but are marked by rejectedAt
     const rejectedPayments = allPayments.filter(
-      payment => payment.status === 'rejected' && payment.rejectedAt
+      payment => payment.rejectedAt
     );
     
     const paymentsToDelete = rejectedPayments.filter(payment => {
@@ -897,8 +1061,8 @@ async function sendPaymentRejectedNotification(
       `- Payment Month: ${new Date(payment.paymentMonth + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}\n` +
       `- Due Date: ${new Date(payment.dueDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n` +
       `${reasonText}` +
-      `\n⚠️ IMPORTANT: This payment has been REJECTED and marked as rejected in your account.\n\n` +
-      `Please make the payment again through your dashboard. The payment will appear in your payment list and you can select your preferred payment method.`;
+      `\n⚠️ IMPORTANT: This payment has been REJECTED by the owner.\n\n` +
+      `Please make the payment again through your dashboard. The payment will appear in your payment list as ${isOverdue ? 'overdue' : 'pending'} and you can select your preferred payment method to pay it again.`;
 
     const conversationId = await createOrFindConversation({
       ownerId: booking.ownerId,

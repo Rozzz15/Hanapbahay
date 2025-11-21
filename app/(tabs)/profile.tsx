@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo, useRef } from 'react';
 import { View, ScrollView, Pressable, Alert, Modal, TextInput, TouchableOpacity, Image, Platform, StyleSheet, Text, KeyboardAvoidingView, Keyboard, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +9,8 @@ import { useToast } from '../../components/ui/toast';
 import { saveUserProfilePhoto } from '../../utils/user-profile-photos';
 import { changePassword } from '../../api/auth/change-password';
 import { showAlert } from '../../utils/alert';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Bot, Send, X } from 'lucide-react-native';
 
 type MenuItem = {
     icon: React.ReactNode;
@@ -68,7 +70,7 @@ const ProfileScreen = memo(function ProfileScreen() {
     
     // State for modals
     const [showPersonalDetails, setShowPersonalDetails] = useState(false);
-    const [showFAQ, setShowFAQ] = useState(false);
+    const [showHelpSupport, setShowHelpSupport] = useState(false);
     const [showChangePassword, setShowChangePassword] = useState(false);
     const [hasError, setHasError] = useState(false);
     
@@ -619,8 +621,8 @@ const ProfileScreen = memo(function ProfileScreen() {
         },
         {
             icon: <Ionicons name="help-circle" size={20} color="#4B5563" />,
-            label: 'FAQ',
-            onPress: () => setShowFAQ(true),
+            label: 'Help & Support',
+            onPress: () => setShowHelpSupport(true),
         },
         {
             icon: <Ionicons name="log-out" size={20} color="#DC2626" />,
@@ -967,75 +969,24 @@ const ProfileScreen = memo(function ProfileScreen() {
             </Modal>
 
 
-            {/* FAQ Modal */}
-            <Modal 
-                visible={showFAQ} 
-                animationType="slide" 
-                presentationStyle="pageSheet"
+            {/* Help & Support AI Agent Modal */}
+            <Modal
+                visible={showHelpSupport}
+                animationType="slide"
+                transparent={false}
+                onRequestClose={() => setShowHelpSupport(false)}
             >
-                <View style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Frequently Asked Questions</Text>
-                        <TouchableOpacity onPress={() => setShowFAQ(false)}>
-                            <Ionicons name="close" size={24} color="#6B7280" />
-                        </TouchableOpacity>
-                    </View>
-                    <ScrollView 
-                        style={styles.modalContent}
-                        contentContainerStyle={styles.modalScrollContent}
-                    >
-                        <View style={styles.faqContent}>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I search for properties in HanapBahay?</Text>
-                                <Text style={styles.faqAnswer}>Use the search bar on the dashboard to search by location, property type, or keywords. You can also use the filter button to narrow down by barangay, price range, and property type (house, apartment, boarding house, bedspace).</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I filter properties by barangay?</Text>
-                                <Text style={styles.faqAnswer}>Tap the filter button on the dashboard, then select your preferred barangay from the dropdown (Danlagan, Gomez, Magsaysay, Rizal, Bocboc, or Talolong). Click "Apply Filters" to see only properties in that area.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I contact a property owner?</Text>
-                                <Text style={styles.faqAnswer}>Tap on any property listing to view details, then use the "Contact Owner" button or go to the Chat tab to start a conversation with the property owner directly.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>What information do I need to provide when contacting owners?</Text>
-                                <Text style={styles.faqAnswer}>Be ready to share your name, contact number, move-in date, rental budget, and any specific requirements. This helps owners respond faster with relevant information.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I book a property viewing?</Text>
-                                <Text style={styles.faqAnswer}>Contact the property owner through the chat feature to schedule a viewing. Owners will coordinate with you to arrange a convenient time for property inspection.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>What types of properties are available?</Text>
-                                <Text style={styles.faqAnswer}>HanapBahay offers houses, apartments, boarding houses, and bedspaces. Each property includes details like monthly rent, number of rooms, size, amenities, and location information.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I set my price range?</Text>
-                                <Text style={styles.faqAnswer}>Use the price range slider in the filter section to set your minimum and maximum monthly rent budget. The app will show only properties within your specified price range.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I update my profile information?</Text>
-                                <Text style={styles.faqAnswer}>Go to your profile tab and tap "Personal details" to update your name, email, phone number, and address. Changes are saved automatically to help owners contact you easily.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I clear my search filters?</Text>
-                                <Text style={styles.faqAnswer}>On the dashboard, tap the "Clear All" button in the Active Filters section to remove all applied filters and see all available properties again.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>What if I can't find properties in my preferred area?</Text>
-                                <Text style={styles.faqAnswer}>Try expanding your search criteria by adjusting the price range or selecting "Any Type" for property type. You can also contact owners directly to ask about availability in your preferred location.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>How do I report an issue with a property listing?</Text>
-                                <Text style={styles.faqAnswer}>Contact our support team through the chat feature or email us at support@hanapbahay.com. Include the property details and description of the issue for faster resolution.</Text>
-                            </View>
-                            <View style={styles.faqItem}>
-                                <Text style={styles.faqQuestion}>Is my personal information secure?</Text>
-                                <Text style={styles.faqAnswer}>Yes, we prioritize your privacy and security. Your personal information is only shared with property owners when you initiate contact, and we never sell your data to third parties.</Text>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
+                <HelpSupportAI 
+                    visible={showHelpSupport}
+                    onClose={() => setShowHelpSupport(false)}
+                    userName={personalDetails.firstName && personalDetails.lastName 
+                        ? `${personalDetails.firstName} ${personalDetails.lastName}`
+                        : personalDetails.firstName
+                        ? personalDetails.firstName
+                        : user?.name || 'Tenant'}
+                    userId={user?.id || ''}
+                    userRole="tenant"
+                />
             </Modal>
 
             {/* Change Password Modal */}
@@ -1547,3 +1498,350 @@ const styles = StyleSheet.create({
 });
 
 export default ProfileScreen;
+
+// AI Agent Component for Help & Support (Tenant-specific)
+interface HelpSupportAIProps {
+  visible: boolean;
+  onClose: () => void;
+  userName: string;
+  userId: string;
+  userRole: 'owner' | 'tenant';
+}
+
+function HelpSupportAI({ visible, onClose, userName, userId, userRole }: HelpSupportAIProps) {
+  const [messages, setMessages] = useState<Array<{ id: string; text: string; isUser: boolean; timestamp: Date }>>([]);
+  const [inputText, setInputText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const insets = useSafeAreaInsets();
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Initialize with welcome message and reset when modal opens
+  useEffect(() => {
+    if (visible) {
+      // Only show welcome message if no messages exist
+      setMessages(prev => {
+        if (prev.length === 0) {
+          const welcomeMessage = {
+            id: 'welcome',
+            text: `Hello ${userName}! 👋 I'm Yna, your AI assistant for HanapBahay. I can help you with:\n\n• Searching and filtering properties\n• Contacting property owners\n• Booking and viewing properties\n• Managing your profile and saved listings\n• Understanding rental processes\n• Troubleshooting issues\n\nWhat would you like to know?`,
+            isUser: false,
+            timestamp: new Date()
+          };
+          return [welcomeMessage];
+        }
+        return prev;
+      });
+    } else {
+      // Reset when modal closes
+      setMessages([]);
+      setInputText('');
+      setIsTyping(false);
+    }
+  }, [visible, userName]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages]);
+
+  const generateAIResponse = async (userMessage: string): Promise<string> => {
+    const lowerMessage = userMessage.toLowerCase().trim();
+    
+    // First, check if user is asking about a specific receipt number or booking ID
+    if (userId) {
+      try {
+        const { searchHelpSupportData } = await import('../../utils/ai-support-search');
+        const searchResult = await searchHelpSupportData(userMessage, userId, userRole);
+        
+        if (searchResult.responseText) {
+          return searchResult.responseText;
+        }
+      } catch (error) {
+        console.error('❌ Error searching help support data:', error);
+        // Continue with regular responses if search fails
+      }
+    }
+    
+    // Tenant-specific context-aware responses
+    if (lowerMessage.includes('search') || lowerMessage.includes('find') || lowerMessage.includes('property') || lowerMessage.includes('look')) {
+      return `To search for properties:\n\n1. Use the search bar on the dashboard to search by location, property type, or keywords\n2. Tap the filter button to narrow down by:\n   • Barangay (Danlagan, Gomez, Magsaysay, Rizal, Bocboc, Talolong)\n   • Price range (set min/max monthly rent)\n   • Property type (house, apartment, boarding house, bedspace)\n3. Click "Apply Filters" to see filtered results\n4. Use "Clear All" to reset filters\n\n💡 Tip: Save your favorite properties to easily find them later!`;
+    }
+    
+    if (lowerMessage.includes('filter') || lowerMessage.includes('barangay') || lowerMessage.includes('price') || lowerMessage.includes('budget')) {
+      return `Filtering properties:\n\n• Barangay: Select your preferred area from the dropdown\n• Price Range: Use the slider to set your monthly rent budget\n• Property Type: Choose house, apartment, boarding house, or bedspace\n• Apply multiple filters together for precise results\n• Clear filters anytime with "Clear All" button\n\nStart with broad filters and narrow down based on what you find!`;
+    }
+    
+    if (lowerMessage.includes('contact') || lowerMessage.includes('owner') || lowerMessage.includes('message') || lowerMessage.includes('chat')) {
+      return `Contacting property owners:\n\n1. Tap on any property listing to view details\n2. Use the "Contact Owner" button\n3. Or go to the Chat tab to start a conversation\n4. Be ready to share:\n   • Your name and contact number\n   • Preferred move-in date\n   • Rental budget\n   • Specific requirements\n\nQuick responses help owners understand your needs better!`;
+    }
+    
+    if (lowerMessage.includes('book') || lowerMessage.includes('viewing') || lowerMessage.includes('inspect') || lowerMessage.includes('visit')) {
+      return `Booking property viewings:\n\n• Contact the property owner through the chat feature\n• Discuss your move-in date and requirements\n• Owners will coordinate with you to schedule a viewing\n• Be flexible with timing to increase your chances\n• Ask about availability, amenities, and rental terms\n\nAlways confirm viewing details before visiting!`;
+    }
+    
+    if (lowerMessage.includes('save') || lowerMessage.includes('favorite') || lowerMessage.includes('bookmark')) {
+      return `Saving properties:\n\n• Tap the heart icon on any property listing\n• View all saved properties in "Saved Listings" from your profile\n• Remove from favorites by tapping the heart again\n• Saved listings help you compare options easily\n\nKeep your favorites organized for quick access!`;
+    }
+    
+    if (lowerMessage.includes('profile') || lowerMessage.includes('personal') || lowerMessage.includes('details') || lowerMessage.includes('edit')) {
+      return `Managing your profile:\n\n• Go to Profile tab and tap "Personal details"\n• Update your name, email, phone number, and address\n• Add a profile photo to help owners recognize you\n• Keep information current for better communication\n• Changes are saved automatically\n\nComplete profiles get faster responses from owners!`;
+    }
+    
+    if (lowerMessage.includes('password') || lowerMessage.includes('security') || lowerMessage.includes('change')) {
+      return `Changing your password:\n\n• Go to Profile tab\n• Tap "Change Password"\n• Enter your current password\n• Enter and confirm your new password (min 6 characters)\n• Save changes\n\nKeep your account secure with a strong password!`;
+    }
+    
+    if (lowerMessage.includes('type') || lowerMessage.includes('house') || lowerMessage.includes('apartment') || lowerMessage.includes('bedspace') || lowerMessage.includes('boarding')) {
+      return `Property types available:\n\n• Houses: Standalone homes with multiple rooms\n• Apartments: Units in buildings with shared facilities\n• Boarding Houses: Shared living spaces with common areas\n• Bedspaces: Individual beds in shared rooms\n\nEach listing shows rent, rooms, size, amenities, and location details.`;
+    }
+    
+    if (lowerMessage.includes('help') || lowerMessage.includes('support') || lowerMessage.includes('issue') || lowerMessage.includes('problem')) {
+      return `I'm Yna, and I'm here to help! You can ask me about:\n\n• Searching and filtering properties\n• Contacting owners and booking viewings\n• Managing your profile and saved listings\n• Understanding rental processes\n• Troubleshooting app issues\n\nOr contact support at support@hanapbahay.com for urgent matters.`;
+    }
+    
+    if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+      return `Hello! I'm Yna. How can I help you find your perfect home today? 🏠`;
+    }
+    
+    if (lowerMessage.includes('thank') || lowerMessage.includes('thanks')) {
+      return `You're welcome! Feel free to ask if you need any other help. 😊`;
+    }
+    
+    // Default helpful response
+    return `I'm Yna, and I understand you're asking about "${userMessage}". Here are some ways I can help:\n\n• Property search and filtering\n• Contacting owners and booking viewings\n• Profile and account management\n• Understanding rental processes\n• General questions about HanapBahay\n\nCould you be more specific about what you need help with?`;
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || isTyping) return;
+    
+    const userMessage = inputText.trim();
+    setInputText('');
+    
+    // Add user message
+    const newUserMessage = {
+      id: Date.now().toString(),
+      text: userMessage,
+      isUser: true,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, newUserMessage]);
+    
+    // Simulate AI thinking
+    setIsTyping(true);
+    
+    // Generate AI response
+    setTimeout(async () => {
+      const aiResponse = await generateAIResponse(userMessage);
+      const newAIMessage = {
+        id: (Date.now() + 1).toString(),
+        text: aiResponse,
+        isUser: false,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, newAIMessage]);
+      setIsTyping(false);
+    }, 800 + Math.random() * 500); // Simulate thinking time
+  };
+
+  const quickQuestions = [
+    'How do I search for properties?',
+    'How to contact owners?',
+    'Book a property viewing',
+    'Update my profile'
+  ];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      {/* Header */}
+      <View style={{
+        paddingTop: insets.top + 16,
+        paddingBottom: 16,
+        paddingHorizontal: 16,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
+      }}>
+        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
+          <X size={24} color="#111827" />
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <View style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: '#3B82F6' + '20',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}>
+            <Bot size={20} color="#3B82F6" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>
+              Yna
+            </Text>
+            <Text style={{ fontSize: 12, color: '#6B7280' }}>
+              AI Assistant • Help & Support
+            </Text>
+          </View>
+        </View>
+        <View style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: '#10B981'
+        }} />
+      </View>
+
+      {/* Messages */}
+      <ScrollView
+        ref={scrollViewRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, gap: 12 }}
+        showsVerticalScrollIndicator={true}
+      >
+        {messages.map((message) => (
+          <View
+            key={message.id}
+            style={{
+              flexDirection: 'row',
+              justifyContent: message.isUser ? 'flex-end' : 'flex-start',
+              marginBottom: 4
+            }}
+          >
+            <View style={{
+              maxWidth: '80%',
+              padding: 12,
+              borderRadius: 16,
+              backgroundColor: message.isUser ? '#3B82F6' : '#F3F4F6',
+            }}>
+              {!message.isUser && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Bot size={14} color="#3B82F6" />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#3B82F6' }}>
+                    Yna
+                  </Text>
+                </View>
+              )}
+              <Text style={{
+                fontSize: 15,
+                color: message.isUser ? '#FFFFFF' : '#111827',
+                lineHeight: 20
+              }}>
+                {message.text}
+              </Text>
+            </View>
+          </View>
+        ))}
+        
+        {isTyping && (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-start' }}>
+            <View style={{
+              padding: 12,
+              borderRadius: 16,
+              backgroundColor: '#F3F4F6',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6
+            }}>
+              <Bot size={14} color="#3B82F6" />
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#3B82F6', marginRight: 8 }}>
+                Yna
+              </Text>
+              <ActivityIndicator size="small" color="#3B82F6" />
+            </View>
+          </View>
+        )}
+
+        {/* Quick Questions */}
+        {messages.length <= 1 && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
+              Quick Questions:
+            </Text>
+            <View style={{ gap: 8 }}>
+              {quickQuestions.map((question, index) => (
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => {
+                    setInputText(question);
+                    setTimeout(() => handleSendMessage(), 100);
+                  }}
+                  style={{
+                    padding: 12,
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB'
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: '#374151' }}>{question}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Input Area */}
+      <View style={{
+        padding: 16,
+        paddingBottom: Math.max(insets.bottom, 16),
+        backgroundColor: '#FFFFFF',
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB'
+      }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          borderWidth: 1,
+          borderColor: '#D1D5DB',
+          borderRadius: 24,
+          paddingHorizontal: 16,
+          backgroundColor: '#F9FAFB'
+        }}>
+          <TextInput
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              fontSize: 15,
+              color: '#111827'
+            }}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder="Ask me anything..."
+            multiline
+            maxLength={500}
+            onSubmitEditing={handleSendMessage}
+            returnKeyType="send"
+          />
+          <TouchableOpacity
+            onPress={handleSendMessage}
+            disabled={!inputText.trim() || isTyping}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: inputText.trim() && !isTyping ? '#3B82F6' : '#D1D5DB',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          >
+            {isTyping ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Send size={18} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}

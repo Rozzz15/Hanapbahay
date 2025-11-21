@@ -139,6 +139,9 @@ export interface OwnerApplicationRecord {
   reviewedBy?: string; // Barangay official who reviewed
   createdAt: string;
   reviewedAt?: string;
+  reapplicationRequested?: boolean; // Flag to indicate barangay requested owner to reapply/edit credentials
+  reapplicationRequestedAt?: string; // When reapplication was requested
+  reapplicationRequestedBy?: string; // Barangay official who requested reapplication
 }
 
 export interface BrgyNotificationRecord {
@@ -246,7 +249,8 @@ export interface PublishedListingRecord {
   photos: string[];
   videos: string[];
   coverPhoto: string | null;
-  securityDeposit: number;
+  securityDeposit: number; // Deprecated - use advanceDepositMonths instead
+  advanceDepositMonths?: number; // Optional: Number of months for advance deposit (e.g., 3 months)
   paymentMethods: string[];
   ownerName: string;
   businessName: string;
@@ -307,7 +311,9 @@ export interface BookingRecord {
   propertyTitle: string;
   propertyAddress: string;
   monthlyRent: number;
-  securityDeposit: number;
+  securityDeposit: number; // Deprecated - use advanceDepositMonths instead
+  advanceDepositMonths?: number; // Number of months paid in advance (e.g., 3 months)
+  remainingAdvanceMonths?: number; // Remaining advance months that can be used if tenant leaves early
   totalAmount: number;
   startDate: string;
   endDate: string;
@@ -344,6 +350,10 @@ export interface BookingRecord {
   // Notification tracking
   notificationViewedByTenant?: boolean;
   notificationViewedAt?: string;
+  // Termination tracking for advance deposit countdown
+  terminationInitiatedAt?: string; // When tenant initiated ending rental stay
+  terminationEndDate?: string; // Calculated end date based on remaining advance months
+  terminationMode?: 'countdown' | 'immediate'; // How tenant wants to leave
 }
 
 export interface PaymentAccount {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform, Modal, TextInput, KeyboardAvoidingView, Keyboard, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -15,7 +15,10 @@ import {
   Phone,
   Camera,
   Edit2,
-  X
+  X,
+  Send,
+  Bot,
+  Sparkles
 } from 'lucide-react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
 import { showAlert } from '../../utils/alert';
@@ -31,11 +34,16 @@ export default function OwnerProfile() {
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [loadingPhoto, setLoadingPhoto] = useState(true);
   const [savingPhoto, setSavingPhoto] = useState(false);
-  const [showNameModal, setShowNameModal] = useState(false);
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [ownerName, setOwnerName] = useState(user?.name || '');
-  const [savingName, setSavingName] = useState(false);
+  const [oldEmail, setOldEmail] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [emailError, setEmailError] = useState('');
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showHelpSupport, setShowHelpSupport] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -255,17 +263,82 @@ export default function OwnerProfile() {
     }
   };
 
-  const handleSaveName = async () => {
+  const handleSaveProfile = async () => {
     if (!user?.id) return;
     
+    // Validate name
     const trimmedName = ownerName.trim();
     if (!trimmedName) {
       showAlert('Validation Error', 'Name cannot be empty');
       return;
     }
 
+    // Validate email fields if user is changing email
+    const trimmedOldEmail = oldEmail.trim().toLowerCase();
+    const trimmedNewEmail = newEmail.trim().toLowerCase();
+    const trimmedConfirmEmail = confirmEmail.trim().toLowerCase();
+    
+    const isChangingEmail = trimmedOldEmail || trimmedNewEmail || trimmedConfirmEmail;
+    
+    if (isChangingEmail) {
+      // Validate old email matches current email
+      if (!trimmedOldEmail) {
+        setEmailError('Please enter your current email');
+        return;
+      }
+      
+      if (trimmedOldEmail !== user.email?.toLowerCase()) {
+        setEmailError('Current email does not match');
+        return;
+      }
+      
+      // Validate new email
+      if (!trimmedNewEmail) {
+        setEmailError('Please enter your new email');
+        return;
+      }
+      
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedNewEmail)) {
+        setEmailError('Please enter a valid email address');
+        return;
+      }
+      
+      // Check if new email is same as old
+      if (trimmedNewEmail === trimmedOldEmail) {
+        setEmailError('New email must be different from current email');
+        return;
+      }
+      
+      // Validate confirm email
+      if (!trimmedConfirmEmail) {
+        setEmailError('Please confirm your new email');
+        return;
+      }
+      
+      if (trimmedNewEmail !== trimmedConfirmEmail) {
+        setEmailError('New email and confirm email do not match');
+        return;
+      }
+      
+      // Check if email is already taken by another user
+      try {
+        const allUsers = await db.list('users');
+        const emailTaken = allUsers.some(u => u.id !== user.id && u.email.toLowerCase() === trimmedNewEmail);
+        if (emailTaken) {
+          setEmailError('This email is already registered to another account');
+          return;
+        }
+      } catch (checkError) {
+        console.warn('⚠️ Could not check email availability:', checkError);
+      }
+    }
+    
+    setEmailError('');
+
     try {
-      setSavingName(true);
+      setSavingProfile(true);
       
       // Get user record from database
       const userRecord = await db.get('users', user.id);
@@ -279,19 +352,37 @@ export default function OwnerProfile() {
       const updatedUser = {
         ...userRecord,
         name: trimmedName,
+        ...(isChangingEmail && { email: trimmedNewEmail }),
         updatedAt: new Date().toISOString()
       };
       
       await db.upsert('users', user.id, updatedUser);
-      console.log('✅ Updated owner name in database:', trimmedName);
+      console.log('✅ Updated owner profile in database:', { name: trimmedName, email: isChangingEmail ? trimmedNewEmail : userRecord.email });
       
-      // Update mock auth storage
+      // Update mock auth storage - handle email change properly
       try {
         const { updateMockUser } = await import('../../utils/mock-auth');
-        await updateMockUser(user.id, {
-          name: trimmedName,
-          updatedAt: updatedUser.updatedAt
-        });
+        
+        if (isChangingEmail) {
+          // Update with email change - updateMockUser will handle removing old email and adding new email
+          const updateResult = await updateMockUser(user.id, {
+            name: trimmedName,
+            email: trimmedNewEmail,
+            updatedAt: updatedUser.updatedAt
+          });
+          
+          if (updateResult) {
+            console.log('✅ Successfully updated mockUsers: old email removed, new email added');
+          } else {
+            console.warn('⚠️ updateMockUser returned false - user may not be in mockUsers');
+          }
+        } else {
+          // Just update name
+          await updateMockUser(user.id, {
+            name: trimmedName,
+            updatedAt: updatedUser.updatedAt
+          });
+        }
       } catch (mockError) {
         console.warn('⚠️ Could not update mock user:', mockError);
       }
@@ -305,7 +396,7 @@ export default function OwnerProfile() {
           roles: user.roles || [],
           permissions: (userRecord as any).permissions || [],
           name: trimmedName,
-          email: user.email
+          email: isChangingEmail ? trimmedNewEmail : user.email
         });
       } catch (authError) {
         console.warn('⚠️ Could not update auth user:', authError);
@@ -320,26 +411,64 @@ export default function OwnerProfile() {
       // Wait a bit more for context to update
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      setShowNameModal(false);
-      showAlert('Success', 'Name updated successfully!');
+      // Clear form
+      setOldEmail('');
+      setNewEmail('');
+      setConfirmEmail('');
+      setEmailError('');
+      setShowEditProfileModal(false);
+      
+      if (isChangingEmail) {
+        // Force sign out to ensure user logs in with new email
+        // Close modal first, then show alert and sign out
+        setTimeout(async () => {
+          showAlert(
+            'Success', 
+            'Profile updated successfully! You will be logged out to apply the email change. Please log in again with your new email address.',
+            [
+              {
+                text: 'OK',
+                onPress: async () => {
+                  // Sign out to force re-login with new email
+                  try {
+                    if (signOut) {
+                      await signOut();
+                    }
+                    router.replace('/login');
+                  } catch (signOutError) {
+                    console.error('Error signing out:', signOutError);
+                    router.replace('/login');
+                  }
+                }
+              }
+            ]
+          );
+        }, 100);
+      } else {
+        showAlert('Success', 'Profile updated successfully!');
+      }
     } catch (error) {
-      console.error('❌ Error saving name:', error);
-      showAlert('Error', 'Failed to save name. Please try again.');
+      console.error('❌ Error saving profile:', error);
+      showAlert('Error', 'Failed to save profile. Please try again.');
     } finally {
-      setSavingName(false);
+      setSavingProfile(false);
     }
   };
 
   const profileMenuItems = [
     {
-      id: 'edit-name',
+      id: 'edit-profile',
       icon: Edit2,
-      label: 'Edit Name',
-      description: 'Change your display name',
+      label: 'Edit Profile',
+      description: 'Update your name and email',
       color: designTokens.colors.info,
       onPress: () => {
         setOwnerName(user?.name || '');
-        setShowNameModal(true);
+        setOldEmail(user?.email || '');
+        setNewEmail('');
+        setConfirmEmail('');
+        setEmailError('');
+        setShowEditProfileModal(true);
       }
     },
     {
@@ -359,9 +488,9 @@ export default function OwnerProfile() {
       id: 'help',
       icon: HelpCircle,
       label: 'Help & Support',
-      description: 'Get help and contact support',
+      description: 'Chat with Yna, your AI assistant',
       color: designTokens.colors.info,
-      onPress: () => showAlert('Help', 'Help & support coming soon!')
+      onPress: () => setShowHelpSupport(true)
     }
   ];
 
@@ -452,7 +581,11 @@ export default function OwnerProfile() {
                   <TouchableOpacity
                     onPress={() => {
                       setOwnerName(user?.name || '');
-                      setShowNameModal(true);
+                      setOldEmail(user?.email || '');
+                      setNewEmail('');
+                      setConfirmEmail('');
+                      setEmailError('');
+                      setShowEditProfileModal(true);
                     }}
                     style={{ 
                       flexDirection: 'row',
@@ -473,9 +606,9 @@ export default function OwnerProfile() {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 }}>
                   <Mail size={14} color={designTokens.colors.textMuted} />
-                  <Text style={[sharedStyles.statSubtitle, { marginLeft: 4 }]}>
+                  <Text style={[sharedStyles.statSubtitle, { flex: 1 }]} numberOfLines={1} ellipsizeMode="tail">
                     {user?.email || 'owner@hanapbahay.com'}
                   </Text>
                 </View>
@@ -698,12 +831,18 @@ export default function OwnerProfile() {
         </View>
       </Modal>
 
-      {/* Name Edit Modal */}
+      {/* Edit Profile Modal - Combined Name and Email */}
       <Modal
-        visible={showNameModal}
+        visible={showEditProfileModal}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setShowNameModal(false)}
+        onRequestClose={() => {
+          setShowEditProfileModal(false);
+          setOldEmail('');
+          setNewEmail('');
+          setConfirmEmail('');
+          setEmailError('');
+        }}
       >
         <KeyboardAvoidingView
           style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}
@@ -715,7 +854,11 @@ export default function OwnerProfile() {
             activeOpacity={1}
             onPress={() => {
               Keyboard.dismiss();
-              setShowNameModal(false);
+              setShowEditProfileModal(false);
+              setOldEmail('');
+              setNewEmail('');
+              setConfirmEmail('');
+              setEmailError('');
             }}
           >
             <TouchableOpacity
@@ -725,8 +868,9 @@ export default function OwnerProfile() {
                 backgroundColor: 'white',
                 borderRadius: 16,
                 padding: 24,
-                width: '85%',
-                maxWidth: 400,
+                width: '90%',
+                maxWidth: 500,
+                maxHeight: '80%',
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.25,
@@ -736,43 +880,172 @@ export default function OwnerProfile() {
             >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#111827' }}>
-                  Edit Name
+                  Edit Profile
                 </Text>
                 <TouchableOpacity
-                  onPress={() => setShowNameModal(false)}
+                  onPress={() => {
+                    setShowEditProfileModal(false);
+                    setOldEmail('');
+                    setNewEmail('');
+                    setConfirmEmail('');
+                    setEmailError('');
+                  }}
                   style={{ padding: 4 }}
                 >
                   <X size={24} color="#6B7280" />
                 </TouchableOpacity>
               </View>
 
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
-                  Owner Name
-                </Text>
-                <TextInput
-                  style={{
-                    borderWidth: 1,
-                    borderColor: '#D1D5DB',
-                    borderRadius: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 12,
-                    fontSize: 16,
-                    color: '#111827',
-                    backgroundColor: '#FFFFFF'
-                  }}
-                  value={ownerName}
-                  onChangeText={setOwnerName}
-                  placeholder="Enter your name"
-                  autoFocus={true}
-                  editable={!savingName}
-                />
-              </View>
+              <ScrollView
+                style={{ maxHeight: 400 }}
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={{ gap: 20 }}>
+                  {/* Name Field */}
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                      Owner Name *
+                    </Text>
+                    <TextInput
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#D1D5DB',
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        fontSize: 16,
+                        color: '#111827',
+                        backgroundColor: '#FFFFFF'
+                      }}
+                      value={ownerName}
+                      onChangeText={setOwnerName}
+                      placeholder="Enter your name"
+                      autoFocus={true}
+                      editable={!savingProfile}
+                    />
+                  </View>
 
-              <View style={{ flexDirection: 'row', gap: 12 }}>
+                  {/* Email Change Section */}
+                  <View>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 12 }}>
+                      Change Email (Optional)
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>
+                      Leave blank if you don't want to change your email
+                    </Text>
+                    
+                    {/* Old Email */}
+                    <View style={{ marginBottom: 12 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                        Current Email {oldEmail || newEmail || confirmEmail ? '*' : ''}
+                      </Text>
+                      {user?.email && (
+                        <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>
+                          Your current email: {user.email}
+                        </Text>
+                      )}
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: emailError ? '#EF4444' : '#D1D5DB',
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 12,
+                          fontSize: 16,
+                          color: '#111827',
+                          backgroundColor: '#FFFFFF'
+                        }}
+                        value={oldEmail}
+                        onChangeText={(text) => {
+                          setOldEmail(text);
+                          setEmailError('');
+                        }}
+                        placeholder={user?.email || "Enter your current email"}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!savingProfile}
+                      />
+                    </View>
+
+                    {/* New Email */}
+                    <View style={{ marginBottom: 12 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                        New Email {oldEmail || newEmail || confirmEmail ? '*' : ''}
+                      </Text>
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: emailError ? '#EF4444' : '#D1D5DB',
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 12,
+                          fontSize: 16,
+                          color: '#111827',
+                          backgroundColor: '#FFFFFF'
+                        }}
+                        value={newEmail}
+                        onChangeText={(text) => {
+                          setNewEmail(text);
+                          setEmailError('');
+                        }}
+                        placeholder="Enter your new email"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!savingProfile}
+                      />
+                    </View>
+
+                    {/* Confirm Email */}
+                    <View style={{ marginBottom: 8 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 }}>
+                        Confirm New Email {oldEmail || newEmail || confirmEmail ? '*' : ''}
+                      </Text>
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: emailError ? '#EF4444' : '#D1D5DB',
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 12,
+                          fontSize: 16,
+                          color: '#111827',
+                          backgroundColor: '#FFFFFF'
+                        }}
+                        value={confirmEmail}
+                        onChangeText={(text) => {
+                          setConfirmEmail(text);
+                          setEmailError('');
+                        }}
+                        placeholder="Re-enter your new email"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!savingProfile}
+                      />
+                    </View>
+                    
+                    {emailError ? (
+                      <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>
+                        {emailError}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </ScrollView>
+
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
                 <TouchableOpacity
-                  onPress={() => setShowNameModal(false)}
-                  disabled={savingName}
+                  onPress={() => {
+                    setShowEditProfileModal(false);
+                    setOldEmail('');
+                    setNewEmail('');
+                    setConfirmEmail('');
+                    setEmailError('');
+                  }}
+                  disabled={savingProfile}
                   style={{
                     flex: 1,
                     paddingVertical: 12,
@@ -782,7 +1055,7 @@ export default function OwnerProfile() {
                     borderColor: '#D1D5DB',
                     backgroundColor: '#FFFFFF',
                     alignItems: 'center',
-                    opacity: savingName ? 0.5 : 1
+                    opacity: savingProfile ? 0.5 : 1
                   }}
                 >
                   <Text style={{ fontSize: 16, fontWeight: '600', color: '#374151' }}>
@@ -790,8 +1063,8 @@ export default function OwnerProfile() {
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={handleSaveName}
-                  disabled={savingName}
+                  onPress={handleSaveProfile}
+                  disabled={savingProfile}
                   style={{
                     flex: 1,
                     paddingVertical: 12,
@@ -799,14 +1072,14 @@ export default function OwnerProfile() {
                     borderRadius: 8,
                     backgroundColor: designTokens.colors.info,
                     alignItems: 'center',
-                    opacity: savingName ? 0.7 : 1
+                    opacity: savingProfile ? 0.7 : 1
                   }}
                 >
-                  {savingName ? (
+                  {savingProfile ? (
                     <ActivityIndicator size="small" color="white" />
                   ) : (
                     <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>
-                      Save
+                      Save Changes
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -1062,6 +1335,373 @@ export default function OwnerProfile() {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Help & Support AI Agent Modal */}
+      <Modal
+        visible={showHelpSupport}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowHelpSupport(false)}
+      >
+        <HelpSupportAI 
+          visible={showHelpSupport}
+          onClose={() => setShowHelpSupport(false)}
+          userName={user?.name || 'Owner'}
+          userId={user?.id || ''}
+          userRole="owner"
+        />
+      </Modal>
+    </View>
+  );
+}
+
+// AI Agent Component for Help & Support
+interface HelpSupportAIProps {
+  visible: boolean;
+  onClose: () => void;
+  userName: string;
+  userId: string;
+  userRole: 'owner' | 'tenant';
+}
+
+function HelpSupportAI({ visible, onClose, userName, userId, userRole }: HelpSupportAIProps) {
+  const [messages, setMessages] = useState<Array<{ id: string; text: string; isUser: boolean; timestamp: Date }>>([]);
+  const [inputText, setInputText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const insets = useSafeAreaInsets();
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Initialize with welcome message and reset when modal opens
+  useEffect(() => {
+    if (visible) {
+      // Only show welcome message if no messages exist
+      setMessages(prev => {
+        if (prev.length === 0) {
+          const welcomeMessage = {
+            id: 'welcome',
+            text: `Hello ${userName}! 👋 I'm Yna, your AI assistant for HanapBahay. I can help you with:\n\n• Creating and managing property listings\n• Understanding bookings and tenant management\n• Payment settings and account management\n• Platform features and navigation\n• Troubleshooting issues\n\nWhat would you like to know?`,
+            isUser: false,
+            timestamp: new Date()
+          };
+          return [welcomeMessage];
+        }
+        return prev;
+      });
+    } else {
+      // Reset when modal closes
+      setMessages([]);
+      setInputText('');
+      setIsTyping(false);
+    }
+  }, [visible, userName]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages]);
+
+  const generateAIResponse = async (userMessage: string): Promise<string> => {
+    const lowerMessage = userMessage.toLowerCase().trim();
+    
+    // First, check if user is asking about a specific receipt number or booking ID
+    if (userId) {
+      try {
+        const { searchHelpSupportData } = await import('../../utils/ai-support-search');
+        const searchResult = await searchHelpSupportData(userMessage, userId, userRole);
+        
+        if (searchResult.responseText) {
+          return searchResult.responseText;
+        }
+      } catch (error) {
+        console.error('❌ Error searching help support data:', error);
+        // Continue with regular responses if search fails
+      }
+    }
+    
+    // Context-aware responses based on keywords
+    if (lowerMessage.includes('list') || lowerMessage.includes('property') || lowerMessage.includes('create') || lowerMessage.includes('add') || lowerMessage.includes('post')) {
+      return `To create a property listing:\n\n1. Go to "Create Listing" from the dashboard\n2. Fill in property details (type, location, price, etc.)\n3. Upload photos and videos\n4. Set availability and rental terms\n5. Submit for review\n\nYour listing will be visible to tenants once approved. You can manage all listings from the "Manage Listings" section.\n\n💡 Tip: Add high-quality photos and detailed descriptions to attract more tenants!`;
+    }
+    
+    if (lowerMessage.includes('edit') && (lowerMessage.includes('list') || lowerMessage.includes('property'))) {
+      return `To edit a property listing:\n\n1. Go to "Manage Listings"\n2. Find the property you want to edit\n3. Tap on the property\n4. Click "Edit" button\n5. Update the details, photos, or pricing\n6. Save your changes\n\nChanges will be reflected immediately for tenants viewing your property.`;
+    }
+    
+    if ((lowerMessage.includes('delete') || lowerMessage.includes('remove')) && (lowerMessage.includes('list') || lowerMessage.includes('property'))) {
+      return `To remove a property listing:\n\n1. Go to "Manage Listings"\n2. Find the property you want to remove\n3. Tap on the property\n4. Look for the delete/remove option\n5. Confirm the removal\n\n⚠️ Note: Removing a listing will make it unavailable to tenants. Consider marking it as unavailable instead if you plan to relist it later.`;
+    }
+    
+    if (lowerMessage.includes('booking') || lowerMessage.includes('reservation') || lowerMessage.includes('tenant') || lowerMessage.includes('approve') || lowerMessage.includes('reject')) {
+      return `Managing bookings:\n\n• View all bookings in the "Bookings" section\n• Approve or reject booking requests\n• Track payment status\n• Communicate with tenants through Messages\n• View tenant profiles in "My Tenants"\n\nYou'll receive notifications for new booking requests. Always review tenant details before approving.\n\n💡 Tip: Check tenant ratings and previous booking history to make informed decisions.`;
+    }
+    
+    if (lowerMessage.includes('pending') || lowerMessage.includes('waiting')) {
+      return `Pending bookings are requests waiting for your approval. You can:\n\n• Review tenant information and requirements\n• Check move-in dates and rental terms\n• Approve if everything looks good\n• Reject if the tenant doesn't meet your criteria\n• Message the tenant for clarification\n\nRespond promptly to maintain good relationships with potential tenants.`;
+    }
+    
+    if (lowerMessage.includes('payment') || lowerMessage.includes('money') || lowerMessage.includes('fee') || lowerMessage.includes('charge')) {
+      return `Payment settings:\n\n• Configure payment methods in "Payment Settings"\n• Set up bank accounts or payment channels\n• View payment history and transactions\n• Manage rental collection\n\nEnsure your payment information is up to date to receive rent payments smoothly.`;
+    }
+    
+    if (lowerMessage.includes('email') || lowerMessage.includes('account') || lowerMessage.includes('profile') || lowerMessage.includes('edit')) {
+      return `Account management:\n\n• Edit your name and email from Profile\n• Change password in Security & Privacy\n• Update profile photo\n• Manage account settings\n\nKeep your account information current for better communication with tenants.`;
+    }
+    
+    if (lowerMessage.includes('rating') || lowerMessage.includes('review') || lowerMessage.includes('feedback')) {
+      return `Property ratings:\n\n• View tenant ratings in "Property Ratings"\n• Respond to reviews and feedback\n• Improve based on tenant suggestions\n• High ratings attract more tenants\n\nEngage with tenant feedback to improve your properties and reputation.`;
+    }
+    
+    if (lowerMessage.includes('message') || lowerMessage.includes('chat') || lowerMessage.includes('communicate')) {
+      return `Messaging features:\n\n• Access "Messages" to chat with tenants\n• Respond to inquiries about your properties\n• Share property details and answer questions\n• Coordinate viewing schedules\n\nQuick responses help convert inquiries into bookings!`;
+    }
+    
+    if (lowerMessage.includes('help') || lowerMessage.includes('support') || lowerMessage.includes('issue') || lowerMessage.includes('problem')) {
+      return `I'm Yna, and I'm here to help! You can ask me about:\n\n• How to use specific features\n• Managing your properties\n• Handling bookings and tenants\n• Account settings\n• Troubleshooting\n\nOr contact support at support@hanapbahay.com for urgent issues.`;
+    }
+    
+    if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+      return `Hello! I'm Yna. How can I assist you today with your property management needs?`;
+    }
+    
+    if (lowerMessage.includes('thank') || lowerMessage.includes('thanks')) {
+      return `You're welcome! Feel free to ask if you need any other help. 😊`;
+    }
+    
+    // Default helpful response
+    return `I'm Yna, and I understand you're asking about "${userMessage}". Here are some ways I can help:\n\n• Property listing management\n• Booking and tenant coordination\n• Payment and account settings\n• Platform navigation\n• General questions\n\nCould you be more specific about what you need help with?`;
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || isTyping) return;
+    
+    const userMessage = inputText.trim();
+    setInputText('');
+    
+    // Add user message
+    const newUserMessage = {
+      id: Date.now().toString(),
+      text: userMessage,
+      isUser: true,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, newUserMessage]);
+    
+    // Simulate AI thinking
+    setIsTyping(true);
+    
+    // Generate AI response
+    setTimeout(async () => {
+      const aiResponse = await generateAIResponse(userMessage);
+      const newAIMessage = {
+        id: (Date.now() + 1).toString(),
+        text: aiResponse,
+        isUser: false,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, newAIMessage]);
+      setIsTyping(false);
+    }, 800 + Math.random() * 500); // Simulate thinking time
+  };
+
+  const quickQuestions = [
+    'How do I create a listing?',
+    'How to manage bookings?',
+    'Payment settings',
+    'Edit my account'
+  ];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      {/* Header */}
+      <View style={{
+        paddingTop: insets.top + 16,
+        paddingBottom: 16,
+        paddingHorizontal: 16,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
+      }}>
+        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
+          <X size={24} color="#111827" />
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <View style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: designTokens.colors.info + '20',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}>
+            <Bot size={20} color={designTokens.colors.info} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>
+              Yna
+            </Text>
+            <Text style={{ fontSize: 12, color: '#6B7280' }}>
+              AI Assistant • Help & Support
+            </Text>
+          </View>
+        </View>
+        <View style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: '#10B981'
+        }} />
+      </View>
+
+      {/* Messages */}
+      <ScrollView
+        ref={scrollViewRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, gap: 12 }}
+        showsVerticalScrollIndicator={true}
+      >
+        {messages.map((message) => (
+          <View
+            key={message.id}
+            style={{
+              flexDirection: 'row',
+              justifyContent: message.isUser ? 'flex-end' : 'flex-start',
+              marginBottom: 4
+            }}
+          >
+            <View style={{
+              maxWidth: '80%',
+              padding: 12,
+              borderRadius: 16,
+              backgroundColor: message.isUser ? designTokens.colors.info : '#F3F4F6',
+            }}>
+              {!message.isUser && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Bot size={14} color={designTokens.colors.info} />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: designTokens.colors.info }}>
+                    Yna
+                  </Text>
+                </View>
+              )}
+              <Text style={{
+                fontSize: 15,
+                color: message.isUser ? '#FFFFFF' : '#111827',
+                lineHeight: 20
+              }}>
+                {message.text}
+              </Text>
+            </View>
+          </View>
+        ))}
+        
+        {isTyping && (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-start' }}>
+            <View style={{
+              padding: 12,
+              borderRadius: 16,
+              backgroundColor: '#F3F4F6',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6
+            }}>
+              <Bot size={14} color={designTokens.colors.info} />
+              <Text style={{ fontSize: 11, fontWeight: '600', color: designTokens.colors.info, marginRight: 8 }}>
+                Yna
+              </Text>
+              <ActivityIndicator size="small" color={designTokens.colors.info} />
+            </View>
+          </View>
+        )}
+
+        {/* Quick Questions */}
+        {messages.length <= 1 && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
+              Quick Questions:
+            </Text>
+            <View style={{ gap: 8 }}>
+              {quickQuestions.map((question, index) => (
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => {
+                    setInputText(question);
+                    setTimeout(() => handleSendMessage(), 100);
+                  }}
+                  style={{
+                    padding: 12,
+                    backgroundColor: '#F9FAFB',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB'
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: '#374151' }}>{question}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Input Area */}
+      <View style={{
+        padding: 16,
+        paddingBottom: Math.max(insets.bottom, 16),
+        backgroundColor: '#FFFFFF',
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB'
+      }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          borderWidth: 1,
+          borderColor: '#D1D5DB',
+          borderRadius: 24,
+          paddingHorizontal: 16,
+          backgroundColor: '#F9FAFB'
+        }}>
+          <TextInput
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              fontSize: 15,
+              color: '#111827'
+            }}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder="Ask me anything..."
+            multiline
+            maxLength={500}
+            onSubmitEditing={handleSendMessage}
+            returnKeyType="send"
+          />
+          <TouchableOpacity
+            onPress={handleSendMessage}
+            disabled={!inputText.trim() || isTyping}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: inputText.trim() && !isTyping ? designTokens.colors.info : '#D1D5DB',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          >
+            {isTyping ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Send size={18} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }
