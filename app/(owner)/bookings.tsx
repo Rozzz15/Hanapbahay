@@ -115,57 +115,131 @@ export default function BookingsPage() {
   const handleBookingAction = async (bookingId: string, action: 'approve' | 'reject') => {
     if (!user?.id) return;
 
-    try {
-      const status = action === 'approve' ? 'approved' : 'rejected';
-      const success = await updateBookingStatus(bookingId, status, user.id);
+    // Get booking details for confirmation message
+    const booking = bookings.find(b => b.id === bookingId);
+    if (!booking) {
+      showAlert('Error', 'Booking not found');
+      return;
+    }
 
-      if (success) {
-        showAlert(
-          'Success', 
-          `Booking ${action === 'approve' ? 'approved' : 'rejected'} successfully`
-        );
-        
-        // Get booking details to send notification
-        const booking = bookings.find(b => b.id === bookingId);
-        if (booking) {
-          // Send notification message to tenant with payment details
-          const { sendBookingApprovalNotification, sendBookingRejectionNotification } = await import('../../utils/booking-notifications');
-          
-          if (action === 'approve') {
-            await sendBookingApprovalNotification(
-              bookingId,
-              user.id,
-              booking.tenantId,
-              booking.propertyTitle
-            );
-          } else {
-            await sendBookingRejectionNotification(
-              bookingId,
-              user.id,
-              booking.tenantId,
-              booking.propertyTitle
-            );
+    // Show confirmation alert before accepting
+    if (action === 'approve') {
+      Alert.alert(
+        'Confirm Booking Approval',
+        `Are you sure you want to approve the booking from ${booking.tenantName} for ${booking.propertyTitle}?\n\n` +
+        `This will:\n` +
+        `• Reserve the property slot for this tenant\n` +
+        `• Send a payment notification to the tenant\n` +
+        `• Create the initial payment record\n\n` +
+        `This action cannot be undone.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Approve',
+            style: 'default',
+            onPress: async () => {
+              try {
+                const status = 'approved';
+                const success = await updateBookingStatus(bookingId, status, user.id);
+
+                if (success) {
+                  showAlert(
+                    'Success', 
+                    `Booking approved successfully! The tenant has been notified.`
+                  );
+                  
+                  // Send notification message to tenant with payment details
+                  const { sendBookingApprovalNotification } = await import('../../utils/booking-notifications');
+                  await sendBookingApprovalNotification(
+                    bookingId,
+                    user.id,
+                    booking.tenantId,
+                    booking.propertyTitle
+                  );
+                  
+                  // Dispatch event to notify tenant dashboard
+                  const { dispatchCustomEvent } = await import('../../utils/custom-events');
+                  dispatchCustomEvent('bookingStatusChanged', {
+                    bookingId,
+                    status,
+                    ownerId: user.id,
+                    timestamp: new Date().toISOString()
+                  });
+                  
+                  loadBookings();
+                  // Refresh the pending bookings count in the navigation badge
+                  refreshPendingBookings();
+                } else {
+                  throw new Error('Failed to update booking status');
+                }
+              } catch (error) {
+                console.error('Error approving booking:', error);
+                showAlert('Error', 'Failed to approve booking');
+              }
+            }
           }
-        }
-        
-        // Dispatch event to notify tenant dashboard
-        const { dispatchCustomEvent } = await import('../../utils/custom-events');
-        dispatchCustomEvent('bookingStatusChanged', {
-          bookingId,
-          status,
-          ownerId: user.id,
-          timestamp: new Date().toISOString()
-        });
-        
-        loadBookings();
-        // Refresh the pending bookings count in the navigation badge
-        refreshPendingBookings();
-      } else {
-        throw new Error('Failed to update booking status');
-      }
-    } catch (error) {
-      console.error(`Error ${action}ing booking:`, error);
-      showAlert('Error', `Failed to ${action} booking`);
+        ]
+      );
+    } else {
+      // For rejection, show confirmation as well
+      Alert.alert(
+        'Confirm Booking Rejection',
+        `Are you sure you want to reject the booking from ${booking.tenantName} for ${booking.propertyTitle}?\n\n` +
+        `This will notify the tenant that their booking has been declined.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Reject',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const status = 'rejected';
+                const success = await updateBookingStatus(bookingId, status, user.id);
+
+                if (success) {
+                  showAlert(
+                    'Success', 
+                    `Booking rejected successfully`
+                  );
+                  
+                  // Send notification message to tenant
+                  const { sendBookingRejectionNotification } = await import('../../utils/booking-notifications');
+                  await sendBookingRejectionNotification(
+                    bookingId,
+                    user.id,
+                    booking.tenantId,
+                    booking.propertyTitle
+                  );
+                  
+                  // Dispatch event to notify tenant dashboard
+                  const { dispatchCustomEvent } = await import('../../utils/custom-events');
+                  dispatchCustomEvent('bookingStatusChanged', {
+                    bookingId,
+                    status,
+                    ownerId: user.id,
+                    timestamp: new Date().toISOString()
+                  });
+                  
+                  loadBookings();
+                  // Refresh the pending bookings count in the navigation badge
+                  refreshPendingBookings();
+                } else {
+                  throw new Error('Failed to update booking status');
+                }
+              } catch (error) {
+                console.error('Error rejecting booking:', error);
+                showAlert('Error', 'Failed to reject booking');
+              }
+            }
+          }
+        ]
+      );
     }
   };
 
@@ -685,70 +759,6 @@ export default function BookingsPage() {
                     {/* Contact Tenant - For approved/rejected */}
                     {(booking.status === 'approved' || booking.status === 'rejected') && (
                       <View style={{ paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
-                        <TouchableOpacity
-                          onPress={async () => {
-                          if (!user?.id) {
-                            showAlert('Error', 'Please log in to message the tenant.');
-                            return;
-                          }
-
-                          // Show confirmation dialog
-                          showAlert(
-                            'Start Conversation',
-                            `Do you want to start a conversation with ${booking.tenantName}?`,
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Start',
-                                onPress: async () => {
-                                  try {
-                                    console.log('💬 Starting conversation with tenant:', booking.tenantId);
-                                    
-                                    // Get owner's display name
-                                    let ownerDisplayName = 'Property Owner';
-                                    try {
-                                      const ownerProfile = await db.get('owner_profiles', user.id);
-                                      ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
-                                    } catch (error) {
-                                      console.log('⚠️ Could not load owner profile, using user name');
-                                      ownerDisplayName = user.name || 'Property Owner';
-                                    }
-
-                                    // Create or find conversation
-                                    const conversationId = await createOrFindConversation({
-                                      ownerId: user.id,
-                                      tenantId: booking.tenantId,
-                                      ownerName: ownerDisplayName,
-                                      tenantName: booking.tenantName,
-                                      propertyId: booking.propertyId,
-                                      propertyTitle: booking.propertyTitle
-                                    });
-
-                                    console.log('✅ Created/found conversation:', conversationId);
-
-                                    // Navigate to chat room with conversation ID
-                                    router.push({
-                                      pathname: '/chat-room',
-                                      params: {
-                                        conversationId: conversationId
-                                      }
-                                    });
-                                  } catch (error) {
-                                    console.error('❌ Error starting conversation:', error);
-                                    showAlert('Error', 'Failed to start conversation. Please try again.');
-                                  }
-                                }
-                              }
-                            ]
-                          );
-                        }}
-                        style={[sharedStyles.secondaryButton, { width: '100%', justifyContent: 'center' }]}
-                      >
-                        <MessageSquare size={16} color={designTokens.colors.info} />
-                        <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info }]}>
-                          Message Tenant
-                        </Text>
-                      </TouchableOpacity>
                       </View>
                     )}
 
@@ -956,43 +966,36 @@ export default function BookingsPage() {
                             <TouchableOpacity
                               onPress={async () => {
                                 if (!user?.id) return;
-                                showAlert(
-                                  'Start Conversation',
-                                  `Do you want to start a conversation with ${booking.tenantName}?`,
-                                  [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    {
-                                      text: 'Start',
-                                      onPress: async () => {
-                                        try {
-                                          let ownerDisplayName = 'Property Owner';
-                                          try {
-                                            const ownerProfile = await db.get('owner_profiles', user.id);
-                                            ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
-                                          } catch (error) {
-                                            ownerDisplayName = user.name || 'Property Owner';
-                                          }
-                                          const conversationId = await createOrFindConversation({
-                                            ownerId: user.id,
-                                            tenantId: booking.tenantId,
-                                            ownerName: ownerDisplayName,
-                                            tenantName: booking.tenantName,
-                                            propertyId: booking.propertyId,
-                                            propertyTitle: booking.propertyTitle
-                                          });
-                                          router.push({
-                                            pathname: '/chat-room',
-                                            params: { conversationId: conversationId }
-                                          });
-                                        } catch (error) {
-                                          showAlert('Error', 'Failed to start conversation.');
-                                        }
-                                      }
+                                
+                                try {
+                                  let ownerDisplayName = 'Property Owner';
+                                  try {
+                                    const ownerProfile = await db.get('owner_profiles', user.id);
+                                    ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+                                  } catch (error) {
+                                    ownerDisplayName = user.name || 'Property Owner';
+                                  }
+                                  const conversationId = await createOrFindConversation({
+                                    ownerId: user.id,
+                                    tenantId: booking.tenantId,
+                                    ownerName: ownerDisplayName,
+                                    tenantName: booking.tenantName,
+                                    propertyId: booking.propertyId,
+                                    propertyTitle: booking.propertyTitle
+                                  });
+                                  router.push({
+                                    pathname: `/(owner)/chat-room/${conversationId}` as any,
+                                    params: { 
+                                      conversationId: conversationId,
+                                      tenantName: booking.tenantName,
+                                      propertyTitle: booking.propertyTitle
                                     }
-                                  ]
-                                );
+                                  } as any);
+                                } catch (error) {
+                                  showAlert('Error', 'Failed to start conversation.');
+                                }
                               }}
-                              style={[sharedStyles.secondaryButton, { paddingVertical: designTokens.spacing.sm }]}
+                              style={[sharedStyles.secondaryButton, { paddingVertical: designTokens.spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }]}
                             >
                               <MessageSquare size={14} color={designTokens.colors.info} />
                               <Text style={[sharedStyles.secondaryButtonText, { color: designTokens.colors.info, fontSize: designTokens.typography.xs }]}>

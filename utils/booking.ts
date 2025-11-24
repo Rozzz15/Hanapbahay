@@ -50,19 +50,12 @@ export async function checkDuplicateBooking(
     console.log('📋 Total bookings found:', bookings.length);
     
     // Check for active bookings (pending or approved, not deleted)
+    // Only prevent duplicates for active bookings - allow rebooking if previous booking was deleted
     const activeBooking = bookings.find(booking => 
       booking.propertyId === propertyId &&
       booking.tenantId === tenantId &&
       !booking.isDeleted &&
       (booking.status === 'pending' || booking.status === 'approved')
-    );
-    
-    // Also check for deleted bookings to provide better error message
-    const deletedBooking = bookings.find(booking => 
-      booking.propertyId === propertyId &&
-      booking.tenantId === tenantId &&
-      booking.isDeleted &&
-      (booking.status === 'pending' || booking.status === 'approved' || booking.status === 'rejected')
     );
     
     if (activeBooking) {
@@ -86,20 +79,8 @@ export async function checkDuplicateBooking(
       };
     }
     
-    if (deletedBooking) {
-      console.log('🔍 Found deleted booking for this property:', {
-        id: deletedBooking.id,
-        status: deletedBooking.status,
-        isDeleted: deletedBooking.isDeleted,
-        deletedAt: deletedBooking.deletedAt
-      });
-      
-      return {
-        hasDuplicate: true,
-        existingBooking: deletedBooking,
-        message: `You previously had a booking for this property that was removed. Please contact the property owner if you wish to book again.`
-      };
-    }
+    // Note: We no longer block rebooking if previous booking was deleted
+    // This allows tenants to book again after being removed by owner
     
     console.log('🔍 No duplicate booking found');
     return { hasDuplicate: false };
@@ -803,6 +784,138 @@ export async function deleteBookingByOwner(bookingId: string, ownerId: string): 
     
     await db.upsert('bookings', bookingId, updatedBooking);
     console.log('✅ Booking soft-deleted successfully by owner (preserved for analytics)');
+    
+    // Delete all messages related to this booking/tenant removal (notifications and payment-related)
+    try {
+      const allMessages = await db.list('messages');
+      
+      // Find conversations between owner and tenant for this property
+      const allConversations = await db.list('conversations');
+      const relevantConversations = allConversations.filter((conv: any) => {
+        const ownerMatch = (conv.ownerId === booking.ownerId || conv.owner_id === booking.ownerId);
+        const tenantMatch = (conv.tenantId === booking.tenantId || conv.tenant_id === booking.tenantId);
+        const propertyMatch = !booking.propertyId || (conv.propertyId === booking.propertyId || conv.property_id === booking.propertyId);
+        return ownerMatch && tenantMatch && propertyMatch;
+      });
+      
+      // Delete all notification and payment-related messages in these conversations
+      let deletedCount = 0;
+      for (const conversation of relevantConversations) {
+        const conversationId = (conversation as any).id;
+        const messagesToDelete = allMessages.filter((msg: any) => {
+          if (msg.conversationId !== conversationId) return false;
+          
+          // Delete notifications
+          if (msg.type === 'notification') return true;
+          
+          // Delete payment-related messages (Payment Reminder, Payment Rejected, Payment Confirmed, etc.)
+          const text = (msg.text || '').toLowerCase();
+          if (text.includes('payment reminder') || 
+              text.includes('payment rejected') || 
+              text.includes('payment confirmed') ||
+              text.includes('payment deleted') ||
+              text.includes('payment restored') ||
+              text.includes('payment due') ||
+              text.includes('rent payment received') ||
+              text.includes('rent payment') ||
+              text.includes('overdue payment') ||
+              text.includes('payment auto-deleted') ||
+              text.includes('verify the payment') ||
+              text.includes('please verify') ||
+              text.includes('receipt #')) {
+            return true;
+          }
+          
+          return false;
+        });
+        
+        for (const message of messagesToDelete) {
+          await db.remove('messages', (message as any).id);
+          deletedCount++;
+        }
+        
+        // Update conversation unread counts and last message
+        try {
+          const conversation = await db.get('conversations', conversationId);
+          if (conversation) {
+            // Get remaining non-deleted messages to update conversation
+            const remainingMessages = allMessages.filter((msg: any) => 
+              msg.conversationId === conversationId && 
+              !messagesToDelete.some((deleted: any) => deleted.id === msg.id)
+            );
+            
+            const lastRegularMessage = remainingMessages
+              .filter((msg: any) => (msg as any).type !== 'notification')
+              .sort((a: any, b: any) => new Date((b as any).createdAt).getTime() - new Date((a as any).createdAt).getTime())[0];
+            
+            const lastMessageText = lastRegularMessage 
+              ? ((lastRegularMessage as any).type === 'image' ? '📷 Image' : ((lastRegularMessage as any).text || '').substring(0, 100))
+              : '';
+            const lastMessageAt = (lastRegularMessage as any)?.createdAt || (conversation as any).lastMessageAt || now;
+            
+            // Recalculate unread counts
+            const tenantUnread = remainingMessages.filter((msg: any) => 
+              msg.senderId === booking.ownerId && 
+              !(msg.readBy || []).includes(booking.tenantId)
+            ).length;
+            
+            const ownerUnread = remainingMessages.filter((msg: any) => 
+              msg.senderId === booking.tenantId && 
+              !(msg.readBy || []).includes(booking.ownerId)
+            ).length;
+            
+            await db.upsert('conversations', conversationId, {
+              ...conversation,
+              lastMessageText,
+              lastMessageAt,
+              unreadByTenant: tenantUnread,
+              unreadByOwner: ownerUnread,
+              updatedAt: now,
+            });
+          }
+        } catch (convError) {
+          console.warn('⚠️ Could not update conversation after message deletion:', convError);
+        }
+      }
+      
+      if (deletedCount > 0) {
+        console.log(`✅ Deleted ${deletedCount} message(s) (notifications and payment-related) related to removed tenant`);
+      }
+    } catch (notificationError) {
+      console.warn('⚠️ Could not delete notification messages:', notificationError);
+      // Don't fail the deletion if notification cleanup fails
+    }
+    
+    // Delete or mark pending/overdue payments as cancelled
+    try {
+      const allPayments = await db.list('rent_payments');
+      const bookingPayments = allPayments.filter((p: any) => (p as any).bookingId === bookingId);
+      
+      let cancelledPayments = 0;
+      for (const payment of bookingPayments) {
+        const paymentRecord = payment as any;
+        // Only cancel pending/overdue payments (not paid ones, preserve for records)
+        // Mark as rejected to remove from pending confirmation list
+        if (paymentRecord.status === 'pending' || paymentRecord.status === 'overdue' || paymentRecord.status === 'pending_owner_confirmation') {
+          const updatedPayment = {
+            ...paymentRecord,
+            status: 'rejected' as const,
+            rejectedAt: now,
+            rejectedBy: ownerId,
+            updatedAt: now,
+          };
+          await db.upsert('rent_payments', paymentRecord.id, updatedPayment);
+          cancelledPayments++;
+        }
+      }
+      
+      if (cancelledPayments > 0) {
+        console.log(`✅ Cancelled ${cancelledPayments} pending/overdue payment(s) for removed tenant`);
+      }
+    } catch (paymentError) {
+      console.warn('⚠️ Could not cancel pending payments:', paymentError);
+      // Don't fail the deletion if payment cleanup fails
+    }
     
     // Update listing availability status in case slots became available
     try {

@@ -6,7 +6,7 @@ import {
   Home, 
   List, 
   Calendar, 
-  MessageSquare, 
+  MessageSquare,
   CreditCard,
   Users
 } from 'lucide-react-native';

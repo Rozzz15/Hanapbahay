@@ -24,11 +24,13 @@ import {
   Mail,
   Trash2,
   X,
-  Search
+  Search,
+  MessageSquare
 } from 'lucide-react-native';
 import { getTenantsByOwner, type ListingWithTenants, type TenantInfo } from '../../utils/tenant-management';
 import { deleteBookingByOwner } from '../../utils/booking';
 import { showAlert } from '../../utils/alert';
+import { createOrFindConversation } from '../../utils/conversation-utils';
 import TenantInfoModal from '../../components/TenantInfoModal';
 import { designTokens } from '../../styles/owner-dashboard-styles';
 import { addCustomEventListener } from '../../utils/custom-events';
@@ -68,6 +70,7 @@ export default function TenantsPage() {
   } | null>(null);
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTenantType, setSelectedTenantType] = useState<'individual' | 'couple' | 'family' | 'group' | null>(null);
 
   const loadTenants = useCallback(async () => {
     if (!user?.id) return;
@@ -469,6 +472,9 @@ export default function TenantsPage() {
                 
                 // Reload tenants to reflect the change
                 await loadTenants();
+                
+                // Refresh pending payments count to update notification badge
+                await refreshPendingPayments();
               } else {
                 showAlert('Error', 'Failed to remove tenant. Please try again.');
               }
@@ -505,42 +511,93 @@ export default function TenantsPage() {
     );
   }
 
-  const totalTenants = listingsWithTenants.reduce((sum, listing) => sum + listing.tenants.length, 0);
+  // Helper function to calculate people count from tenant
+  const getPeopleCountFromTenant = (tenant: TenantInfo): number => {
+    if (!tenant.tenantType) return 1; // Default to 1 if no tenant type
+    
+    switch (tenant.tenantType) {
+      case 'individual':
+        return 1;
+      case 'couple':
+        return 2;
+      case 'family':
+      case 'group':
+        // Count tenant (1) + family/group members (numberOfPeople)
+        const members = tenant.numberOfPeople || 0;
+        return 1 + members;
+      default:
+        return 1;
+    }
+  };
 
-  // Filter listings and tenants based on search query
+  // Calculate total people count (not just tenant count)
+  const totalTenants = listingsWithTenants.reduce((sum, listing) => {
+    return sum + listing.tenants.reduce((tenantSum, tenant) => {
+      return tenantSum + getPeopleCountFromTenant(tenant);
+    }, 0);
+  }, 0);
+
+  // Filter listings and tenants based on search query and tenant type
   const getFilteredListings = () => {
-    if (!searchQuery.trim()) {
-      return listingsWithTenants;
+    let filtered = listingsWithTenants;
+
+    // Apply tenant type filter
+    if (selectedTenantType) {
+      filtered = filtered
+        .map(listing => {
+          const filteredTenants = listing.tenants.filter(tenant => {
+            return tenant.tenantType === selectedTenantType;
+          });
+
+          if (filteredTenants.length > 0) {
+            return {
+              ...listing,
+              tenants: filteredTenants
+            };
+          }
+          return null;
+        })
+        .filter((listing): listing is ListingWithTenants => listing !== null);
     }
 
-    const query = searchQuery.toLowerCase();
-    return listingsWithTenants
-      .map(listing => {
-        // Filter tenants within each listing
-        const filteredTenants = listing.tenants.filter(tenant => {
-          return (
-            tenant.tenantName.toLowerCase().includes(query) ||
-            tenant.tenantEmail?.toLowerCase().includes(query) ||
-            tenant.tenantPhone?.toLowerCase().includes(query) ||
-            listing.propertyTitle.toLowerCase().includes(query) ||
-            listing.propertyAddress.toLowerCase().includes(query)
-          );
-        });
+    // Apply search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered
+        .map(listing => {
+          // Filter tenants within each listing
+          const filteredTenants = listing.tenants.filter(tenant => {
+            return (
+              tenant.tenantName.toLowerCase().includes(query) ||
+              tenant.tenantEmail?.toLowerCase().includes(query) ||
+              tenant.tenantPhone?.toLowerCase().includes(query) ||
+              listing.propertyTitle.toLowerCase().includes(query) ||
+              listing.propertyAddress.toLowerCase().includes(query)
+            );
+          });
 
-        // Return listing only if it has matching tenants
-        if (filteredTenants.length > 0) {
-          return {
-            ...listing,
-            tenants: filteredTenants
-          };
-        }
-        return null;
-      })
-      .filter((listing): listing is ListingWithTenants => listing !== null);
+          // Return listing only if it has matching tenants
+          if (filteredTenants.length > 0) {
+            return {
+              ...listing,
+              tenants: filteredTenants
+            };
+          }
+          return null;
+        })
+        .filter((listing): listing is ListingWithTenants => listing !== null);
+    }
+
+    return filtered;
   };
 
   const filteredListings = getFilteredListings();
-  const filteredTotalTenants = filteredListings.reduce((sum, listing) => sum + listing.tenants.length, 0);
+  // Calculate filtered total people count (not just tenant count)
+  const filteredTotalTenants = filteredListings.reduce((sum, listing) => {
+    return sum + listing.tenants.reduce((tenantSum, tenant) => {
+      return tenantSum + getPeopleCountFromTenant(tenant);
+    }, 0);
+  }, 0);
 
   return (
     <View style={styles.container}>
@@ -557,7 +614,7 @@ export default function TenantsPage() {
               <Text style={styles.pageTitle}>My Tenants</Text>
               <Text style={styles.pageSubtitle}>
                 {totalTenants > 0 
-                  ? `${totalTenants} active tenant${totalTenants !== 1 ? 's' : ''} across ${listingsWithTenants.length} listing${listingsWithTenants.length !== 1 ? 's' : ''}`
+                  ? `${(selectedTenantType || searchQuery.trim()) ? filteredTotalTenants : totalTenants} active ${(selectedTenantType || searchQuery.trim()) ? filteredTotalTenants : totalTenants === 1 ? 'person' : 'people'} across ${(selectedTenantType || searchQuery.trim()) ? filteredListings.length : listingsWithTenants.length} listing${(selectedTenantType || searchQuery.trim()) ? filteredListings.length : listingsWithTenants.length !== 1 ? 's' : ''}`
                   : 'Manage your tenants and monitor occupancy'}
               </Text>
             </View>
@@ -599,6 +656,55 @@ export default function TenantsPage() {
             </View>
           )}
 
+          {/* Tenant Type Filter */}
+          {totalTenants > 0 && (
+            <View style={styles.filterContainer}>
+              <Text style={styles.filterLabel}>Filter by Tenant Type:</Text>
+              <View style={styles.filterButtonsRow}>
+                {(['individual', 'couple', 'family', 'group'] as const).map((type) => {
+                  const isSelected = selectedTenantType === type;
+                  const labels: Record<typeof type, string> = {
+                    individual: 'Individual',
+                    couple: 'Couple',
+                    family: 'Family',
+                    group: 'Group'
+                  };
+                  
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={[
+                        styles.filterButton,
+                        isSelected && styles.filterButtonActive
+                      ]}
+                      onPress={() => {
+                        setSelectedTenantType(isSelected ? null : type);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.filterButtonText,
+                        isSelected && styles.filterButtonTextActive
+                      ]}>
+                        {labels[type]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {selectedTenantType && (
+                  <TouchableOpacity
+                    style={styles.clearFilterButton}
+                    onPress={() => setSelectedTenantType(null)}
+                    activeOpacity={0.7}
+                  >
+                    <X size={14} color="#6B7280" />
+                    <Text style={styles.clearFilterButtonText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
           {/* Summary Card */}
           {totalTenants > 0 && (
             <View style={styles.summaryCard}>
@@ -606,10 +712,10 @@ export default function TenantsPage() {
                 <Users size={24} color={designTokens.colors.primary} />
                 <View style={styles.summaryContent}>
                   <Text style={styles.summaryValue}>
-                    {searchQuery.trim() ? filteredTotalTenants : totalTenants}
+                    {(selectedTenantType || searchQuery.trim()) ? filteredTotalTenants : totalTenants}
                   </Text>
                   <Text style={styles.summaryLabel}>
-                    {searchQuery.trim() ? 'Filtered' : 'Total'} Tenants
+                    {(selectedTenantType || searchQuery.trim()) ? 'Filtered' : 'Total'} People
                   </Text>
                 </View>
               </View>
@@ -618,7 +724,7 @@ export default function TenantsPage() {
                 <Home size={24} color={designTokens.colors.success} />
                 <View style={styles.summaryContent}>
                   <Text style={styles.summaryValue}>
-                    {searchQuery.trim() ? filteredListings.length : listingsWithTenants.length}
+                    {(selectedTenantType || searchQuery.trim()) ? filteredListings.length : listingsWithTenants.length}
                   </Text>
                   <Text style={styles.summaryLabel}>Listings</Text>
                 </View>
@@ -633,19 +739,24 @@ export default function TenantsPage() {
                 <Users size={48} color="#9CA3AF" />
               </View>
               <Text style={styles.emptyTitle}>
-                {searchQuery.trim() ? 'No Tenants Found' : 'No Active Tenants'}
+                {(selectedTenantType || searchQuery.trim()) ? 'No Tenants Found' : 'No Active Tenants'}
               </Text>
               <Text style={styles.emptyText}>
                 {searchQuery.trim() 
                   ? `No tenants match your search "${searchQuery}". Try a different search term.`
+                  : selectedTenantType
+                  ? `No tenants found with type "${selectedTenantType.charAt(0).toUpperCase() + selectedTenantType.slice(1)}". Try selecting a different type or clear the filter.`
                   : 'You don\'t have any active tenants yet. Once tenants book and pay for your properties, they will appear here.'}
               </Text>
-              {searchQuery.trim() && (
+              {(selectedTenantType || searchQuery.trim()) && (
                 <TouchableOpacity
                   style={styles.clearSearchButtonLarge}
-                  onPress={() => setSearchQuery('')}
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSelectedTenantType(null);
+                  }}
                 >
-                  <Text style={styles.clearSearchButtonText}>Clear Search</Text>
+                  <Text style={styles.clearSearchButtonText}>Clear Filters</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -803,20 +914,65 @@ export default function TenantsPage() {
                               )}
                             </View>
                           </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[
-                              styles.removeButton,
-                              removingTenantId === tenant.bookingId && styles.removeButtonDisabled
-                            ]}
-                            onPress={() => handleRemoveTenant(tenant)}
-                            disabled={removingTenantId === tenant.bookingId}
-                          >
-                            {removingTenantId === tenant.bookingId ? (
-                              <ActivityIndicator size="small" color="#FFFFFF" />
-                            ) : (
-                              <Trash2 size={16} color="#FFFFFF" />
-                            )}
-                          </TouchableOpacity>
+                          <View style={styles.tenantHeaderRight}>
+                            <TouchableOpacity
+                              style={styles.messageButton}
+                              onPress={async () => {
+                                if (!user?.id) return;
+                                
+                                try {
+                                  // Get owner's display name
+                                  let ownerDisplayName = 'Property Owner';
+                                  try {
+                                    const ownerProfile = await db.get('owner_profiles', user.id);
+                                    ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+                                  } catch (error) {
+                                    ownerDisplayName = user.name || 'Property Owner';
+                                  }
+
+                                  // Create or find conversation
+                                  const conversationId = await createOrFindConversation({
+                                    ownerId: user.id,
+                                    tenantId: tenant.tenantId,
+                                    ownerName: ownerDisplayName,
+                                    tenantName: tenant.tenantName,
+                                    propertyId: tenant.propertyId,
+                                    propertyTitle: tenant.propertyTitle
+                                  });
+
+                                  // Navigate to chat room
+                                  router.push({
+                                    pathname: `/(owner)/chat-room/${conversationId}` as any,
+                                    params: {
+                                      conversationId: conversationId,
+                                      tenantName: tenant.tenantName,
+                                      propertyTitle: tenant.propertyTitle
+                                    }
+                                  } as any);
+                                } catch (error) {
+                                  console.error('❌ Error starting conversation:', error);
+                                  showAlert('Error', 'Failed to start conversation. Please try again.');
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <MessageSquare size={16} color="#3B82F6" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.removeButton,
+                                removingTenantId === tenant.bookingId && styles.removeButtonDisabled
+                              ]}
+                              onPress={() => handleRemoveTenant(tenant)}
+                              disabled={removingTenantId === tenant.bookingId}
+                            >
+                              {removingTenantId === tenant.bookingId ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                              ) : (
+                                <Trash2 size={16} color="#FFFFFF" />
+                              )}
+                            </TouchableOpacity>
+                          </View>
                         </View>
 
                         <View style={styles.tenantInfo}>
@@ -1532,7 +1688,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    marginBottom: 20,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     shadowColor: '#000',
@@ -1541,6 +1697,67 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
     gap: 12,
+  },
+  filterContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  filterButtonsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  filterButtonActive: {
+    backgroundColor: designTokens.colors.primary,
+    borderColor: designTokens.colors.primary,
+  },
+  filterButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  filterButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  clearFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    gap: 4,
+  },
+  clearFilterButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
   },
   searchInput: {
     flex: 1,
@@ -1793,6 +2010,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  tenantHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  messageButton: {
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#3B82F6',
   },
   tenantAvatar: {
     width: 44,

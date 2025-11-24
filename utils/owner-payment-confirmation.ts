@@ -454,9 +454,19 @@ export async function removePaidPayment(
 export async function getPaymentsPendingConfirmation(ownerId: string): Promise<RentPaymentRecord[]> {
   try {
     const allPayments = await db.list<RentPaymentRecord>('rent_payments');
+    const allBookings = await db.list<BookingRecord>('bookings');
+    
+    // Create a set of deleted booking IDs for quick lookup
+    const deletedBookingIds = new Set(
+      allBookings
+        .filter(b => b.isDeleted)
+        .map(b => b.id)
+    );
+    
     return allPayments.filter(
       payment => payment.ownerId === ownerId && 
-                 payment.status === 'pending_owner_confirmation'
+                 payment.status === 'pending_owner_confirmation' &&
+                 !deletedBookingIds.has(payment.bookingId) // Exclude payments from deleted bookings
     );
   } catch (error) {
     console.error('❌ Error getting payments pending confirmation:', error);

@@ -7,12 +7,9 @@ import {
     StyleSheet, 
     TextInput, 
     Image, 
-    Alert,
     KeyboardAvoidingView,
     Platform,
-    Animated,
-    Dimensions,
-    Modal
+    ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -21,7 +18,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
-import PaymentMethodsDisplay from '@/components/chat/PaymentMethodsDisplay';
+import { ConversationRecord, MessageRecord } from '@/types';
+import { loadUserProfilePhoto } from '@/utils/user-profile-photos';
 import TenantInfoModal from '@/components/TenantInfoModal';
 
 interface Message {
@@ -30,619 +28,505 @@ interface Message {
     senderId: string;
     createdAt: string;
     isOwner: boolean;
-    type?: 'message' | 'image' | 'inquiry' | 'booking_request' | 'notification';
+    type?: 'message' | 'image';
     imageUri?: string;
-    imageWidth?: number;
-    imageHeight?: number;
 }
 
 export default function OwnerChatRoom() {
     const router = useRouter();
     const { user } = useAuth();
     const params = useLocalSearchParams();
-    // Safely extract parameters, handling both array and string values
-    const conversationId = Array.isArray(params.conversationId) ? params.conversationId[0] : params.conversationId;
-    const ownerName = Array.isArray(params.ownerName) ? params.ownerName[0] : params.ownerName;
+    
+    // CRITICAL: Ensure we get the full conversationId, not truncated
+    // Extract conversationId from params - prefer conversationId query param over id route param
+    // The route param (id) might get truncated by Expo Router, so we prefer the query param
+    
+    // Helper function to safely extract string from param
+    const extractParam = (param: any): string | undefined => {
+        if (!param) return undefined;
+        if (typeof param === 'string') return param.trim();
+        if (Array.isArray(param) && param.length > 0) {
+            const first = param[0];
+            return typeof first === 'string' ? first.trim() : String(first).trim();
+        }
+        // If it's an object, try to get a string representation
+        const str = String(param);
+        return str && str !== '[object Object]' ? str.trim() : undefined;
+    };
+    
+    // Try conversationId query param first (most reliable)
+    let conversationId = extractParam(params.conversationId);
+    
+    // If conversationId param is missing or truncated, try id route param
+    if (!conversationId || conversationId.length < 10) {
+        const routeId = extractParam(params.id);
+        if (routeId && routeId.length >= 10) {
+            console.log('✅ Using conversationId from route param (id):', routeId);
+            conversationId = routeId;
+        }
+    }
+    
+    // Final validation and recovery
+    if (conversationId && conversationId.length < 10) {
+        console.error('⚠️ WARNING: conversationId seems truncated:', conversationId);
+        console.error('⚠️ Raw params:', { 
+            conversationId: params.conversationId, 
+            id: params.id,
+            conversationIdType: typeof params.conversationId,
+            idType: typeof params.id
+        });
+        
+        // Last resort: try to extract from raw params directly
+        const directConvId = params.conversationId || params.id;
+        if (directConvId) {
+            if (typeof directConvId === 'string' && directConvId.length >= 10) {
+                console.log('✅ Recovering conversationId from direct string param:', directConvId);
+                conversationId = directConvId.trim();
+            } else if (Array.isArray(directConvId) && directConvId.length > 0) {
+                const first = directConvId[0];
+                if (typeof first === 'string' && first.length >= 10) {
+                    console.log('✅ Recovering conversationId from direct array param:', first);
+                    conversationId = first.trim();
+                }
+            }
+        }
+    }
+    
+    console.log('✅ Owner chat room initialized with conversationId:', {
+        conversationId,
+        length: conversationId?.length,
+        fromParams: { 
+            conversationId: params.conversationId, 
+            id: params.id,
+            conversationIdType: typeof params.conversationId,
+            idType: typeof params.id
+        }
+    });
     const tenantName = Array.isArray(params.tenantName) ? params.tenantName[0] : params.tenantName;
-    const ownerAvatar = Array.isArray(params.ownerAvatar) ? params.ownerAvatar[0] : params.ownerAvatar;
     const tenantAvatar = Array.isArray(params.tenantAvatar) ? params.tenantAvatar[0] : params.tenantAvatar;
     const propertyTitle = Array.isArray(params.propertyTitle) ? params.propertyTitle[0] : params.propertyTitle;
+    
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
-    const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
-    const [imageViewerVisible, setImageViewerVisible] = useState(false);
-    const [viewingImageUri, setViewingImageUri] = useState<string | null>(null);
-    const [participantInfo, setParticipantInfo] = useState<{
-        otherParticipantName: string;
-        otherParticipantAvatar: string;
-    }>(() => {
-        // Safely extract tenant name
-        let name = 'Unknown';
-        if (Array.isArray(tenantName) && tenantName[0]) {
-            name = String(tenantName[0]);
-        } else if (tenantName && typeof tenantName === 'string') {
-            name = tenantName;
-        } else if (Array.isArray(ownerName) && ownerName[0]) {
-            name = String(ownerName[0]);
-        } else if (ownerName && typeof ownerName === 'string') {
-            name = ownerName;
-        }
-        
-        // Safely extract avatar
-        let avatar = '';
-        if (Array.isArray(tenantAvatar) && tenantAvatar[0]) {
-            avatar = String(tenantAvatar[0]);
-        } else if (tenantAvatar && typeof tenantAvatar === 'string') {
-            avatar = tenantAvatar;
-        } else if (Array.isArray(ownerAvatar) && ownerAvatar[0]) {
-            avatar = String(ownerAvatar[0]);
-        } else if (ownerAvatar && typeof ownerAvatar === 'string') {
-            avatar = ownerAvatar;
-        }
-        
-        return {
-            otherParticipantName: name,
-            otherParticipantAvatar: avatar
-        };
+    const [tenantInfo, setTenantInfo] = useState<{
+        name: string;
+        avatar: string;
+    }>({
+        name: tenantName || 'Tenant',
+        avatar: tenantAvatar || ''
     });
-    const [ownerId, setOwnerId] = useState<string | null>(null);
-    const [tenantId, setTenantId] = useState<string | null>(null);
-    const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
-    const [paymentBannerVisible, setPaymentBannerVisible] = useState(false);
-    const [tenantInfoModalVisible, setTenantInfoModalVisible] = useState(false);
-    const [tenantEmail, setTenantEmail] = useState<string>('');
-    const [tenantPhone, setTenantPhone] = useState<string>('');
-    const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+    const [conversation, setConversation] = useState<ConversationRecord | null>(null);
+    const [showTenantInfoModal, setShowTenantInfoModal] = useState(false);
+    const [tenantModalInfo, setTenantModalInfo] = useState<{
+        id: string;
+        name: string;
+        email?: string;
+        phone?: string;
+        avatar?: string;
+    } | null>(null);
+    
     const scrollViewRef = useRef<ScrollView>(null);
 
-    const loadParticipantInfo = useCallback(async () => {
-        if (!conversationId || !user?.id || typeof conversationId !== 'string' || !user) return;
-
-        try {
-            // Get conversation to find the other participant
-            const conversation = await db.get('conversations', conversationId);
-            if (!conversation || typeof conversation !== 'object') {
-                console.warn('⚠️ Conversation not found or invalid:', conversationId);
-                return;
-            }
-            
-            const userId = user.id;
-            if (!userId) {
-                console.warn('⚠️ User ID is missing');
-                return;
-            }
-
-            // Check if this is a barangay conversation
-            const isBrgyConversation = (conversation as any).isBrgyConversation === true;
-            const barangay = (conversation as any).barangay || '';
-
-            // Store owner ID and determine if current user is owner
-            const conversationOwnerId = conversation.ownerId || conversation.owner_id;
-            const conversationTenantId = conversation.tenantId || conversation.tenant_id;
-            setOwnerId(conversationOwnerId || null);
-            setTenantId(conversationTenantId || null);
-            setIsCurrentUserOwner(userId === conversationOwnerId);
-
-            // Find the other participant (not the current user)
-            // Safely check if participantIds is an array before using .find()
-            const participantIds = Array.isArray(conversation.participantIds) 
-                ? conversation.participantIds 
-                : (Array.isArray((conversation as any).participant_ids) 
-                    ? (conversation as any).participant_ids 
-                    : []);
-            const otherParticipantId = participantIds.find((id: string) => id !== userId) || 
-                                     (conversation.ownerId === userId ? conversation.tenantId : conversation.ownerId);
-
-            if (otherParticipantId) {
-                // Get the other participant's details from users table
-                const otherParticipant = await db.get('users', otherParticipantId);
-                if (otherParticipant) {
-                    let participantName = 'Unknown User';
-                    
-                    // For barangay conversations, use the barangay official's name
-                    if (isBrgyConversation) {
-                        const brgyName = (otherParticipant as any).name || `Barangay ${barangay} Official`;
-                        participantName = barangay ? `${brgyName} - ${barangay}` : brgyName;
-                    } else {
-                        // Prioritize business name over owner name, with proper capitalization
-                        const businessName = (otherParticipant as any).businessName;
-                        const ownerName = (otherParticipant as any).name;
-                        
-                        if (businessName && businessName.trim()) {
-                            // Use business name if available
-                            participantName = businessName.trim();
-                        } else if (ownerName && ownerName.trim()) {
-                            // Fall back to owner name if no business name
-                            participantName = ownerName.trim();
-                        }
-                        
-                        // Capitalize the name properly
-                        if (typeof participantName === 'string' && participantName.trim()) {
-                            participantName = participantName
-                                .split(' ')
-                                .map(word => word && word.length > 0 ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word)
-                                .join(' ');
-                        }
-                    }
-                    
-                    // Load tenant email and phone for tenant info modal
-                    // Only load if current user is owner and it's not a barangay conversation
-                    if (!isBrgyConversation && userId === conversationOwnerId && conversationTenantId && otherParticipantId === conversationTenantId) {
-                        const tenantEmailValue = (otherParticipant as any).email || '';
-                        const tenantPhoneValue = (otherParticipant as any).phone || '';
-                        setTenantEmail(tenantEmailValue);
-                        setTenantPhone(tenantPhoneValue);
-                        
-                        // Try to get phone from tenant profile if not in users table
-                        if (!tenantPhoneValue) {
-                            try {
-                                const tenantProfile = await db.get('tenants', conversationTenantId);
-                                if (tenantProfile) {
-                                    const phoneFromProfile = (tenantProfile as any).contactNumber || '';
-                                    if (phoneFromProfile) {
-                                        setTenantPhone(phoneFromProfile);
-                                    }
-                                }
-                            } catch (error) {
-                                console.log('⚠️ Could not load tenant profile for phone:', error);
-                            }
-                        }
-                    }
-                    
-                    // Load profile photo from user_profile_photos table
-                    let participantAvatar = '';
-                    try {
-                        const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
-                        const photoUri = await loadUserProfilePhoto(otherParticipantId);
-                        if (photoUri && photoUri.trim() && photoUri.length > 10) {
-                            participantAvatar = photoUri.trim();
-                            console.log('✅ Loaded participant profile photo for:', otherParticipantId);
-                            console.log('📸 Photo URI type:', typeof photoUri, 'starts with:', photoUri.substring(0, 50));
-                        } else {
-                            console.log('⚠️ No profile photo found for participant:', otherParticipantId);
-                        }
-                    } catch (photoError) {
-                        console.error('❌ Error loading participant profile photo:', photoError);
-                        // Try fallback: query database directly
-                        try {
-                            const allPhotos = await db.list('user_profile_photos') || [];
-                            const tenantPhoto = Array.isArray(allPhotos) ? allPhotos.find((photo: any) => {
-                                if (!photo || typeof photo !== 'object') return false;
-                                const photoUserId = photo.userId || photo.userid || '';
-                                return photoUserId === otherParticipantId && photo.photoData && typeof photo.photoData === 'string' && photo.photoData.trim() !== '';
-                            }) : undefined;
-                            
-                            if (tenantPhoto) {
-                                const photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
-                                if (photoData && photoData.trim() !== '') {
-                                    const trimmedData = photoData.trim();
-                                    
-                                    // Check if it's already a valid URI format
-                                    if (trimmedData.startsWith('data:')) {
-                                        // Already a data URI, use it directly
-                                        participantAvatar = trimmedData;
-                                        console.log('✅ Using existing data URI format');
-                                    } else if (trimmedData.startsWith('file://')) {
-                                        // It's a file URI, use it directly (don't construct data URI)
-                                        participantAvatar = trimmedData;
-                                        console.log('✅ Using file URI format');
-                                    } else if (trimmedData.startsWith('http://') || trimmedData.startsWith('https://')) {
-                                        // It's an HTTP/HTTPS URI, use it directly
-                                        participantAvatar = trimmedData;
-                                        console.log('✅ Using HTTP/HTTPS URI format');
-                                    } else {
-                                        // Assume it's base64 data and construct data URI
-                                        // But first check it doesn't contain file:// (malformed)
-                                        if (trimmedData.includes('file://')) {
-                                            console.warn('⚠️ Photo data contains file:// but is not a valid file URI, skipping');
-                                            participantAvatar = '';
-                                        } else {
-                                            participantAvatar = `data:${tenantPhoto.mimeType || 'image/jpeg'};base64,${trimmedData}`;
-                                            console.log('✅ Constructed data URI from base64 data');
-                                        }
-                                    }
-                                    console.log('✅ Found tenant photo via fallback query');
-                                }
-                            }
-                        } catch (fallbackError) {
-                            console.log('⚠️ Fallback photo loading also failed:', fallbackError);
-                        }
-                    }
-
-                    setParticipantInfo({
-                        otherParticipantName: participantName,
-                        otherParticipantAvatar: participantAvatar
-                    });
-                } else {
-                    console.warn('⚠️ Other participant not found in users table:', otherParticipantId);
-                    // Use fallback name from URL parameters
-                    const fallbackName = Array.isArray(tenantName) ? (tenantName[0] || 'Unknown') : (tenantName || 'Unknown');
-                    setParticipantInfo({
-                        otherParticipantName: fallbackName,
-                        otherParticipantAvatar: ''
-                    });
-                }
-            } else {
-                console.warn('⚠️ Could not determine other participant ID');
-                // Use fallback name from URL parameters
-                const fallbackName = Array.isArray(tenantName) ? (tenantName[0] || 'Unknown') : (tenantName || 'Unknown');
-                setParticipantInfo({
-                    otherParticipantName: fallbackName,
-                    otherParticipantAvatar: ''
-                });
-            }
-        } catch (error) {
-            console.error('❌ Error loading participant info:', error);
-            // Use fallback name from URL parameters
-            const fallbackName = Array.isArray(tenantName) ? (tenantName[0] || 'Unknown') : (tenantName || 'Unknown');
-            setParticipantInfo({
-                otherParticipantName: fallbackName,
-                otherParticipantAvatar: ''
-            });
-        }
-    }, [conversationId, user?.id, tenantName]);
-
     const loadMessages = useCallback(async () => {
-        if (!conversationId || !user?.id || typeof conversationId !== 'string' || !user) {
+        if (!conversationId || !user?.id) {
+            console.log('⚠️ Missing conversationId or user.id:', { conversationId, userId: user?.id });
             setLoading(false);
             return;
         }
-        
-        const userId = user.id;
 
         try {
             setLoading(true);
-            console.log('🔄 Loading messages for conversation:', conversationId);
+            const convIdForLookup = String(conversationId || '').trim();
+            console.log('🔄 Loading messages for conversation:', convIdForLookup);
+
+            // Load conversation
+            let conv: ConversationRecord | null = null;
+            try {
+                conv = await db.get<ConversationRecord>('conversations', convIdForLookup);
+            } catch (error) {
+                console.log('⚠️ Conversation not found, trying alternative ID formats');
+                // Try alternative ID formats
+                const allConversations = await db.list('conversations') || [];
+                conv = (allConversations as any[]).find((c: any) => {
+                    const cId = String(c.id || '').trim();
+                    return cId === convIdForLookup;
+                }) as ConversationRecord | null;
+            }
+            
+            if (conv) {
+                setConversation(conv);
+                console.log('✅ Conversation loaded:', {
+                    id: conv.id,
+                    ownerId: conv.ownerId || conv.owner_id,
+                    tenantId: conv.tenantId || conv.tenant_id,
+                    participantIds: conv.participantIds || conv.participant_ids
+                });
+                
+                // Get tenant info
+                const tenantId = conv.tenantId || conv.tenant_id;
+                if (tenantId) {
+                    try {
+                        const tenantRecord = await db.get('users', tenantId);
+                        if (tenantRecord) {
+                            const name = (tenantRecord as any).name || tenantName || 'Tenant';
+                            const email = (tenantRecord as any).email;
+                            const phone = (tenantRecord as any).phone;
+                            let avatar = tenantAvatar || '';
+                            try {
+                                const loadedAvatar = await loadUserProfilePhoto(tenantId);
+                                if (loadedAvatar) avatar = loadedAvatar;
+                            } catch (e) {
+                                console.log('Could not load tenant avatar');
+                            }
+                            setTenantInfo({ name, avatar });
+                            // Store tenant info for modal
+                            setTenantModalInfo({
+                                id: tenantId,
+                                name,
+                                email,
+                                phone,
+                                avatar
+                            });
+                        }
+                    } catch (error) {
+                        console.log('Error loading tenant info:', error);
+                        // Use fallback tenant info
+                        if (tenantName) {
+                            setTenantInfo({ name: tenantName, avatar: tenantAvatar || '' });
+                            setTenantModalInfo({
+                                id: tenantId || '',
+                                name: tenantName,
+                                avatar: tenantAvatar || ''
+                            });
+                        }
+                    }
+                } else if (tenantName) {
+                    // Use fallback tenant info if no tenantId in conversation
+                    setTenantInfo({ name: tenantName, avatar: tenantAvatar || '' });
+                    setTenantModalInfo({
+                        id: '',
+                        name: tenantName,
+                        avatar: tenantAvatar || ''
+                    });
+                }
+            } else {
+                console.log('⚠️ Conversation not found, using fallback tenant info');
+                if (tenantName) {
+                    setTenantInfo({ name: tenantName, avatar: tenantAvatar || '' });
+                }
+            }
 
             // Get all messages for this conversation
             const allMessages = await db.list('messages') || [];
-            // Get conversation to check if it's a barangay conversation
-            const conversation = await db.get('conversations', conversationId);
-            const isBrgyConversation = conversation && typeof conversation === 'object' && (conversation as any).isBrgyConversation === true;
+            const normalizedConvId = String(conversationId || '').trim();
+            
+            // Debug: Log all message conversationIds to see what we're working with
+            const allConvIds = (Array.isArray(allMessages) ? allMessages : []).slice(0, 10).map((m: any) => ({
+                id: m.id,
+                convId: String(m.conversationId || m.conversation_id || '').trim(),
+                text: m.text?.substring(0, 30)
+            }));
+            console.log(`📊 Owner: All message conversationIds (first 10):`, allConvIds);
             
             const conversationMessages = (Array.isArray(allMessages) ? allMessages : []).filter((msg: any) => {
-                // Check both conversationId and conversation_id for compatibility
-                const msgConversationId = msg.conversationId || msg.conversation_id;
-                if (msgConversationId !== conversationId) return false;
+                if (!msg) return false;
+                const msgConversationId = String(msg.conversationId || msg.conversation_id || '').trim();
+                // Try multiple matching strategies
+                const exactMatch = msgConversationId === normalizedConvId;
+                const normalizedMatch = msgConversationId === String(conversationId).trim();
+                const matches = exactMatch || normalizedMatch;
                 
-                // For barangay conversations, include notifications; for regular, exclude them
-                const msgType = msg.type || 'message';
-                return isBrgyConversation || msgType !== 'notification';
-            });
-            
-            console.log(`📨 Found ${conversationMessages.length} total messages for conversation ${conversationId}`);
-            const notificationCount = conversationMessages.filter((msg: any) => {
-                const msgType = msg.type || 'message';
-                return msgType === 'notification';
-            }).length;
-            console.log(`🔔 Found ${notificationCount} notification messages`);
-            
-            // Debug: Log all message types
-            conversationMessages.forEach((msg: any, index: number) => {
-                console.log(`📨 Message ${index + 1}: type="${msg.type || 'message'}", text="${(msg.text || '').substring(0, 50)}..."`);
+                if (matches) {
+                    console.log('✅ Owner: Message matches:', { 
+                        msgId: msg.id, 
+                        msgConvId: msgConversationId, 
+                        expected: normalizedConvId,
+                        text: msg.text?.substring(0, 50),
+                        type: msg.type,
+                        senderId: msg.senderId || msg.sender_id
+                    });
+                } else if (msgConversationId && normalizedConvId) {
+                    // Log mismatches for debugging
+                    console.log('❌ Owner: Message mismatch:', {
+                        msgId: msg.id,
+                        msgConvId: msgConversationId,
+                        expected: normalizedConvId,
+                        match: false
+                    });
+                }
+                return matches;
             });
 
-            // Sort by creation time
-            if (Array.isArray(conversationMessages)) {
-                conversationMessages.sort((a: any, b: any) => {
-                    const timeA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-                    const timeB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-                    return timeA - timeB;
-                });
+            console.log(`📨 Loading messages for conversation: "${normalizedConvId}"`);
+            console.log(`📨 Total messages in DB: ${allMessages.length}`);
+            console.log(`📨 Found ${conversationMessages.length} messages for conversation`);
+            if (conversationMessages.length > 0) {
+                console.log(`📨 Sample messages:`, conversationMessages.slice(0, 3).map((m: any) => ({
+                    id: m.id,
+                    conversationId: m.conversationId || m.conversation_id,
+                    text: m.text?.substring(0, 30),
+                    type: m.type,
+                    senderId: m.senderId || m.sender_id
+                })));
+            } else {
+                console.log('⚠️ NO MESSAGES FOUND - checking all messages for debugging:');
+                const sampleMessages = allMessages.slice(0, 5).map((m: any) => ({
+                    id: m.id,
+                    conversationId: m.conversationId || m.conversation_id,
+                    text: m.text?.substring(0, 30)
+                }));
+                console.log('📨 Sample of all messages:', sampleMessages);
             }
 
-            // Use the conversation we already fetched
-            const conversationOwnerId = conversation?.ownerId || conversation?.owner_id;
+            // Sort messages by creation time
+            conversationMessages.sort((a: any, b: any) => {
+                const timeA = new Date((a as any).createdAt || (a as any).created_at || 0).getTime();
+                const timeB = new Date((b as any).createdAt || (b as any).created_at || 0).getTime();
+                return timeA - timeB;
+            });
+
+            // Get conversation owner ID to determine message sender role
+            const conversationOwnerId = conv ? (conv.ownerId || conv.owner_id) : null;
+            console.log('👤 Conversation owner ID:', conversationOwnerId, 'Current user ID:', user.id);
             
-            // Convert to UI format
-            const uiMessages: Message[] = (Array.isArray(conversationMessages) ? conversationMessages : []).map((msg: any) => {
-                if (!msg || typeof msg !== 'object') {
-                    console.warn('⚠️ Invalid message object:', msg);
-                    return null;
-                }
-                const messageType = msg.type || 'message';
-                console.log(`🔄 Converting message ${msg.id}: type="${messageType}"`);
-                return {
-                    id: msg.id || '',
-                    text: msg.text || '',
-                    senderId: msg.senderId || msg.sender_id || '',
-                    createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
-                    isOwner: (msg.senderId || msg.sender_id) === conversationOwnerId,
-                    type: messageType,
-                    imageUri: msg.imageUri || msg.image_uri,
-                    imageWidth: msg.imageWidth || msg.image_width,
-                    imageHeight: msg.imageHeight || msg.image_height
-                };
-            }).filter((msg): msg is Message => msg !== null);
+            // Convert to Message format
+            const formattedMessages: Message[] = conversationMessages
+                .filter((msg: any) => {
+                    // Filter out notifications
+                    if (msg.type === 'notification') {
+                        console.log('🚫 Filtered out notification message:', msg.id);
+                        return false;
+                    }
+                    // Ensure message has required fields
+                    if (!msg.id) {
+                        console.log('🚫 Filtered out message without ID');
+                        return false;
+                    }
+                    return true;
+                })
+                .map((msg: any) => {
+                    const senderId = msg.senderId || msg.sender_id || '';
+                    // Check if sender is the conversation owner (not just current user)
+                    const isOwner = conversationOwnerId ? senderId === conversationOwnerId : senderId === user.id;
+                    const messageText = msg.text || '';
+                    const isImage = msg.type === 'image';
+                    
+                    console.log('📝 Processing message:', {
+                        id: msg.id,
+                        senderId,
+                        isOwner,
+                        hasText: messageText.length > 0,
+                        isImage,
+                        type: msg.type
+                    });
+                    
+                    return {
+                        id: msg.id,
+                        text: messageText,
+                        senderId: senderId,
+                        createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
+                        isOwner,
+                        type: msg.type || 'message',
+                        imageUri: msg.imageUri || msg.image_uri
+                    };
+                })
+                .filter((msg: Message) => {
+                    // Include messages with text OR images (don't filter out empty text if it's an image)
+                    const hasText = msg.text && msg.text.trim().length > 0;
+                    const hasImage = msg.type === 'image' && msg.imageUri;
+                    const shouldInclude = hasText || hasImage;
+                    
+                    if (!shouldInclude) {
+                        console.log('🚫 Filtered out message without content:', msg.id, { hasText, hasImage, type: msg.type });
+                    }
+                    
+                    return shouldInclude;
+                });
 
-            setMessages(uiMessages);
-            console.log(`✅ Loaded ${uiMessages.length} messages`);
-
+            console.log(`✅ Formatted ${formattedMessages.length} messages for display`);
+            setMessages(formattedMessages);
+            
             // Scroll to bottom
             setTimeout(() => {
-                scrollViewRef.current?.scrollToEnd({ animated: true });
+                scrollViewRef.current?.scrollToEnd({ animated: false });
             }, 100);
+
         } catch (error) {
             console.error('❌ Error loading messages:', error);
             showAlert('Error', 'Failed to load messages');
-            setMessages([]); // Clear messages on error
         } finally {
             setLoading(false);
         }
     }, [conversationId, user?.id]);
 
-    useEffect(() => {
-        // Only load messages if we have the required parameters
-        if (conversationId && user?.id) {
-            loadParticipantInfo();
-            loadMessages();
-        } else {
-            setLoading(false);
-        }
-    }, [loadMessages, loadParticipantInfo, conversationId, user?.id]);
-
-    // Refresh messages when user returns to this screen
     useFocusEffect(
         useCallback(() => {
             if (conversationId && user?.id) {
-                loadParticipantInfo(); // Refresh participant info to get latest profile photo
                 loadMessages();
+                
+                // Mark conversation as read when viewing
+                const markAsRead = async () => {
+                    try {
+                        const convIdForRead = String(conversationId).trim();
+                        const conv = await db.get<ConversationRecord>('conversations', convIdForRead);
+                        if (conv) {
+                            await db.upsert('conversations', convIdForRead, {
+                                ...conv,
+                                unreadByOwner: 0,
+                                lastReadByOwner: new Date().toISOString(),
+                                updatedAt: new Date().toISOString()
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Error marking conversation as read:', error);
+                    }
+                };
+                
+                markAsRead();
+                
+                // Set up interval to check for new messages every 2 seconds
+                const interval = setInterval(() => {
+                    loadMessages();
+                }, 2000);
+                
+                return () => clearInterval(interval);
             }
-        }, [loadMessages, loadParticipantInfo, conversationId, user?.id])
+        }, [conversationId, user?.id, loadMessages])
     );
 
-    const pickImage = async () => {
-        try {
-            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (status !== 'granted') {
-                showAlert('Permission Required', 'Please grant permission to access your photos');
-                return;
-            }
-
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ['images'],
-                allowsEditing: false,
-                quality: 0.8,
+    const sendMessage = async () => {
+        // CRITICAL: Ensure conversationId is properly preserved and not truncated
+        const activeConversationId = conversationId ? String(conversationId).trim() : undefined;
+        
+        console.log('🔄 Owner sendMessage called:', {
+            conversationId: activeConversationId,
+            conversationIdLength: activeConversationId?.length,
+            conversationIdType: typeof activeConversationId,
+            hasMessage: !!newMessage?.trim(),
+            userId: user?.id
+        });
+        
+        // Validate conversationId before proceeding
+        if (!activeConversationId || activeConversationId.length < 10) {
+            console.error('❌ CRITICAL ERROR: conversationId is missing or truncated!', {
+                conversationId: activeConversationId,
+                length: activeConversationId?.length,
+                type: typeof activeConversationId
             });
-
-            if (!result.canceled && result.assets[0]) {
-                // Store the selected image for preview instead of sending immediately
-                setSelectedImage(result.assets[0]);
-            }
-        } catch (error) {
-            console.error('❌ Error picking image:', error);
-            showAlert('Error', 'Failed to pick image');
-        }
-    };
-
-    const confirmSendImage = async () => {
-        if (selectedImage) {
-            await sendImageMessage(selectedImage);
-            setSelectedImage(null);
-        }
-    };
-
-    const cancelImageSelection = () => {
-        setSelectedImage(null);
-    };
-
-    const sendImageMessage = async (imageAsset: ImagePicker.ImagePickerAsset) => {
-        if (!conversationId || !user?.id || sending || typeof conversationId !== 'string' || !user) {
-            return;
-        }
-
-        const userId = user.id;
-        if (!userId) return;
-
-        try {
-            setSending(true);
-            const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const now = new Date().toISOString();
-
-            // Create image message record
-            const messageRecord = {
-                id: messageId,
-                conversationId: conversationId,
-                senderId: userId,
-                text: '', // Empty text for image messages
-                createdAt: now,
-                type: 'image',
-                imageUri: imageAsset.uri,
-                imageWidth: imageAsset.width,
-                imageHeight: imageAsset.height
-            };
-
-            // Save message to database
-            await db.upsert('messages', messageId, messageRecord);
-
-            // Update conversation with last message
-            let conversation = null;
-            let isCurrentUserOwner = false;
-            try {
-                conversation = await db.get('conversations', conversationId);
-                if (conversation && typeof conversation === 'object') {
-                    const conversationOwnerId = conversation.ownerId || conversation.owner_id;
-                    isCurrentUserOwner = userId === conversationOwnerId;
-                    
-                    await db.upsert('conversations', conversationId, {
-                        ...(conversation || {}),
-                        lastMessageText: '📷 Image',
-                        lastMessageAt: now,
-                        unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
-                        unreadByTenant: !isCurrentUserOwner ? (conversation.unreadByTenant || conversation.unread_by_tenant || 0) : ((conversation.unreadByTenant || conversation.unread_by_tenant || 0) + 1),
-                        updatedAt: now
-                    });
-                }
-            } catch (convError) {
-                console.error('Error updating conversation:', convError);
-            }
-
-            // Add message to local state
-            const newMsg: Message = {
-                id: messageId,
-                text: '',
-                senderId: userId,
-                createdAt: now,
-                isOwner: isCurrentUserOwner,
-                type: 'image',
-                imageUri: imageAsset?.uri,
-                imageWidth: imageAsset?.width,
-                imageHeight: imageAsset?.height
-            };
-
-            setMessages(prev => Array.isArray(prev) ? [...prev, newMsg] : [newMsg]);
-
-            // Scroll to bottom
-            setTimeout(() => {
-                scrollViewRef.current?.scrollToEnd({ animated: true });
-            }, 100);
-
-            console.log('✅ Image message sent successfully');
-        } catch (error) {
-            console.error('❌ Error sending image message:', error);
-            showAlert('Error', 'Failed to send image');
-        } finally {
-            setSending(false);
-        }
-    };
-
-    const deleteMessage = async (message: Message) => {
-        if (!message || !user?.id || !user) {
-            console.log('⚠️ Cannot delete message: missing user or message');
+            showAlert('Error', 'Invalid conversation ID. Please try again.');
             return;
         }
         
-        const userId = user.id;
-        if (message.senderId !== userId) {
-            console.log('⚠️ Cannot delete message:', { 
-                hasMessage: !!message, 
-                userId: userId, 
-                messageSenderId: message?.senderId,
-                canDelete: message?.senderId === userId 
+        if (!newMessage || !newMessage.trim() || !user?.id || sending) {
+            console.log('⚠️ Owner sendMessage early return:', {
+                noMessage: !newMessage,
+                noTrim: !newMessage?.trim(),
+                noUserId: !user?.id,
+                sending
             });
             return;
         }
-
-        try {
-            console.log('🔄 Deleting message:', message.id);
-            
-            // Remove message from database
-            await db.remove('messages', message.id);
-            
-            // Remove message from local state
-            setMessages(prev => Array.isArray(prev) ? prev.filter(msg => msg && msg.id !== message.id) : []);
-            
-            // Update conversation's last message if this was the last message
-            const remainingMessages = Array.isArray(messages) ? messages.filter(msg => msg && msg.id !== message.id) : [];
-            if (remainingMessages.length > 0) {
-                const lastMessage = remainingMessages[remainingMessages.length - 1];
-                if (!lastMessage || typeof lastMessage !== 'object') {
-                    console.warn('⚠️ Invalid last message after deletion');
-                    return;
-                }
-                const lastMessageText = lastMessage.type === 'image' ? '📷 Image' : (lastMessage.text || '');
-                
-                try {
-                    const conversation = await db.get('conversations', conversationId);
-                    if (conversation && typeof conversation === 'object' && typeof conversationId === 'string') {
-                        await db.upsert('conversations', conversationId, {
-                            ...(conversation || {}),
-                            lastMessageText: lastMessageText,
-                            lastMessageAt: lastMessage.createdAt,
-                            updatedAt: new Date().toISOString()
-                        });
-                    }
-                } catch (convError) {
-                    console.error('Error updating conversation after deletion:', convError);
-                }
-            }
-            
-            setSelectedMessage(null);
-            console.log('✅ Message deleted successfully');
-        } catch (error) {
-            console.error('❌ Error deleting message:', error);
-            showAlert('Error', 'Failed to delete message');
-        }
-    };
-
-    const showDeleteConfirmation = (message: Message) => {
-        Alert.alert(
-            'Delete Message',
-            'Are you sure you want to delete this message? This action cannot be undone.',
-            [
-                {
-                    text: 'Cancel',
-                    style: 'cancel',
-                    onPress: () => setSelectedMessage(null)
-                },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: () => deleteMessage(message)
-                }
-            ]
-        );
-    };
-
-    const sendMessage = async () => {
-        if (!newMessage.trim() || !conversationId || !user?.id || sending || typeof conversationId !== 'string' || !user) return;
-
-        const userId = user.id;
-        if (!userId) return;
 
         try {
             setSending(true);
             const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const now = new Date().toISOString();
 
-            // Create message record
-            const messageRecord = {
+            // Use the validated conversationId - ensure it's a full string
+            const normalizedConversationId = String(activeConversationId).trim();
+            
+            // Double-check it's still valid after normalization
+            if (normalizedConversationId.length < 10 || normalizedConversationId === 'undefined' || normalizedConversationId === 'null') {
+                console.error('❌ CRITICAL ERROR: conversationId is invalid after normalization!', {
+                    normalized: normalizedConversationId,
+                    length: normalizedConversationId.length,
+                    original: activeConversationId
+                });
+                showAlert('Error', 'Invalid conversation ID. Please try again.');
+                setSending(false);
+                return;
+            }
+            if (!normalizedConversationId || normalizedConversationId === 'undefined' || normalizedConversationId === 'null') {
+                showAlert('Error', 'Invalid conversation. Please try again.');
+                setSending(false);
+                return;
+            }
+            
+            // Create message record - ensure conversationId is properly set
+            const messageRecord: MessageRecord = {
                 id: messageId,
-                conversationId: conversationId,
-                senderId: userId,
+                conversationId: normalizedConversationId, // Use normalized ID
+                senderId: user.id,
                 text: newMessage.trim(),
                 createdAt: now,
+                readBy: [user.id],
                 type: 'message'
             };
+            
+            console.log('📤 Owner: Saving message:', {
+                messageId,
+                conversationId: normalizedConversationId,
+                originalConversationId: conversationId,
+                senderId: user.id,
+                textLength: newMessage.trim().length,
+                messageRecord: {
+                    id: messageRecord.id,
+                    conversationId: messageRecord.conversationId,
+                    senderId: messageRecord.senderId,
+                    type: messageRecord.type
+                }
+            });
 
             // Save message to database
             await db.upsert('messages', messageId, messageRecord);
+            
+            // Verify the message was saved correctly
+            try {
+                const savedMessage = await db.get('messages', messageId) as any;
+                console.log('✅ Owner: Message saved successfully:', {
+                    savedId: savedMessage?.id,
+                    savedConversationId: savedMessage?.conversationId || savedMessage?.conversation_id,
+                    expectedConversationId: normalizedConversationId
+                });
+            } catch (verifyError) {
+                console.error('❌ Owner: Error verifying saved message:', verifyError);
+            }
 
             // Update conversation with last message
-            let conversation = null;
-            let isCurrentUserOwner = false;
             try {
-                conversation = await db.get('conversations', conversationId);
-                if (conversation && typeof conversation === 'object') {
-                    const conversationOwnerId = conversation.ownerId || conversation.owner_id;
-                    isCurrentUserOwner = userId === conversationOwnerId;
+                const conv = await db.get<ConversationRecord>('conversations', normalizedConversationId);
+                if (conv) {
+                    const conversationTenantId = conv.tenantId || conv.tenant_id;
+                    const isCurrentUserOwner = user.id === (conv.ownerId || conv.owner_id);
                     
-                    await db.upsert('conversations', conversationId, {
-                        ...(conversation || {}),
+                    await db.upsert('conversations', normalizedConversationId, {
+                        ...conv,
                         lastMessageText: newMessage.trim(),
                         lastMessageAt: now,
-                        unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
-                        unreadByTenant: !isCurrentUserOwner ? (conversation.unreadByTenant || conversation.unread_by_tenant || 0) : ((conversation.unreadByTenant || conversation.unread_by_tenant || 0) + 1),
+                        // If owner sends message, increment tenant's unread count
+                        // If tenant sends message, increment owner's unread count
+                        unreadByOwner: isCurrentUserOwner ? (conv.unreadByOwner || 0) : ((conv.unreadByOwner || conv.unread_by_owner || 0) + 1),
+                        unreadByTenant: isCurrentUserOwner ? ((conv.unreadByTenant || conv.unread_by_tenant || 0) + 1) : (conv.unreadByTenant || conv.unread_by_tenant || 0),
                         updatedAt: now
                     });
                 }
             } catch (convError) {
-                console.error('Error updating conversation:', convError);
+                console.error('❌ Error updating conversation:', convError);
             }
 
             // Add message to local state
             const newMsg: Message = {
                 id: messageId,
                 text: newMessage.trim(),
-                senderId: userId,
+                senderId: user.id,
                 createdAt: now,
-                isOwner: isCurrentUserOwner,
+                isOwner: true,
                 type: 'message'
             };
 
-            setMessages(prev => Array.isArray(prev) ? [...prev, newMsg] : [newMsg]);
+            setMessages(prev => [...prev, newMsg]);
             setNewMessage('');
 
             // Scroll to bottom
@@ -664,149 +548,15 @@ export default function OwnerChatRoom() {
             const date = new Date(timeString);
             return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } catch {
-            return 'Now';
+            return '';
         }
     };
 
-    const renderMessage = (message: Message, index: number) => {
-        // Add defensive checks for message and array access
-        if (!message || !message.id) {
-            console.warn('⚠️ Invalid message in renderMessage:', message);
-            return null;
-        }
-
-        // Check if message is a notification
-        const messageType = message.type || 'message';
-        
-        // Fallback: Check message content for notification patterns if type is not set
-        const isNotificationByType = messageType === 'notification';
-        const isNotificationByContent = !isNotificationByType && (
-            message.text?.includes('Payment Confirmed') ||
-            message.text?.includes('Payment Rejected') ||
-            message.text?.includes('Payment Restored') ||
-            message.text?.includes('Payment Deleted') ||
-            message.text?.includes('booking has been approved') ||
-            message.text?.includes('booking has been declined') ||
-            message.text?.startsWith('✅') ||
-            message.text?.startsWith('⚠️') ||
-            message.text?.startsWith('🎉') ||
-            message.text?.startsWith('❌')
-        );
-        
-        const isNotification = isNotificationByType || isNotificationByContent;
-        
-        // Debug logging for notification detection
-        if (isNotification) {
-            console.log(`🔔 Detected notification message:`, {
-                id: message.id,
-                type: messageType,
-                isNotificationByType,
-                isNotificationByContent,
-                textPreview: message.text?.substring(0, 50)
-            });
-        }
-        
-        // Render notification messages with special layout
-        if (isNotification) {
-            console.log(`✅ Rendering as notification layout for message ${message.id}`);
-            return (
-                <View key={message.id} style={styles.notificationContainer}>
-                    <View style={styles.notificationBubble}>
-                        <Text style={styles.notificationText}>
-                            {message.text}
-                        </Text>
-                        <Text style={styles.notificationTime}>
-                            {formatTime(message.createdAt)}
-                        </Text>
-                    </View>
-                </View>
-            );
-        }
-
-        // Check if message is from current user (not just if it's from owner)
-        const isCurrentUser = message.senderId === user?.id;
-        // Check if message is an image - check both type and presence of imageUri
-        const isImageMessage = (message.type === 'image' || message.imageUri) && !!message.imageUri;
-        const canDelete = user?.id === message.senderId;
-
-        return (
-            <Animated.View key={message.id} style={[styles.messageContainer, isCurrentUser ? styles.currentUserMessageContainer : styles.otherUserMessageContainer]}>
-                {/* Show avatar for other user's messages (on the left) */}
-                {!isCurrentUser && (
-                    <View style={styles.avatarLeft}>
-                        {participantInfo?.otherParticipantAvatar && 
-                         typeof participantInfo.otherParticipantAvatar === 'string' &&
-                         participantInfo.otherParticipantAvatar.trim() && 
-                         participantInfo.otherParticipantAvatar.length > 10 ? (
-                            <Image 
-                                source={{ uri: participantInfo.otherParticipantAvatar }} 
-                                style={styles.avatarImage}
-                                onError={() => {
-                                    console.warn('⚠️ Participant profile photo failed to load');
-                                }}
-                            />
-                        ) : (
-                            <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>
-                                    {(participantInfo?.otherParticipantName || 'U').charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                )}
-                <TouchableOpacity
-                    style={[styles.messageBubble, isCurrentUser ? styles.currentUserMessage : styles.otherUserMessage, isImageMessage && styles.imageMessageBubble]}
-                    onLongPress={() => {
-                        if (canDelete) {
-                            setSelectedMessage(message);
-                            showDeleteConfirmation(message);
-                        }
-                    }}
-                    delayLongPress={500}
-                    activeOpacity={canDelete ? 0.7 : 1}
-                >
-                    {isImageMessage ? (
-                        <TouchableOpacity
-                            style={styles.imageContainer}
-                            onPress={() => {
-                                if (message.imageUri) {
-                                    console.log('🖼️ Image tapped, opening viewer:', message.imageUri);
-                                    setViewingImageUri(message.imageUri);
-                                    setImageViewerVisible(true);
-                                }
-                            }}
-                            onLongPress={() => {
-                                if (canDelete) {
-                                    setSelectedMessage(message);
-                                    showDeleteConfirmation(message);
-                                }
-                            }}
-                            delayLongPress={500}
-                            activeOpacity={0.9}
-                        >
-                            <Image 
-                                source={{ uri: message.imageUri }} 
-                                style={styles.messageImage}
-                                resizeMode="cover"
-                            />
-                        </TouchableOpacity>
-                    ) : (
-                        <Text style={[styles.messageText, isCurrentUser ? styles.currentUserMessageText : styles.otherUserMessageText]}>
-                            {message.text}
-                        </Text>
-                    )}
-                    <Text style={[styles.messageTime, isCurrentUser ? styles.currentUserMessageTime : styles.otherUserMessageTime]}>
-                        {formatTime(message.createdAt)}
-                    </Text>
-                </TouchableOpacity>
-            </Animated.View>
-        );
-    };
-
-    if (loading && messages.length === 0) {
+    if (loading) {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#10B981" />
                     <Text style={styles.loadingText}>Loading messages...</Text>
                 </View>
             </SafeAreaView>
@@ -814,218 +564,140 @@ export default function OwnerChatRoom() {
     }
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity 
-                    style={styles.backButton}
+                <TouchableOpacity
                     onPress={() => router.back()}
+                    style={styles.backButton}
                 >
-                    <Ionicons name="arrow-back" size={24} color="#374151" />
+                    <Ionicons name="arrow-back" size={24} color="#111827" />
                 </TouchableOpacity>
-                
-                <View style={styles.headerInfo}>
-                    <View style={styles.avatarContainer}>
-                        {participantInfo?.otherParticipantAvatar && typeof participantInfo.otherParticipantAvatar === 'string' ? (
-                            <Image source={{ uri: participantInfo.otherParticipantAvatar }} style={styles.headerAvatar} />
-                        ) : (
-                            <View style={styles.headerAvatarFallback}>
-                                <Text style={styles.headerAvatarText}>
-                                    {(participantInfo?.otherParticipantName || 'U').charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                    <View style={styles.headerText}>
-                        <Text style={styles.headerName}>{participantInfo?.otherParticipantName || 'Unknown'}</Text>
-                        {propertyTitle && (
-                            <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
-                        )}
-                    </View>
-                </View>
-                
-                {/* Tenant Info Button - Only show if current user is owner and we have tenant ID */}
-                {isCurrentUserOwner && tenantId && (
-                    <TouchableOpacity 
-                        style={styles.infoButton}
-                        onPress={() => setTenantInfoModalVisible(true)}
-                    >
-                        <Ionicons name="information-circle-outline" size={24} color="#3B82F6" />
-                    </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                    onPress={() => {
+                        if (tenantModalInfo && tenantModalInfo.id) {
+                            setShowTenantInfoModal(true);
+                        }
+                    }}
+                    style={styles.headerInfo}
+                    activeOpacity={0.7}
+                    disabled={!tenantModalInfo || !tenantModalInfo.id}
+                >
+                    <Text style={styles.headerName}>{tenantInfo.name}</Text>
+                    {propertyTitle && (
+                        <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
+                    )}
+                </TouchableOpacity>
             </View>
+            
+            {/* Tenant Info Modal */}
+            {tenantModalInfo && tenantModalInfo.id && (
+                <TenantInfoModal
+                    visible={showTenantInfoModal}
+                    tenantId={tenantModalInfo.id}
+                    tenantName={tenantModalInfo.name}
+                    tenantEmail={tenantModalInfo.email}
+                    tenantPhone={tenantModalInfo.phone}
+                    tenantAvatar={tenantModalInfo.avatar}
+                    onClose={() => setShowTenantInfoModal(false)}
+                />
+            )}
 
             {/* Messages */}
-            <KeyboardAvoidingView 
-                style={styles.messagesContainer}
+            <KeyboardAvoidingView
+                style={styles.keyboardView}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >
-                {/* Sticky Payment Methods Banner */}
-                <View pointerEvents="box-none" style={styles.paymentBannerSticky}>
-                    {ownerId && tenantId && typeof ownerId === 'string' && typeof tenantId === 'string' && (
-                      <PaymentMethodsDisplay 
-                        ownerId={ownerId} 
-                        tenantId={tenantId}
-                        isCurrentUserOwner={isCurrentUserOwner}
-                        onVisibilityChange={(visible) => {
-                            try {
-                                setPaymentBannerVisible(visible);
-                            } catch (error) {
-                                console.warn('Error setting payment banner visibility:', error);
-                            }
-                        }}
-                      />
-                    )}
-                </View>
-
-                <ScrollView 
+                <ScrollView
                     ref={scrollViewRef}
-                    style={styles.messagesScrollView}
+                    style={styles.messagesContainer}
                     contentContainerStyle={[
                         styles.messagesContent,
-                        paymentBannerVisible && styles.messagesContentWithBanner
+                        messages.length === 0 && styles.emptyMessagesContent
                     ]}
-                    showsVerticalScrollIndicator={false}
                 >
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>
-                            <Ionicons name="chatbubbles-outline" size={48} color="#9CA3AF" />
-                            <Text style={styles.emptyStateText}>Start a conversation</Text>
+                            <Ionicons name="chatbubbles-outline" size={64} color="#D1D5DB" />
+                            <Text style={styles.emptyStateText}>No messages yet</Text>
+                            <Text style={styles.emptyStateSubtext}>Start the conversation by sending a message</Text>
                         </View>
                     ) : (
-                        (Array.isArray(messages) ? messages : [])
-                            .filter((message): message is Message => message != null && typeof message === 'object' && !!message.id)
-                            .map((message, index) => renderMessage(message, index))
+                        messages.map((message) => {
+                            const isCurrentUser = message.isOwner;
+                            return (
+                                <View
+                                    key={message.id}
+                                    style={[
+                                        styles.messageWrapper,
+                                        isCurrentUser ? styles.currentUserMessageWrapper : styles.otherUserMessageWrapper
+                                    ]}
+                                >
+                                    {!isCurrentUser && (
+                                        <View style={styles.avatarContainer}>
+                                            {tenantInfo.avatar ? (
+                                                <Image source={{ uri: tenantInfo.avatar }} style={styles.avatar} />
+                                            ) : (
+                                                <View style={styles.avatarPlaceholder}>
+                                                    <Text style={styles.avatarText}>
+                                                        {tenantInfo.name.charAt(0).toUpperCase()}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                    )}
+                                    <View style={[
+                                        styles.messageBubble,
+                                        isCurrentUser ? styles.currentUserBubble : styles.otherUserBubble
+                                    ]}>
+                                        {message.type === 'image' && message.imageUri ? (
+                                            <Image source={{ uri: message.imageUri }} style={styles.messageImage} />
+                                        ) : (
+                                            <Text style={[
+                                                styles.messageText,
+                                                isCurrentUser ? styles.currentUserText : styles.otherUserText
+                                            ]}>
+                                                {message.text || ''}
+                                            </Text>
+                                        )}
+                                        <Text style={[
+                                            styles.messageTime,
+                                            isCurrentUser ? styles.currentUserTime : styles.otherUserTime
+                                        ]}>
+                                            {formatTime(message.createdAt)}
+                                        </Text>
+                                    </View>
+                                </View>
+                            );
+                        })
                     )}
                 </ScrollView>
 
-                {/* Image Preview */}
-                {selectedImage && (
-                    <View style={styles.imagePreviewContainer}>
-                        <View style={styles.imagePreviewWrapper}>
-                            <Image
-                                source={{ uri: selectedImage.uri }}
-                                style={styles.imagePreview}
-                                resizeMode="cover"
-                            />
-                            <TouchableOpacity
-                                style={styles.imagePreviewCancel}
-                                onPress={cancelImageSelection}
-                            >
-                                <Ionicons name="close-circle" size={24} color="#EF4444" />
-                            </TouchableOpacity>
-                        </View>
-                        <View style={styles.imagePreviewActions}>
-                            <TouchableOpacity
-                                style={styles.imagePreviewCancelButton}
-                                onPress={cancelImageSelection}
-                            >
-                                <Text style={styles.imagePreviewCancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.imagePreviewSendButton}
-                                onPress={confirmSendImage}
-                                disabled={sending}
-                            >
-                                <Text style={styles.imagePreviewSendText}>Send</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                )}
-
-                {/* Message Input */}
+                {/* Input */}
                 <View style={styles.inputContainer}>
-                    <View style={styles.inputWrapper}>
-                        <TouchableOpacity
-                            style={styles.imageButton}
-                            onPress={pickImage}
-                            disabled={sending}
-                        >
-                            <Ionicons 
-                                name="camera" 
-                                size={20} 
-                                color="#6B7280" 
-                            />
-                        </TouchableOpacity>
-                        <TextInput
-                            style={styles.textInput}
-                            placeholder="Type a message..."
-                            placeholderTextColor="#9CA3AF"
-                            value={newMessage}
-                            onChangeText={setNewMessage}
-                            multiline
-                            maxLength={1000}
-                        />
-                        <TouchableOpacity
-                            style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
-                            onPress={sendMessage}
-                            disabled={!newMessage.trim() || sending}
-                        >
-                            <Ionicons 
-                                name="send" 
-                                size={20} 
-                                color={newMessage.trim() ? "#FFFFFF" : "#9CA3AF"} 
-                            />
-                        </TouchableOpacity>
-                    </View>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Type a message..."
+                        placeholderTextColor="#9CA3AF"
+                        value={newMessage}
+                        onChangeText={setNewMessage}
+                        multiline
+                        maxLength={1000}
+                    />
+                    <TouchableOpacity
+                        style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}
+                        onPress={sendMessage}
+                        disabled={!newMessage.trim() || sending}
+                    >
+                        {sending ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                            <Ionicons name="send" size={20} color="#FFFFFF" />
+                        )}
+                    </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
-
-            {/* Full-Screen Image Viewer Modal */}
-            <Modal
-                visible={imageViewerVisible}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={() => {
-                    console.log('🖼️ Modal close requested');
-                    setImageViewerVisible(false);
-                    setViewingImageUri(null);
-                }}
-            >
-                <SafeAreaView style={styles.imageViewerContainer}>
-                    <TouchableOpacity
-                        style={styles.imageViewerCloseButton}
-                        onPress={() => {
-                            console.log('🖼️ Close button pressed');
-                            setImageViewerVisible(false);
-                            setViewingImageUri(null);
-                        }}
-                    >
-                        <Ionicons name="close" size={28} color="#FFFFFF" />
-                    </TouchableOpacity>
-                    {viewingImageUri ? (
-                        <Image
-                            source={{ uri: viewingImageUri }}
-                            style={styles.imageViewerImage}
-                            resizeMode="contain"
-                            onError={(error) => {
-                                console.error('❌ Error loading image in viewer:', error);
-                                showAlert('Error', 'Failed to load image');
-                            }}
-                            onLoad={() => {
-                                console.log('✅ Image loaded in viewer:', viewingImageUri);
-                            }}
-                        />
-                    ) : (
-                        <View style={styles.imageViewerPlaceholder}>
-                            <Text style={styles.imageViewerPlaceholderText}>No image to display</Text>
-                        </View>
-                    )}
-                </SafeAreaView>
-            </Modal>
-
-            {/* Tenant Info Modal */}
-            {isCurrentUserOwner && tenantId && (
-                <TenantInfoModal
-                    visible={tenantInfoModalVisible}
-                    tenantId={tenantId || ''}
-                    tenantName={participantInfo?.otherParticipantName || 'Unknown'}
-                    tenantEmail={tenantEmail}
-                    tenantPhone={tenantPhone}
-                    tenantAvatar={participantInfo?.otherParticipantAvatar || ''}
-                    onClose={() => setTenantInfoModalVisible(false)}
-                />
-            )}
         </SafeAreaView>
     );
 }
@@ -1041,9 +713,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     loadingText: {
+        marginTop: 12,
         fontSize: 16,
         color: '#6B7280',
-        marginTop: 16,
     },
     header: {
         flexDirection: 'row',
@@ -1053,347 +725,162 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 3,
     },
     backButton: {
-        padding: 8,
-        marginRight: 8,
+        marginRight: 12,
+        padding: 4,
     },
     headerInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-    },
-    avatarContainer: {
-        marginRight: 12,
-    },
-    headerAvatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-    },
-    headerAvatarFallback: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#3B82F6',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerAvatarText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#FFFFFF',
-    },
-    headerText: {
         flex: 1,
     },
     headerName: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: '600',
         color: '#111827',
     },
     headerSubtitle: {
-        fontSize: 12,
+        fontSize: 14,
         color: '#6B7280',
         marginTop: 2,
     },
-    infoButton: {
-        padding: 8,
-        marginLeft: 8,
+    keyboardView: {
+        flex: 1,
     },
     messagesContainer: {
         flex: 1,
     },
-    paymentBannerSticky: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 10,
-    },
-    messagesScrollView: {
-        flex: 1,
-    },
     messagesContent: {
-        paddingVertical: 16,
-        paddingHorizontal: 16,
+        padding: 16,
+        flexGrow: 1,
     },
-    messagesContentWithBanner: {
-        paddingTop: 120,
-    },
-    emptyState: {
-        alignItems: 'center',
-        paddingVertical: 60,
-    },
-    emptyStateText: {
-        fontSize: 16,
-        color: '#9CA3AF',
-        marginTop: 12,
-    },
-    messageContainer: {
-        marginBottom: 12,
-        paddingHorizontal: 16,
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-    },
-    currentUserMessageContainer: {
-        justifyContent: 'flex-end',
-    },
-    otherUserMessageContainer: {
-        justifyContent: 'flex-start',
-    },
-    avatarLeft: {
-        marginRight: 8,
-        marginBottom: 4,
-    },
-    avatar: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#3B82F6',
+    emptyMessagesContent: {
+        flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    avatarImage: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+    emptyState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 48,
+    },
+    emptyStateText: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginTop: 16,
+    },
+    emptyStateSubtext: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 8,
+        textAlign: 'center',
+    },
+    messageWrapper: {
+        flexDirection: 'row',
+        marginBottom: 12,
+        alignItems: 'flex-end',
+    },
+    currentUserMessageWrapper: {
+        justifyContent: 'flex-end',
+    },
+    otherUserMessageWrapper: {
+        justifyContent: 'flex-start',
+    },
+    avatarContainer: {
+        marginRight: 8,
+    },
+    avatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+    },
+    avatarPlaceholder: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#10B981',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     avatarText: {
+        color: '#FFFFFF',
         fontSize: 14,
         fontWeight: '600',
-        color: '#FFFFFF',
     },
     messageBubble: {
         maxWidth: '75%',
         paddingHorizontal: 16,
         paddingVertical: 10,
-        borderRadius: 18,
+        borderRadius: 20,
     },
-    currentUserMessage: {
-        backgroundColor: '#3B82F6',
+    currentUserBubble: {
+        backgroundColor: '#10B981',
         borderBottomRightRadius: 4,
     },
-    otherUserMessage: {
+    otherUserBubble: {
         backgroundColor: '#FFFFFF',
         borderBottomLeftRadius: 4,
         borderWidth: 1,
         borderColor: '#E5E7EB',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 1,
     },
     messageText: {
-        fontSize: 16,
-        lineHeight: 22,
+        fontSize: 15,
+        lineHeight: 20,
     },
-    currentUserMessageText: {
+    currentUserText: {
         color: '#FFFFFF',
     },
-    otherUserMessageText: {
+    otherUserText: {
         color: '#111827',
+    },
+    messageImage: {
+        width: 200,
+        height: 200,
+        borderRadius: 12,
+        marginBottom: 4,
     },
     messageTime: {
         fontSize: 11,
         marginTop: 4,
     },
-    currentUserMessageTime: {
-        color: 'rgba(255, 255, 255, 0.8)',
+    currentUserTime: {
+        color: 'rgba(255, 255, 255, 0.7)',
     },
-    otherUserMessageTime: {
+    otherUserTime: {
         color: '#9CA3AF',
     },
-    notificationContainer: {
-        alignItems: 'center',
-        marginVertical: 8,
-        paddingHorizontal: 16,
-    },
-    notificationBubble: {
-        backgroundColor: '#F0F9FF',
-        borderWidth: 1,
-        borderColor: '#BFDBFE',
-        borderRadius: 12,
+    inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
         paddingHorizontal: 16,
         paddingVertical: 12,
-        maxWidth: '85%',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 1,
-    },
-    notificationText: {
-        fontSize: 14,
-        lineHeight: 20,
-        color: '#1E40AF',
-        textAlign: 'center',
-    },
-    notificationTime: {
-        fontSize: 11,
-        color: '#60A5FA',
-        marginTop: 6,
-        textAlign: 'center',
-    },
-    inputContainer: {
         backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#E5E7EB',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
     },
-    inputWrapper: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
+    input: {
+        flex: 1,
         backgroundColor: '#F9FAFB',
-        borderRadius: 24,
+        borderRadius: 20,
         paddingHorizontal: 16,
-        paddingVertical: 8,
+        paddingVertical: 10,
+        maxHeight: 100,
+        fontSize: 15,
+        color: '#111827',
+        marginRight: 8,
         borderWidth: 1,
         borderColor: '#E5E7EB',
     },
-    textInput: {
-        flex: 1,
-        fontSize: 16,
-        color: '#111827',
-        maxHeight: 100,
-        paddingVertical: 8,
-    },
     sendButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#3B82F6',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginLeft: 8,
-    },
-    sendButtonDisabled: {
-        backgroundColor: '#F3F4F6',
-    },
-    imageButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'transparent',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 8,
-    },
-    imageMessageBubble: {
-        paddingHorizontal: 8,
-        paddingVertical: 8,
-    },
-    imageContainer: {
-        borderRadius: 12,
-        overflow: 'hidden',
-    },
-    messageImage: {
-        width: 200,
-        height: 150,
-        borderRadius: 12,
-    },
-    deleteHint: {
-        position: 'absolute',
-        top: -20,
-        right: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
-    },
-    deleteHintText: {
-        color: '#FFFFFF',
-        fontSize: 10,
-        fontWeight: '500',
-    },
-    imageViewerContainer: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.95)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    imageViewerCloseButton: {
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        zIndex: 1000,
         width: 44,
         height: 44,
         borderRadius: 22,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backgroundColor: '#10B981',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    imageViewerImage: {
-        width: Dimensions.get('window').width,
-        height: Dimensions.get('window').height,
-    },
-    imageViewerPlaceholder: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    imageViewerPlaceholderText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-    },
-    imagePreviewContainer: {
-        backgroundColor: '#FFFFFF',
-        borderTopWidth: 1,
-        borderTopColor: '#E5E7EB',
-        padding: 12,
-    },
-    imagePreviewWrapper: {
-        position: 'relative',
-        marginBottom: 12,
-    },
-    imagePreview: {
-        width: '100%',
-        height: 200,
-        borderRadius: 12,
-        backgroundColor: '#F3F4F6',
-    },
-    imagePreviewCancel: {
-        position: 'absolute',
-        top: 8,
-        right: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-        borderRadius: 12,
-        padding: 4,
-    },
-    imagePreviewActions: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        gap: 12,
-    },
-    imagePreviewCancelButton: {
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderRadius: 8,
-        backgroundColor: '#F3F4F6',
-    },
-    imagePreviewCancelText: {
-        color: '#6B7280',
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    imagePreviewSendButton: {
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderRadius: 8,
-        backgroundColor: '#3B82F6',
-    },
-    imagePreviewSendText: {
-        color: '#FFFFFF',
-        fontSize: 14,
-        fontWeight: '600',
+    sendButtonDisabled: {
+        backgroundColor: '#D1D5DB',
     },
 });
 

@@ -41,16 +41,35 @@ export default function ChatRoomNew() {
     const { user } = useAuth();
     
     // Add try-catch around parameter destructuring
-    let conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle;
+    let conversationId: string | undefined, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle;
     try {
         const params = useLocalSearchParams();
-        conversationId = params.conversationId;
-        ownerName = params.ownerName;
-        tenantName = params.tenantName;
-        ownerAvatar = params.ownerAvatar;
-        tenantAvatar = params.tenantAvatar;
-        propertyTitle = params.propertyTitle;
-        console.log('✅ Parameters destructured successfully:', { conversationId, ownerName, tenantName, ownerAvatar, tenantAvatar, propertyTitle });
+        // Normalize conversationId to string (handle array case from route params)
+        // CRITICAL: Ensure we get the full conversationId, not truncated
+        const rawConvId = Array.isArray(params.conversationId) ? params.conversationId[0] : params.conversationId;
+        conversationId = rawConvId ? String(rawConvId).trim() : undefined;
+        
+        // Validate conversationId is not truncated
+        if (conversationId && conversationId.length < 10) {
+            console.error('⚠️ WARNING: conversationId seems truncated:', conversationId);
+            console.error('⚠️ Raw params.conversationId:', params.conversationId);
+            console.error('⚠️ All params:', params);
+        }
+        
+        ownerName = Array.isArray(params.ownerName) ? params.ownerName[0] : params.ownerName;
+        tenantName = Array.isArray(params.tenantName) ? params.tenantName[0] : params.tenantName;
+        ownerAvatar = Array.isArray(params.ownerAvatar) ? params.ownerAvatar[0] : params.ownerAvatar;
+        tenantAvatar = Array.isArray(params.tenantAvatar) ? params.tenantAvatar[0] : params.tenantAvatar;
+        propertyTitle = Array.isArray(params.propertyTitle) ? params.propertyTitle[0] : params.propertyTitle;
+        console.log('✅ Parameters destructured successfully:', { 
+            conversationId, 
+            conversationIdLength: conversationId?.length,
+            ownerName, 
+            tenantName, 
+            ownerAvatar, 
+            tenantAvatar, 
+            propertyTitle 
+        });
     } catch (error) {
         console.error('❌ Error destructuring parameters:', error);
         conversationId = ownerName = tenantName = ownerAvatar = tenantAvatar = propertyTitle = undefined;
@@ -277,9 +296,48 @@ export default function ChatRoomNew() {
                 return;
             }
 
-            const conversationMessages = allMessages.filter((msg: MessageRecord) => 
-                msg && msg.conversationId === conversationId
-            );
+            const normalizedConvId = String(conversationId || '').trim();
+            console.log(`🔍 Tenant: Searching for messages with conversationId: "${normalizedConvId}"`);
+            console.log(`📊 Tenant: Total messages in database: ${allMessages.length}`);
+            
+            // Debug: Log all message conversationIds to see what we're working with
+            const allConvIds = allMessages.map((m: any) => ({
+                id: m.id,
+                convId: String(m.conversationId || m.conversation_id || '').trim(),
+                text: m.text?.substring(0, 30)
+            }));
+            console.log(`📊 Tenant: All message conversationIds (first 10):`, allConvIds.slice(0, 10));
+            
+            const conversationMessages = allMessages.filter((msg: MessageRecord) => {
+                if (!msg) return false;
+                const msgConvId = String(msg.conversationId || msg.conversation_id || '').trim();
+                // Try multiple matching strategies
+                const exactMatch = msgConvId === normalizedConvId;
+                const normalizedMatch = msgConvId === String(conversationId).trim();
+                const matches = exactMatch || normalizedMatch;
+                
+                if (matches) {
+                    console.log('✅ Tenant: Message matches:', {
+                        msgId: msg.id,
+                        msgConvId,
+                        expected: normalizedConvId,
+                        text: msg.text?.substring(0, 50),
+                        type: msg.type,
+                        senderId: msg.senderId || msg.sender_id
+                    });
+                } else if (msgConvId && normalizedConvId) {
+                    // Log mismatches for debugging
+                    console.log('❌ Tenant: Message mismatch:', {
+                        msgId: msg.id,
+                        msgConvId,
+                        expected: normalizedConvId,
+                        match: false
+                    });
+                }
+                return matches;
+            });
+            
+            console.log(`📨 Tenant: Found ${conversationMessages.length} messages matching conversation ID`);
 
             // Sort by creation time
             conversationMessages.sort((a: MessageRecord, b: MessageRecord) => {
@@ -288,15 +346,37 @@ export default function ChatRoomNew() {
                 return dateA - dateB;
             });
 
-            // Get conversation to determine owner
-            const conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
+            // Get conversation to determine owner - try normalized ID first
+            let conversation: ConversationRecord | null = null;
+            try {
+                conversation = await db.get('conversations', normalizedConvId) as ConversationRecord | null;
+            } catch (error) {
+                console.log('⚠️ Conversation not found with normalized ID, trying original:', normalizedConvId);
+            }
+            
             if (!conversation) {
-                console.error('❌ Conversation not found:', conversationId);
+                // Try alternative ID formats
+                const allConversations = await db.list('conversations') || [];
+                conversation = (allConversations as any[]).find((c: any) => {
+                    const cId = String(c.id || '').trim();
+                    return cId === normalizedConvId;
+                }) as ConversationRecord | null;
+            }
+            
+            if (!conversation) {
+                console.error('❌ Conversation not found:', normalizedConvId);
+                console.error('📊 Available conversations:', (await db.list('conversations') || []).map((c: any) => c.id));
                 showAlert('Error', 'Conversation not found');
                 setMessages([]);
                 setLoading(false);
                 return;
             }
+            
+            console.log('✅ Tenant: Conversation loaded:', {
+                id: conversation.id,
+                ownerId: conversation.ownerId || conversation.owner_id,
+                tenantId: conversation.tenantId || conversation.tenant_id
+            });
 
             const conversationOwnerId = conversation.ownerId || conversation.owner_id;
             
@@ -361,6 +441,37 @@ export default function ChatRoomNew() {
             if (conversationId && user?.id) {
                 loadParticipantInfo(); // Refresh participant info to get latest profile photo
                 loadMessages();
+                
+                // Mark conversation as read when viewing
+                const markAsRead = async () => {
+                    try {
+                        const conv = await db.get<ConversationRecord>('conversations', String(conversationId).trim());
+                        if (conv) {
+                            const conversationOwnerId = conv.ownerId || conv.owner_id;
+                            const isCurrentUserOwner = user.id === conversationOwnerId;
+                            
+                            await db.upsert('conversations', String(conversationId).trim(), {
+                                ...conv,
+                                unreadByOwner: isCurrentUserOwner ? 0 : (conv.unreadByOwner || conv.unread_by_owner || 0),
+                                unreadByTenant: !isCurrentUserOwner ? 0 : (conv.unreadByTenant || conv.unread_by_tenant || 0),
+                                lastReadByOwner: isCurrentUserOwner ? new Date().toISOString() : (conv.lastReadByOwner || conv.last_read_by_owner),
+                                lastReadByTenant: !isCurrentUserOwner ? new Date().toISOString() : (conv.lastReadByTenant || conv.last_read_by_tenant),
+                                updatedAt: new Date().toISOString()
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Error marking conversation as read:', error);
+                    }
+                };
+                
+                markAsRead();
+                
+                // Set up interval to check for new messages every 2 seconds
+                const interval = setInterval(() => {
+                    loadMessages();
+                }, 2000);
+                
+                return () => clearInterval(interval);
             }
         }, [loadMessages, loadParticipantInfo, conversationId, user?.id])
     );
@@ -548,19 +659,35 @@ export default function ChatRoomNew() {
 
     const sendMessage = async () => {
         try {
-            console.log('🔄 sendMessage called:', { 
+            // CRITICAL: Ensure conversationId is properly preserved and not truncated
+            // Get it fresh from the component state/params
+            const activeConversationId = conversationId ? String(conversationId).trim() : undefined;
+            
+            console.log('🔄 Tenant sendMessage called:', { 
                 hasNewMessage: !!newMessage, 
                 newMessageLength: newMessage?.length || 0,
-                conversationId, 
+                conversationId: activeConversationId,
+                conversationIdLength: activeConversationId?.length,
+                conversationIdType: typeof activeConversationId,
                 userId: user?.id, 
                 sending 
             });
             
-            if (!newMessage || !newMessage.trim() || !conversationId || !user?.id || sending) {
-                console.log('⚠️ sendMessage early return:', { 
+            // Validate conversationId before proceeding
+            if (!activeConversationId || activeConversationId.length < 10) {
+                console.error('❌ CRITICAL ERROR: conversationId is missing or truncated!', {
+                    conversationId: activeConversationId,
+                    length: activeConversationId?.length,
+                    type: typeof activeConversationId
+                });
+                showAlert('Error', 'Invalid conversation ID. Please try again.');
+                return;
+            }
+            
+            if (!newMessage || !newMessage.trim() || !user?.id || sending) {
+                console.log('⚠️ Tenant sendMessage early return:', { 
                     noMessage: !newMessage, 
                     noTrim: !newMessage?.trim(), 
-                    noConvId: !conversationId, 
                     noUserId: !user?.id, 
                     sending 
                 });
@@ -571,40 +698,124 @@ export default function ChatRoomNew() {
             const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const now = new Date().toISOString();
 
-            // Create message record
+            // Use the validated conversationId - ensure it's a full string
+            const normalizedConversationId = String(activeConversationId).trim();
+            
+            // Double-check it's still valid after normalization
+            if (normalizedConversationId.length < 10 || normalizedConversationId === 'undefined' || normalizedConversationId === 'null') {
+                console.error('❌ CRITICAL ERROR: conversationId is invalid after normalization!', {
+                    normalized: normalizedConversationId,
+                    length: normalizedConversationId.length,
+                    original: activeConversationId
+                });
+                showAlert('Error', 'Invalid conversation ID. Please try again.');
+                setSending(false);
+                return;
+            }
+            if (!normalizedConversationId || normalizedConversationId === 'undefined' || normalizedConversationId === 'null') {
+                console.error('❌ Invalid conversationId when sending message:', conversationId);
+                showAlert('Error', 'Invalid conversation. Please try again.');
+                setSending(false);
+                return;
+            }
+            
+            // Create message record - ensure conversationId is properly set
+            // CRITICAL: Double-check the conversationId before saving
+            const finalConversationId = normalizedConversationId;
+            if (finalConversationId.length < 10) {
+                console.error('❌ CRITICAL: conversationId is still truncated in messageRecord!', {
+                    finalConversationId,
+                    length: finalConversationId.length,
+                    normalizedConversationId,
+                    activeConversationId
+                });
+                showAlert('Error', 'Invalid conversation ID. Please try again.');
+                setSending(false);
+                return;
+            }
+            
             const messageRecord: MessageRecord = {
                 id: messageId,
-                conversationId: conversationId as string,
+                conversationId: finalConversationId, // Use validated ID
                 senderId: user.id,
                 text: newMessage.trim(),
                 createdAt: now,
                 readBy: [user.id], // Initialize with sender as having read the message
                 type: 'message'
             };
+            
+            console.log('📤 Tenant: Saving message:', {
+                messageId,
+                conversationId: finalConversationId,
+                conversationIdLength: finalConversationId.length,
+                originalConversationId: conversationId,
+                senderId: user.id,
+                textLength: newMessage.trim().length,
+                messageRecord: {
+                    id: messageRecord.id,
+                    conversationId: messageRecord.conversationId,
+                    conversationIdLength: messageRecord.conversationId?.length,
+                    senderId: messageRecord.senderId,
+                    type: messageRecord.type
+                }
+            });
 
             // Save message to database
             await db.upsert('messages', messageId, messageRecord);
+            
+            // Verify the message was saved correctly
+            try {
+                const savedMessage = await db.get('messages', messageId) as any;
+                console.log('✅ Tenant: Message saved successfully:', {
+                    savedId: savedMessage?.id,
+                    savedConversationId: savedMessage?.conversationId || savedMessage?.conversation_id,
+                    expectedConversationId: normalizedConversationId
+                });
+            } catch (verifyError) {
+                console.error('❌ Tenant: Error verifying saved message:', verifyError);
+            }
 
             // Update conversation with last message
             let conversation: ConversationRecord | null = null;
             let isCurrentUserOwner = false;
             try {
-                conversation = await db.get('conversations', conversationId as string) as ConversationRecord | null;
+                conversation = await db.get('conversations', normalizedConversationId) as ConversationRecord | null;
                 if (conversation) {
                     const conversationOwnerId = conversation.ownerId || conversation.owner_id;
+                    const conversationTenantId = conversation.tenantId || conversation.tenant_id;
                     isCurrentUserOwner = user.id === conversationOwnerId;
                     
-                    await db.upsert('conversations', conversationId as string, {
-                        ...conversation,
+                    // Ensure we preserve all conversation fields, especially ownerId and tenantId
+                    await db.upsert('conversations', normalizedConversationId, {
+                        id: normalizedConversationId,
+                        ownerId: conversationOwnerId || conversation.ownerId,
+                        tenantId: conversationTenantId || conversation.tenantId,
+                        participantIds: conversation.participantIds || conversation.participant_ids || [],
                         lastMessageText: newMessage.trim(),
                         lastMessageAt: now,
                         unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
                         unreadByTenant: !isCurrentUserOwner ? (conversation.unreadByTenant || conversation.unread_by_tenant || 0) : ((conversation.unreadByTenant || conversation.unread_by_tenant || 0) + 1),
-                        updatedAt: now
+                        createdAt: conversation.createdAt || conversation.created_at || now,
+                        updatedAt: now,
+                        ...(conversation.propertyId && { propertyId: conversation.propertyId }),
+                        ...(conversation.property_id && { propertyId: conversation.property_id }),
+                        ...(conversation.propertyTitle && { propertyTitle: conversation.propertyTitle })
                     });
+                    
+                    console.log('✅ Updated conversation after message:', {
+                        conversationId: normalizedConversationId,
+                        ownerId: conversationOwnerId,
+                        tenantId: conversationTenantId,
+                        isCurrentUserOwner,
+                        senderIsOwner: isCurrentUserOwner,
+                        unreadByOwner: isCurrentUserOwner ? (conversation.unreadByOwner || conversation.unread_by_owner || 0) : ((conversation.unreadByOwner || conversation.unread_by_owner || 0) + 1),
+                        unreadByTenant: !isCurrentUserOwner ? (conversation.unreadByTenant || conversation.unread_by_tenant || 0) : ((conversation.unreadByTenant || conversation.unread_by_tenant || 0) + 1)
+                    });
+                } else {
+                    console.error('❌ Conversation not found when updating after message:', normalizedConversationId);
                 }
             } catch (convError) {
-                console.error('Error updating conversation:', convError);
+                console.error('❌ Error updating conversation:', convError);
             }
 
             // Add message to local state

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, Modal, ScrollView, Alert, Platform, Share } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Modal, ScrollView, Alert, Platform, Share, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { X, Share2, Download } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -44,6 +44,7 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
   const [showQRCodeModal, setShowQRCodeModal] = useState(false);
   const [selectedQRCodeAccount, setSelectedQRCodeAccount] = useState<PaymentAccount | null>(null);
   const [nextDuePayment, setNextDuePayment] = useState<any>(null);
+  const [downloadingQRCode, setDownloadingQRCode] = useState(false);
 
   useEffect(() => {
     // Only load if we have valid ownerId and tenantId
@@ -506,8 +507,12 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
                   
                   <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
                     <TouchableOpacity
-                      style={[styles.qrCodeShareButton, { flex: 1 }]}
+                      style={[styles.qrCodeShareButton, { flex: 1, opacity: downloadingQRCode ? 0.6 : 1 }]}
+                      disabled={downloadingQRCode}
                       onPress={async () => {
+                        if (downloadingQRCode) return; // Prevent multiple simultaneous requests
+                        
+                        setDownloadingQRCode(true);
                         try {
                           const { generateGCashQRPHCode } = await import('@/utils/qr-code-generator');
                           // For PayMaya, use dynamic QR codes (with amount). For GCash, use static (no amount)
@@ -548,9 +553,9 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
                             const Sharing = await import('expo-sharing');
                             const MediaLibrary = await import('expo-media-library');
                             
-                            const FileSystemModule = FileSystem.default || FileSystem;
-                            const SharingModule = Sharing.default || Sharing;
-                            const MediaLibraryModule = MediaLibrary.default || MediaLibrary;
+                            const FileSystemModule = (FileSystem as any).default || FileSystem;
+                            const SharingModule = (Sharing as any).default || Sharing;
+                            const MediaLibraryModule = (MediaLibrary as any).default || MediaLibrary;
                             
                             const fileName = `payment-qr-code-${nextDuePayment.receiptNumber}.png`;
                             const fileUri = FileSystemModule.documentDirectory + fileName;
@@ -559,8 +564,11 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
                             const downloadResult = await FileSystemModule.downloadAsync(qrCodeImageUrl, fileUri);
                             
                             // Try to save to media library (Photos/Gallery) first
+                            // Only request WRITE permission, not AUDIO
                             try {
-                              const { status } = await MediaLibraryModule.requestPermissionsAsync();
+                              // Request permissions - expo-media-library may have different API
+                              const permissionResult = await MediaLibraryModule.requestPermissionsAsync();
+                              const { status } = permissionResult;
                               if (status === 'granted') {
                                 const asset = await MediaLibraryModule.createAssetAsync(downloadResult.uri);
                                 await MediaLibraryModule.createAlbumAsync('HanapBahay', asset, false);
@@ -572,12 +580,34 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
                             }
                             
                             // Fallback: Use sharing to save/download
+                            // Add a small delay to ensure previous share request is complete
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                            
                             if (await SharingModule.isAvailableAsync()) {
-                              await SharingModule.shareAsync(downloadResult.uri, {
-                                mimeType: 'image/png',
-                                dialogTitle: 'Save QR Code',
-                                UTI: 'public.png',
-                              });
+                              try {
+                                await SharingModule.shareAsync(downloadResult.uri, {
+                                  mimeType: 'image/png',
+                                  dialogTitle: 'Save QR Code',
+                                  UTI: 'public.png',
+                                });
+                              } catch (shareError: any) {
+                                // Handle "another share request is being processed" error
+                                if (shareError?.message?.includes('Another share request')) {
+                                  // Wait a bit and retry once
+                                  await new Promise(resolve => setTimeout(resolve, 500));
+                                  try {
+                                    await SharingModule.shareAsync(downloadResult.uri, {
+                                      mimeType: 'image/png',
+                                      dialogTitle: 'Save QR Code',
+                                      UTI: 'public.png',
+                                    });
+                                  } catch (retryError) {
+                                    Alert.alert('Info', `QR code saved to: ${downloadResult.uri}`);
+                                  }
+                                } else {
+                                  throw shareError;
+                                }
+                              }
                             } else {
                               Alert.alert('Success', `QR code saved to: ${downloadResult.uri}`);
                             }
@@ -585,11 +615,19 @@ export default function PaymentMethodsDisplay({ ownerId, tenantId, isCurrentUser
                         } catch (error) {
                           console.error('Error downloading QR code:', error);
                           Alert.alert('Error', `Failed to download QR code: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                        } finally {
+                          setDownloadingQRCode(false);
                         }
                       }}
                     >
-                      <Download size={18} color="#3B82F6" />
-                      <Text style={styles.qrCodeShareButtonText}>Download QR Code</Text>
+                      {downloadingQRCode ? (
+                        <ActivityIndicator size="small" color="#3B82F6" />
+                      ) : (
+                        <Download size={18} color="#3B82F6" />
+                      )}
+                      <Text style={styles.qrCodeShareButtonText}>
+                        {downloadingQRCode ? 'Downloading...' : 'Download QR Code'}
+                      </Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity

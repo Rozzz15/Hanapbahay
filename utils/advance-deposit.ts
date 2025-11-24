@@ -110,8 +110,8 @@ export async function autoRemoveTenantWhenAdvanceExhausted(bookingId: string): P
 
     // Update property availability status
     try {
-      const { updateListingAvailabilityStatus } = await import('./listing-capacity');
-      await updateListingAvailabilityStatus(booking.propertyId);
+      const { checkAndRejectPendingBookings } = await import('./listing-capacity');
+      await checkAndRejectPendingBookings(booking.propertyId);
     } catch (statusError) {
       console.warn('⚠️ Could not update listing availability status:', statusError);
     }
@@ -293,14 +293,20 @@ export async function endRentalStayWithAdvanceDeposit(
     }
 
     // Check if listing has advance deposit
-    if (!booking.advanceDepositMonths || booking.advanceDepositMonths === 0) {
-      return {
-        success: false,
-        error: 'This property does not have advance deposit. You cannot end your rental stay using this feature.'
-      };
+    const hasAdvanceDeposit = booking.advanceDepositMonths && booking.advanceDepositMonths > 0;
+    const currentRemaining = hasAdvanceDeposit ? (booking.remainingAdvanceMonths ?? booking.advanceDepositMonths) : 0;
+    
+    // If no advance deposit, only allow immediate leave
+    if (!hasAdvanceDeposit) {
+      if (!immediateLeave) {
+        return {
+          success: false,
+          error: 'This property does not have advance deposit. You can only leave immediately.'
+        };
+      }
+      // Process immediate leave without advance deposit
+      return await processImmediateLeaveWithoutAdvanceDeposit(bookingId, booking);
     }
-
-    const currentRemaining = booking.remainingAdvanceMonths ?? booking.advanceDepositMonths;
     
     if (currentRemaining === 0) {
       return {
@@ -319,7 +325,7 @@ export async function endRentalStayWithAdvanceDeposit(
 
     const monthsToUse = currentRemaining;
     
-    if (monthsToUse === 0) {
+    if (monthsToUse === 0 || !monthsToUse) {
       return {
         success: false,
         error: 'No remaining advance deposit months available'
@@ -358,7 +364,6 @@ export async function endRentalStayWithAdvanceDeposit(
     // Send notification to owner
     try {
       const { createOrFindConversation } = await import('./conversation-utils');
-      const { MessageRecord } = await import('../types');
       const { generateId } = await import('./db');
       const conversationId = await createOrFindConversation({
         ownerId: booking.ownerId,
@@ -372,7 +377,7 @@ export async function endRentalStayWithAdvanceDeposit(
       const messageId = generateId('msg');
       const messageText = `🏠 Rental Stay Termination Initiated\n\n${booking.tenantName} has initiated ending their rental stay at ${booking.propertyTitle}.\n\n${monthsToUse} advance deposit month(s) will be used over the next ${daysRemaining} days.\n\nThe tenant will be automatically removed on ${terminationEndDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`;
 
-      const messageRecord: MessageRecord = {
+      const messageRecord: any = {
         id: messageId,
         conversationId,
         senderId: booking.tenantId,
@@ -582,8 +587,8 @@ async function processImmediateLeave(
 
     // Update property availability
     try {
-      const { updateListingAvailabilityStatus } = await import('./listing-capacity');
-      await updateListingAvailabilityStatus(booking.propertyId);
+      const { checkAndRejectPendingBookings } = await import('./listing-capacity');
+      await checkAndRejectPendingBookings(booking.propertyId);
       console.log(`✅ Updated property availability for ${booking.propertyId}`);
     } catch (statusError) {
       console.warn('⚠️ Could not update listing availability status:', statusError);
@@ -592,7 +597,6 @@ async function processImmediateLeave(
     // Send notification to owner
     try {
       const { createOrFindConversation } = await import('./conversation-utils');
-      const { MessageRecord } = await import('../types');
       const { generateId } = await import('./db');
       const conversationId = await createOrFindConversation({
         ownerId: booking.ownerId,
@@ -606,7 +610,7 @@ async function processImmediateLeave(
       const messageId = generateId('msg');
       const messageText = `🏠 Rental Stay Ended Immediately\n\n${booking.tenantName} has ended their rental stay at ${booking.propertyTitle}.\n\n${monthsToUse} advance deposit month(s) were used to cover remaining payments.\n\nThe property is now available for new tenants.`;
 
-      const messageRecord: MessageRecord = {
+      const messageRecord: any = {
         id: messageId,
         conversationId,
         senderId: booking.tenantId,
@@ -662,6 +666,93 @@ async function processImmediateLeave(
     };
   } catch (error) {
     console.error('❌ Error processing immediate leave:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+/**
+ * Process immediate leave without advance deposit - just mark booking as completed
+ */
+async function processImmediateLeaveWithoutAdvanceDeposit(
+  bookingId: string,
+  booking: BookingRecord
+): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    console.log('💰 Processing immediate leave without advance deposit');
+
+    const now = new Date().toISOString();
+
+    // Mark booking as completed
+    const updatedBooking: BookingRecord = {
+      ...booking,
+      status: 'completed',
+      completedAt: now,
+      updatedAt: now
+    };
+
+    await db.upsert('bookings', bookingId, updatedBooking);
+    console.log('✅ Booking marked as completed (immediate leave without advance deposit)');
+
+    // Send notification to owner
+    try {
+      const { createOrFindConversation } = await import('./conversation-utils');
+      const { generateId } = await import('./db');
+      const conversationId = await createOrFindConversation({
+        ownerId: booking.ownerId,
+        tenantId: booking.tenantId,
+        ownerName: booking.ownerName,
+        tenantName: booking.tenantName,
+        propertyId: booking.propertyId,
+        propertyTitle: booking.propertyTitle,
+      });
+
+      const messageId = generateId('msg');
+      const messageText = `🏠 Rental Stay Ended\n\n${booking.tenantName} has ended their rental stay at ${booking.propertyTitle}.\n\nThe property is now available for new tenants.`;
+
+      const messageRecord: any = {
+        id: messageId,
+        conversationId,
+        senderId: booking.tenantId,
+        senderName: booking.tenantName,
+        text: messageText,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await db.upsert('messages', messageId, messageRecord);
+      console.log('✅ Sent notification to owner about immediate leave');
+    } catch (messageError) {
+      console.warn('⚠️ Could not send notification to owner:', messageError);
+    }
+
+    // Dispatch event
+    try {
+      const { dispatchCustomEvent } = await import('./custom-events');
+      dispatchCustomEvent('bookingCompleted', {
+        bookingId,
+        propertyId: booking.propertyId,
+        tenantId: booking.tenantId,
+        ownerId: booking.ownerId,
+        reason: 'tenant_ended_rental_immediate_no_advance',
+        timestamp: now
+      });
+    } catch (eventError) {
+      console.warn('⚠️ Could not dispatch booking completed event:', eventError);
+    }
+
+    return {
+      success: true,
+      message: 'Successfully ended rental stay immediately.'
+    };
+  } catch (error) {
+    console.error('❌ Error processing immediate leave without advance deposit:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -736,8 +827,8 @@ export async function processTerminationCountdown(): Promise<{
             
             // Update property availability
             try {
-              const { updateListingAvailabilityStatus } = await import('./listing-capacity');
-              await updateListingAvailabilityStatus(booking.propertyId);
+              const { checkAndRejectPendingBookings } = await import('./listing-capacity');
+              await checkAndRejectPendingBookings(booking.propertyId);
             } catch (statusError) {
               console.warn('⚠️ Could not update listing availability status:', statusError);
             }

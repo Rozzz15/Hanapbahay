@@ -47,27 +47,75 @@ export default function TenantMessages() {
             console.log('🔄 Loading conversations for tenant:', user.id);
 
             // Get all conversations where user is a participant
-            const allConversations = await db.list('conversations');
-            const userConversations = allConversations.filter((conv: any) => 
-                conv.tenantId === user.id || 
-                (conv.participantIds && conv.participantIds.includes(user.id))
-            );
+            const allConversations = await db.list('conversations') || [];
+            const userConversations = (Array.isArray(allConversations) ? allConversations : []).filter((conv: any) => {
+                if (!conv) return false;
+                const convTenantId = conv.tenantId || conv.tenant_id;
+                const participantIds = conv.participantIds || conv.participant_ids || [];
+                const isTenant = convTenantId === user.id;
+                const isParticipant = Array.isArray(participantIds) && participantIds.includes(user.id);
+                return isTenant || isParticipant;
+            });
 
             console.log(`📊 Found ${userConversations.length} conversations for tenant`);
 
             // Get all messages to check which conversations have actual messages
-            const allMessages = await db.list('messages');
-            const conversationsWithMessages = new Set(
-                allMessages
-                    .filter((msg: any) => msg.conversationId && msg.text && msg.text.trim() !== '')
-                    .map((msg: any) => msg.conversationId)
-            );
+            const allMessages = await db.list('messages') || [];
+            console.log(`📨 Total messages in database: ${allMessages.length}`);
+            const conversationsWithMessages = new Set<string>();
+            
+            // First, build set from messages
+            for (const msg of allMessages) {
+                if (!msg) continue;
+                const msgConversationId = String(msg.conversationId || msg.conversation_id || '').trim();
+                if (!msgConversationId) continue;
+                
+                // Check if message has valid content
+                const hasText = msg.text && String(msg.text).trim() !== '';
+                const isImage = msg.type === 'image' && (msg.imageUri || msg.image_uri);
+                const isNotification = msg.type === 'notification';
+                
+                if ((hasText || isImage) && !isNotification) {
+                    conversationsWithMessages.add(msgConversationId);
+                }
+            }
+
+            // Also check conversations directly for messages
+            for (const conv of userConversations) {
+                const convId = String((conv as any).id || '').trim();
+                if (!convId) continue;
+                
+                const messagesForConv = allMessages.filter((msg: any) => {
+                    if (!msg) return false;
+                    const msgConversationId = String(msg.conversationId || msg.conversation_id || '').trim();
+                    // Use both exact match and normalized comparison
+                    return msgConversationId === convId || msgConversationId === String((conv as any).id || '').trim();
+                });
+                
+                const validMessages = messagesForConv.filter((msg: any) => {
+                    if (!msg) return false;
+                    const hasText = msg.text && String(msg.text).trim() !== '';
+                    const isImage = msg.type === 'image' && (msg.imageUri || msg.image_uri);
+                    if (!hasText && !isImage) return false;
+                    return msg.type !== 'notification';
+                });
+                
+                if (validMessages.length > 0) {
+                    conversationsWithMessages.add(convId);
+                    console.log(`✅ Conversation ${convId} has ${validMessages.length} valid messages`);
+                }
+            }
 
             console.log(`📨 Found ${conversationsWithMessages.size} conversations with actual messages`);
+            console.log(`📊 Debug: Tenant conversations found: ${userConversations.length}`);
+            console.log(`📊 Debug: Sample conversation IDs:`, userConversations.slice(0, 3).map((c: any) => c.id));
+            console.log(`📊 Debug: Sample message conversationIds:`, allMessages.slice(0, 5).map((m: any) => m.conversationId || m.conversation_id));
 
             const conversationsWithDetails: Conversation[] = await Promise.all(
                 userConversations.map(async (conv: any) => {
-                    const ownerId = conv.ownerId || conv.participantIds?.find((id: string) => id !== user.id);
+                    const participantIds = conv.participantIds || conv.participant_ids || [];
+                    const ownerId = conv.ownerId || conv.owner_id || 
+                        (Array.isArray(participantIds) ? participantIds.find((id: string) => id !== user.id) : null);
                     
                     // Get owner details
                     let ownerName = 'Unknown Owner';
@@ -75,56 +123,168 @@ export default function TenantMessages() {
                     let propertyTitle = '';
 
                     try {
-                        const ownerRecord = await db.get('users', ownerId);
-                        if (ownerRecord) {
-                            ownerName = (ownerRecord as any).name || ownerName;
-                            
-                            // Load profile photo from user_profile_photos table
-                            try {
-                                const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
-                                const photoUri = await loadUserProfilePhoto(ownerId);
-                                if (photoUri) {
-                                    ownerAvatar = photoUri;
-                                    console.log('✅ Loaded owner profile photo for:', ownerId);
-                                    console.log('📸 Photo URI type:', typeof photoUri, 'starts with:', photoUri.substring(0, 50));
-                                } else {
-                                    console.log('⚠️ No profile photo found for owner:', ownerId);
+                        if (ownerId) {
+                            const ownerRecord = await db.get('users', ownerId);
+                            if (ownerRecord) {
+                                ownerName = (ownerRecord as any).name || ownerName;
+                                
+                                // Load profile photo from user_profile_photos table
+                                try {
+                                    const { loadUserProfilePhoto } = await import('@/utils/user-profile-photos');
+                                    const photoUri = await loadUserProfilePhoto(ownerId);
+                                    if (photoUri && photoUri.trim() !== '') {
+                                        ownerAvatar = photoUri.trim();
+                                        console.log('✅ Loaded owner profile photo for:', ownerId);
+                                    } else {
+                                        console.log('⚠️ No profile photo found for owner:', ownerId);
+                                    }
+                                } catch (photoError) {
+                                    console.log('⚠️ Could not load owner profile photo:', photoError);
                                 }
-                            } catch (photoError) {
-                                console.log('⚠️ Could not load owner profile photo:', photoError);
                             }
                         }
 
                         // Get property title if available
-                        if (conv.propertyId) {
-                            const property = await db.get('published_listings', conv.propertyId);
-                            if (property) {
-                                propertyTitle = (property as any).propertyType || '';
+                        if (conv.propertyId || conv.property_id) {
+                            const propertyId = conv.propertyId || conv.property_id;
+                            try {
+                                const property = await db.get('published_listings', propertyId);
+                                if (property) {
+                                    propertyTitle = (property as any).propertyType || (property as any).title || '';
+                                }
+                            } catch (error) {
+                                console.log('Error loading property:', error);
                             }
                         }
                     } catch (error) {
                         console.log('Error loading owner details:', error);
                     }
 
+                    // Get the last message from actual messages
+                    let lastMessage = conv.lastMessageText || conv.last_message_text || 'Start conversation';
+                    let lastMessageAt = conv.lastMessageAt || conv.last_message_at;
+                    
+                    const convIdForCheck = String(conv.id || '').trim();
+                    // Get actual last message from messages table
+                    const convMessages = allMessages.filter((msg: any) => {
+                        if (!msg) return false;
+                        const msgConvId = String(msg.conversationId || msg.conversation_id || '').trim();
+                        // Use both exact match and normalized comparison
+                        return msgConvId === convIdForCheck || msgConvId === String(conv.id).trim();
+                    });
+                    
+                    if (convMessages.length > 0) {
+                        const validMessages = convMessages
+                            .filter((msg: any) => {
+                                if (!msg) return false;
+                                const hasText = msg.text && String(msg.text).trim() !== '';
+                                const isImage = msg.type === 'image' && (msg.imageUri || msg.image_uri);
+                                const isNotification = msg.type === 'notification';
+                                return (hasText || isImage) && !isNotification;
+                            })
+                            .sort((a: any, b: any) => {
+                                const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+                                const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+                                return timeB - timeA;
+                            });
+                        
+                        if (validMessages.length > 0) {
+                            const lastMsg = validMessages[0];
+                            if (lastMsg.type === 'image') {
+                                lastMessage = '📷 Image';
+                            } else {
+                                lastMessage = lastMsg.text || 'Start conversation';
+                            }
+                            lastMessageAt = lastMsg.createdAt || lastMsg.created_at || conv.lastMessageAt || conv.last_message_at;
+                        }
+                    }
+
+                    // Check if conversation has messages
+                    const normalizedConvId = String(conv.id || '').trim();
+                    let hasMessages = conversationsWithMessages.has(normalizedConvId);
+                    
+                    // Double-check by looking at messages directly
+                    if (convMessages.length > 0) {
+                        const validMessages = convMessages.filter((msg: any) => {
+                            if (!msg) return false;
+                            const hasText = msg.text && String(msg.text).trim() !== '';
+                            const isImage = msg.type === 'image' && (msg.imageUri || msg.image_uri);
+                            if (!hasText && !isImage) return false;
+                            return msg.type !== 'notification';
+                        });
+                        
+                        if (validMessages.length > 0) {
+                            hasMessages = true;
+                            console.log(`✅ Conversation ${normalizedConvId} has ${validMessages.length} valid messages (re-checked)`);
+                        } else {
+                            console.log(`⚠️ Conversation ${normalizedConvId} has ${convMessages.length} messages but none are valid`);
+                        }
+                    } else {
+                        console.log(`⚠️ Conversation ${normalizedConvId} has no messages found`);
+                    }
+                    
+                    // Check conversation's lastMessageText field directly (from both camelCase and snake_case)
+                    const convLastMessageText = conv.lastMessageText || conv.last_message_text || '';
+                    const hasLastMessageText = convLastMessageText && String(convLastMessageText).trim() !== '' && convLastMessageText !== 'Start conversation';
+                    
+                    // Fallback: If conversation has lastMessageText, consider it as having messages
+                    if (!hasMessages && hasLastMessageText) {
+                        hasMessages = true;
+                        console.log(`✅ Conversation ${normalizedConvId} has lastMessageText: "${convLastMessageText.substring(0, 50)}", considering it as having messages`);
+                    }
+
                     return {
                         id: conv.id,
                         ownerId: ownerId || '',
                         tenantId: user.id,
-                        lastMessage: conv.lastMessageText || 'Start conversation',
-                        lastMessageAt: conv.lastMessageAt,
-                        unreadCount: conv.unreadByTenant || 0,
+                        lastMessage,
+                        lastMessageAt,
+                        unreadCount: conv.unreadByTenant || conv.unread_by_tenant || 0,
                         ownerName,
                         ownerAvatar,
                         propertyTitle,
-                        hasMessages: conversationsWithMessages.has(conv.id)
+                        hasMessages
                     };
                 })
             );
 
-            // Filter out conversations with no messages
-            const conversationsWithActualMessages = conversationsWithDetails.filter(conv => 
-                (conv as any).hasMessages
-            );
+            // Show ALL conversations - don't filter by hasMessages, show if they have lastMessageText or messages
+            const conversationsWithActualMessages = (await Promise.all(
+                conversationsWithDetails.map(async (conv) => {
+                    // Show conversation if it has messages OR has lastMessageText
+                    const hasMessages = (conv as any).hasMessages;
+                    const hasLastMessage = conv.lastMessage && conv.lastMessage !== 'Start conversation' && conv.lastMessage.trim() !== '';
+                    
+                    if (!hasMessages && !hasLastMessage) {
+                        console.log(`🚫 Filtering out conversation ${conv.id} - no messages and no lastMessageText`);
+                        console.log(`   - hasMessages: ${hasMessages}`);
+                        console.log(`   - lastMessage: "${conv.lastMessage}"`);
+                        return null;
+                    }
+                    
+                    console.log(`✅ Keeping conversation ${conv.id}:`, {
+                        hasMessages,
+                        hasLastMessage,
+                        lastMessage: conv.lastMessage?.substring(0, 50),
+                        ownerName: conv.ownerName
+                    });
+                    
+                    // Verify owner exists, but don't filter out if ownerId is missing
+                    if (conv.ownerId && conv.ownerId.trim() !== '') {
+                        try {
+                            const ownerRecord = await db.get('users', conv.ownerId);
+                            if (!ownerRecord) {
+                                console.log(`⚠️ Owner ${conv.ownerId} not found for conversation ${conv.id}, but keeping conversation`);
+                            }
+                        } catch (error) {
+                            console.log(`⚠️ Error loading owner ${conv.ownerId} for conversation ${conv.id}:`, error);
+                            // Don't filter out on error - show the conversation anyway
+                        }
+                    }
+                    
+                    return conv;
+                })
+            )).filter((conv): conv is Conversation => conv !== null);
 
             // Sort by last message time
             conversationsWithActualMessages.sort((a, b) => {

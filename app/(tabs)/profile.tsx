@@ -425,31 +425,48 @@ const ProfileScreen = memo(function ProfileScreen() {
         console.log('🚪 Logout button pressed');
         console.log('🚪 Current user before logout:', user);
         
-        try {
-            console.log('🚪 Starting logout process...');
-            
-            // Call signOut from AuthContext - this will handle the redirect
-            await signOut();
-            
-            console.log('✅ Logout successful - redirecting to login');
-            
-        } catch (error) {
-            console.error('❌ Logout error:', error);
-            Alert.alert(
-                'Logout Error', 
-                'Failed to logout. Please try again.',
-                [
-                    {
-                        text: 'OK',
-                        onPress: () => {
-                            console.log('🚪 User acknowledged logout error, forcing redirect');
-                            // Force redirect even if logout failed
-                            router.replace('/login');
+        showAlert(
+            'Logout',
+            'Are you sure you want to logout?',
+            [
+                { 
+                    text: 'Cancel', 
+                    style: 'cancel',
+                    onPress: () => console.log('❌ Logout cancelled')
+                },
+                { 
+                    text: 'Logout', 
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            console.log('🚪 User confirmed logout, starting signOut...');
+                            
+                            // Call signOut from AuthContext - this will handle the redirect
+                            await signOut();
+                            
+                            console.log('✅ Logout successful - redirecting to login');
+                            
+                        } catch (error) {
+                            console.error('❌ Logout error:', error);
+                            Alert.alert(
+                                'Logout Error', 
+                                'Failed to logout. Please try again.',
+                                [
+                                    {
+                                        text: 'OK',
+                                        onPress: () => {
+                                            console.log('🚪 User acknowledged logout error, forcing redirect');
+                                            // Force redirect even if logout failed
+                                            router.replace('/login');
+                                        }
+                                    }
+                                ]
+                            );
                         }
                     }
-                ]
-            );
-        }
+                }
+            ]
+        );
     };
 
     const handleSavePersonalDetails = async () => {

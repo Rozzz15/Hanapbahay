@@ -19,6 +19,8 @@ export interface TenantInfo {
   status: string;
   paymentStatus: string;
   createdAt: string;
+  tenantType?: 'individual' | 'family' | 'couple' | 'group';
+  numberOfPeople?: number; // Number of people for family or group bookings
 }
 
 export interface ListingWithTenants {
@@ -146,7 +148,9 @@ export async function getTenantsByOwner(ownerId: string): Promise<ListingWithTen
         endDate: booking.endDate,
         status: hasTerminationCountdown ? `terminating (${daysRemaining} days)` : booking.status,
         paymentStatus: booking.paymentStatus,
-        createdAt: booking.createdAt
+        createdAt: booking.createdAt,
+        tenantType: booking.tenantType,
+        numberOfPeople: booking.numberOfPeople
       };
       
       listing.tenants.push(tenantInfo);

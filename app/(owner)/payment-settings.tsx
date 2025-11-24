@@ -59,7 +59,8 @@ export default function PaymentSettings() {
     accountName: '',
     accountNumber: '',
     accountDetails: '',
-    qrCodeImageUri: '' as string | undefined
+    qrCodeImageUri: '' as string | undefined,
+    qrCodeData: '' as string | undefined
   });
 
   useEffect(() => {
@@ -557,8 +558,8 @@ export default function PaymentSettings() {
               formData.type === 'cash'
                 ? 'e.g., Property Office, Main Entrance, Owner Name'
                 : formData.type === 'gcash' || formData.type === 'paymaya'
-                ? 'e.g., Juan dela Cruz, Property Office, Main Account'
-                : 'e.g., Juan dela Cruz, ABC Property Management'
+                ? 'e.g., Juan dela Cruz'
+                : 'e.g., Juan dela Cruz'
             }
             value={formData.accountName}
             onChangeText={(value) => setFormData(prev => ({ ...prev, accountName: value }))}
@@ -690,7 +691,8 @@ export default function PaymentSettings() {
                   accountName: '',
                   accountNumber: '',
                   accountDetails: '',
-                  qrCodeImageUri: undefined
+                  qrCodeImageUri: undefined,
+                  qrCodeData: undefined
                 });
                 setEditingAccount(null);
                 // Keep showAddForm as true

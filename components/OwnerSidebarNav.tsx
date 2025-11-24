@@ -6,8 +6,8 @@ import {
   List, 
   Calendar, 
   Users, 
-  MessageSquare, 
-  CreditCard, 
+  MessageSquare,
+  CreditCard,
   Star,
   Sparkles
 } from 'lucide-react-native';

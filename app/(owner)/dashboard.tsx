@@ -8,10 +8,8 @@ import { useAuth } from '../../context/AuthContext';
 import { 
   getOwnerDashboardStats,
   getOwnerListings,
-  getOwnerMessages,
   type OwnerDashboardStats,
-  type OwnerListing,
-  type OwnerMessage
+  type OwnerListing
 } from '../../utils/owner-dashboard';
 import { getBookingsByOwner, updateBookingStatus } from '@/utils/booking';
 import { BookingRecord, MaintenanceRequestRecord } from '@/types';
@@ -24,7 +22,6 @@ import {
   Home, 
   List, 
   Calendar, 
-  MessageSquare,
   LogOut,
   Plus,
   Eye,
@@ -48,7 +45,8 @@ import {
   X,
   Star,
   Wrench,
-  Video
+  Video,
+  MessageSquare
 } from 'lucide-react-native';
 import { ScrollView as RNScrollView } from 'react-native';
 import { sharedStyles, designTokens, iconBackgrounds } from '../../styles/owner-dashboard-styles';
@@ -213,7 +211,6 @@ export default function OwnerDashboard() {
   });
   const [listings, setListings] = useState<OwnerListing[]>([]);
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
-  const [messages, setMessages] = useState<OwnerMessage[]>([]);
   const [pendingBookingsCount, setPendingBookingsCount] = useState(0);
   const [totalTenants, setTotalTenants] = useState(0);
   const [monthlyRevenueOverview, setMonthlyRevenueOverview] = useState<MonthlyRevenueOverview | null>(null);
@@ -377,6 +374,29 @@ export default function OwnerDashboard() {
     checkAccess();
   }, [user]);
 
+  // Define loadStats and loadRevenueData before they're used in useEffect
+  const loadStats = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      const dashboardStats = await getOwnerDashboardStats(user.id);
+      setStats(dashboardStats);
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  }, [user?.id]);
+
+  const loadRevenueData = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      const revenueOverview = await getMonthlyRevenueOverview(user.id);
+      setMonthlyRevenueOverview(revenueOverview);
+    } catch (error) {
+      console.error('Error loading revenue data:', error);
+    }
+  }, [user?.id]);
+
   // Listen for listing changes to auto-refresh dashboard
   useEffect(() => {
     const handleListingChange = () => {
@@ -483,7 +503,6 @@ export default function OwnerDashboard() {
         loadStats(),
         loadListings(),
         loadBookings(),
-        loadMessages(),
         loadRevenueData(),
         loadTotalTenants(),
         loadMaintenanceRequests()
@@ -501,17 +520,6 @@ export default function OwnerDashboard() {
     setRefreshing(true);
     loadDashboardData();
   }, [loadDashboardData]);
-
-  const loadStats = useCallback(async () => {
-    if (!user?.id) return;
-
-    try {
-      const dashboardStats = await getOwnerDashboardStats(user.id);
-      setStats(dashboardStats);
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    }
-  }, [user?.id]);
 
   const loadListings = useCallback(async () => {
     if (!user?.id) return;
@@ -588,28 +596,6 @@ export default function OwnerDashboard() {
       })));
     } catch (error) {
       console.error('Error loading bookings:', error);
-    }
-  }, [user?.id]);
-
-  const loadMessages = useCallback(async () => {
-    if (!user?.id) return;
-
-    try {
-      const ownerMessages = await getOwnerMessages(user.id);
-      setMessages(ownerMessages);
-    } catch (error) {
-      console.error('Error loading messages:', error);
-    }
-  }, [user?.id]);
-
-  const loadRevenueData = useCallback(async () => {
-    if (!user?.id) return;
-
-    try {
-      const revenueOverview = await getMonthlyRevenueOverview(user.id);
-      setMonthlyRevenueOverview(revenueOverview);
-    } catch (error) {
-      console.error('Error loading revenue data:', error);
     }
   }, [user?.id]);
 
@@ -1082,7 +1068,7 @@ export default function OwnerDashboard() {
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             <View style={[sharedStyles.statIcon, iconBackgrounds.orange, { marginRight: designTokens.spacing.md, position: 'relative' }]}>
               <Sparkles size={20} color="#F59E0B" />
-              {(pendingBookingsCount > 0 || messages.filter(m => !m.isRead).length > 0 || pendingMaintenanceCount > 0) && (
+              {(pendingBookingsCount > 0 || pendingMaintenanceCount > 0) && (
                 <View style={{
                   position: 'absolute',
                   top: -6,
@@ -1099,7 +1085,7 @@ export default function OwnerDashboard() {
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: designTokens.spacing.sm }}>
                 <Text style={[sharedStyles.sectionTitle, { marginBottom: 0 }]}>Operations & Management</Text>
-                {(pendingBookingsCount > 0 || messages.filter(m => !m.isRead).length > 0 || pendingMaintenanceCount > 0) && (
+                {(pendingBookingsCount > 0 || pendingMaintenanceCount > 0) && (
                   <View style={{
                     backgroundColor: designTokens.colors.error,
                     borderRadius: 12,
@@ -1111,7 +1097,7 @@ export default function OwnerDashboard() {
                     alignItems: 'center',
                   }}>
                     <Text style={{ color: designTokens.colors.white, fontSize: 10, fontWeight: '700' }}>
-                      {pendingBookingsCount + messages.filter(m => !m.isRead).length + pendingMaintenanceCount}
+                      {pendingBookingsCount + pendingMaintenanceCount}
                     </Text>
                   </View>
                 )}
@@ -1121,8 +1107,8 @@ export default function OwnerDashboard() {
                 color: designTokens.colors.textSecondary,
                 marginTop: designTokens.spacing.xs,
               }}>
-                {pendingBookingsCount > 0 || messages.filter(m => !m.isRead).length > 0 || pendingMaintenanceCount > 0
-                  ? `${pendingBookingsCount + messages.filter(m => !m.isRead).length + pendingMaintenanceCount} item${(pendingBookingsCount + messages.filter(m => !m.isRead).length + pendingMaintenanceCount) > 1 ? 's' : ''} need attention`
+                {pendingBookingsCount > 0 || pendingMaintenanceCount > 0
+                  ? `${pendingBookingsCount + pendingMaintenanceCount} item${(pendingBookingsCount + pendingMaintenanceCount) > 1 ? 's' : ''} need attention`
                   : 'Quick actions and daily operations'}
               </Text>
             </View>
@@ -1308,54 +1294,6 @@ export default function OwnerDashboard() {
               </Text>
               <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
                 {totalTenants > 0 ? `${totalTenants} active tenant${totalTenants > 1 ? 's' : ''}` : 'View tenant information'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Messages */}
-            <TouchableOpacity 
-              style={{
-                width: 160,
-                padding: designTokens.spacing.lg,
-                backgroundColor: messages.filter(m => !m.isRead).length > 0 ? designTokens.colors.infoLight : designTokens.colors.white,
-                borderRadius: designTokens.borderRadius.lg,
-                borderWidth: messages.filter(m => !m.isRead).length > 0 ? 2 : 1,
-                borderColor: messages.filter(m => !m.isRead).length > 0 ? designTokens.colors.info : designTokens.colors.borderLight,
-                ...designTokens.shadows.sm,
-                position: 'relative',
-              }}
-              onPress={() => router.push('/(owner)/messages')}
-              activeOpacity={0.7}
-            >
-              <View style={[sharedStyles.statIcon, iconBackgrounds.green, { marginBottom: designTokens.spacing.md, position: 'relative' }]}>
-                <MessageSquare size={24} color="#10B981" />
-                {messages.filter(m => !m.isRead).length > 0 && (
-                  <View style={{
-                    position: 'absolute',
-                    top: -4,
-                    right: -4,
-                    backgroundColor: designTokens.colors.error,
-                    borderRadius: 12,
-                    minWidth: 24,
-                    height: 24,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    paddingHorizontal: 6,
-                    borderWidth: 2,
-                    borderColor: designTokens.colors.white,
-                  }}>
-                    <Text style={{ color: designTokens.colors.white, fontSize: 10, fontWeight: '700' }}>
-                      {messages.filter(m => !m.isRead).length > 99 ? '99+' : messages.filter(m => !m.isRead).length}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <Text style={[sharedStyles.statLabel, { fontSize: designTokens.typography.base, marginBottom: 4 }]}>
-                Messages
-              </Text>
-              <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
-                {messages.filter(m => !m.isRead).length > 0 
-                  ? `${messages.filter(m => !m.isRead).length} unread message${messages.filter(m => !m.isRead).length > 1 ? 's' : ''}`
-                  : 'Chat with tenants'}
               </Text>
             </TouchableOpacity>
 
@@ -2194,7 +2132,7 @@ export default function OwnerDashboard() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <MessageSquare size={14} color={designTokens.colors.textMuted} />
+                    <Eye size={14} color={designTokens.colors.textMuted} />
                     <Text style={[sharedStyles.statSubtitle, { marginLeft: 4 }]}>
                       {listing.inquiries || 0} inquiries
                     </Text>
@@ -2350,65 +2288,6 @@ export default function OwnerDashboard() {
     </View>
   );
 
-  const renderMessages = () => (
-    <View style={sharedStyles.pageContainer}>
-      <Text style={sharedStyles.pageTitle}>Messages</Text>
-      
-      {messages.length === 0 ? (
-        <View style={sharedStyles.emptyState}>
-          <View style={[sharedStyles.statIcon, iconBackgrounds.teal, { marginBottom: designTokens.spacing.lg }]}>
-            <MessageSquare size={32} color="#10B981" />
-          </View>
-          <Text style={sharedStyles.emptyStateTitle}>No messages yet</Text>
-          <Text style={sharedStyles.emptyStateText}>
-            Messages from tenants will appear here
-          </Text>
-        </View>
-      ) : (
-        <View style={sharedStyles.list}>
-          {messages.map((message) => (
-            <TouchableOpacity 
-              key={message.id}
-              style={[
-                sharedStyles.card,
-                !message.isRead && { backgroundColor: designTokens.colors.infoLight }
-              ]}
-              onPress={() => router.push(`/(owner)/chat-room/${message.conversationId}` as any)}
-            >
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: designTokens.spacing.sm }}>
-                <Text style={[sharedStyles.statLabel, { marginBottom: 0, fontSize: designTokens.typography.lg }]}>
-                  {message.tenantName}
-                </Text>
-                <Text style={sharedStyles.statSubtitle}>
-                  {new Date(message.createdAt).toLocaleDateString()}
-                </Text>
-              </View>
-              
-              {message.propertyTitle && (
-                <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.info, fontWeight: '500', marginBottom: designTokens.spacing.sm }]}>
-                  {message.propertyTitle}
-                </Text>
-              )}
-              
-              <Text style={[sharedStyles.statSubtitle, { color: designTokens.colors.textPrimary }]} numberOfLines={2}>
-                {message.text}
-              </Text>
-              
-              {!message.isRead && (
-                <View style={{ 
-                  backgroundColor: designTokens.colors.info, 
-                  width: 8, 
-                  height: 8, 
-                  borderRadius: 4, 
-                  marginTop: designTokens.spacing.sm 
-                }} />
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
-  );
 
 
   if (loading) {

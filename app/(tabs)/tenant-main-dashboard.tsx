@@ -124,6 +124,7 @@ export default function TenantMainDashboard() {
   const [showPaymentMethodSelection, setShowPaymentMethodSelection] = useState(false);
   const [showQRCodeModal, setShowQRCodeModal] = useState(false);
   const [selectedQRCodeAccount, setSelectedQRCodeAccount] = useState<PaymentAccount | null>(null);
+  const [downloadingQRCode, setDownloadingQRCode] = useState(false);
   const [bookingStatusModal, setBookingStatusModal] = useState<{
     visible: boolean;
     booking: BookingRecord | null;
@@ -543,29 +544,9 @@ export default function TenantMainDashboard() {
       return;
     }
 
-    // Check if advance deposit is available
-    if (!advanceDepositInfo.hasAdvanceDeposit) {
-      Alert.alert(
-        'Cannot End Rental Stay',
-        'This feature is only available for properties with advance deposit. This property does not have advance deposit set.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    const remainingMonths = advanceDepositInfo.remainingAdvanceMonths || 0;
-    if (remainingMonths === 0) {
-      Alert.alert(
-        'No Advance Deposit Available',
-        'You have no remaining advance deposit months to use.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    // Show confirmation modal
+    // Show confirmation modal (works with or without advance deposit)
     setShowEndRentalModal(true);
-  }, [activeBooking, user, advanceDepositInfo, terminationCountdown]);
+  }, [activeBooking, user, terminationCountdown]);
 
   const handleConfirmEndRentalStay = useCallback(async (immediateLeave: boolean = false) => {
     if (!activeBooking || !user?.id) return;
@@ -2621,8 +2602,8 @@ HanapBahay Complaint System
                   </View>
                 )}
 
-                {/* End Rental Stay Button - Only show if advance deposit is available and no countdown */}
-                {!terminationCountdown.hasCountdown && advanceDepositInfo.hasAdvanceDeposit && (advanceDepositInfo.remainingAdvanceMonths || 0) > 0 && (
+                {/* End Rental Stay Button - Show for all active bookings (with or without advance deposit) */}
+                {!terminationCountdown.hasCountdown && (
                   <TouchableOpacity
                     style={{
                       flexDirection: 'row',
@@ -2659,7 +2640,9 @@ HanapBahay Complaint System
                         color: designTokens.colors.textSecondary,
                         marginTop: 2,
                       }}>
-                        {advanceDepositInfo.remainingAdvanceMonths} advance month{(advanceDepositInfo.remainingAdvanceMonths || 0) !== 1 ? 's' : ''} available
+                        {advanceDepositInfo.hasAdvanceDeposit && (advanceDepositInfo.remainingAdvanceMonths || 0) > 0
+                          ? `${advanceDepositInfo.remainingAdvanceMonths} advance month${(advanceDepositInfo.remainingAdvanceMonths || 0) !== 1 ? 's' : ''} available`
+                          : 'End your rental stay'}
                       </Text>
                     </View>
                     <ChevronRight size={18} color={designTokens.colors.warning} />
@@ -4056,14 +4039,16 @@ HanapBahay Complaint System
                             color: designTokens.colors.warning,
                             marginBottom: designTokens.spacing.xs,
                           }}>
-                            Choose Your Option
+                            {advanceDepositInfo.hasAdvanceDeposit ? 'Choose Your Option' : 'End Rental Stay'}
                           </Text>
                           <Text style={{
                             fontSize: designTokens.typography.sm,
                             color: designTokens.colors.textPrimary,
                             lineHeight: 20,
                           }}>
-                            You can start a countdown based on your advance deposit months, or leave immediately.
+                            {advanceDepositInfo.hasAdvanceDeposit 
+                              ? 'You can start a countdown based on your advance deposit months, or leave immediately.'
+                              : 'You can end your rental stay immediately. This action cannot be undone.'}
                           </Text>
                         </View>
                       </View>
@@ -4086,47 +4071,51 @@ HanapBahay Complaint System
                       </Text>
                     </View>
 
-                    <View style={{ marginBottom: designTokens.spacing.md }}>
-                      <Text style={{
-                        fontSize: designTokens.typography.sm,
-                        color: designTokens.colors.textSecondary,
-                        marginBottom: designTokens.spacing.xs,
-                      }}>
-                        Remaining Advance Deposit
-                      </Text>
-                      <Text style={{
-                        fontSize: designTokens.typography['2xl'],
-                        fontWeight: designTokens.typography.bold as any,
-                        color: designTokens.colors.primary,
-                      }}>
-                        {advanceDepositInfo.remainingAdvanceMonths || 0} month{(advanceDepositInfo.remainingAdvanceMonths || 0) !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
+                    {advanceDepositInfo.hasAdvanceDeposit && (advanceDepositInfo.remainingAdvanceMonths || 0) > 0 && (
+                      <>
+                        <View style={{ marginBottom: designTokens.spacing.md }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            color: designTokens.colors.textSecondary,
+                            marginBottom: designTokens.spacing.xs,
+                          }}>
+                            Remaining Advance Deposit
+                          </Text>
+                          <Text style={{
+                            fontSize: designTokens.typography['2xl'],
+                            fontWeight: designTokens.typography.bold as any,
+                            color: designTokens.colors.primary,
+                          }}>
+                            {advanceDepositInfo.remainingAdvanceMonths || 0} month{(advanceDepositInfo.remainingAdvanceMonths || 0) !== 1 ? 's' : ''}
+                          </Text>
+                        </View>
 
-                    <View style={{
-                      backgroundColor: designTokens.colors.background,
-                      padding: designTokens.spacing.md,
-                      borderRadius: designTokens.borderRadius.md,
-                      marginBottom: designTokens.spacing.md,
-                      borderWidth: 1,
-                      borderColor: designTokens.colors.borderLight,
-                    }}>
-                      <Text style={{
-                        fontSize: designTokens.typography.sm,
-                        fontWeight: designTokens.typography.semibold as any,
-                        color: designTokens.colors.textPrimary,
-                        marginBottom: designTokens.spacing.xs,
-                      }}>
-                        Countdown Option
-                      </Text>
-                      <Text style={{
-                        fontSize: designTokens.typography.sm,
-                        color: designTokens.colors.textPrimary,
-                        lineHeight: 20,
-                      }}>
-                        Start a countdown for {advanceDepositInfo.remainingAdvanceMonths || 0} months. You'll be automatically removed when the countdown ends, but you can leave immediately anytime.
-                      </Text>
-                    </View>
+                        <View style={{
+                          backgroundColor: designTokens.colors.background,
+                          padding: designTokens.spacing.md,
+                          borderRadius: designTokens.borderRadius.md,
+                          marginBottom: designTokens.spacing.md,
+                          borderWidth: 1,
+                          borderColor: designTokens.colors.borderLight,
+                        }}>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            fontWeight: designTokens.typography.semibold as any,
+                            color: designTokens.colors.textPrimary,
+                            marginBottom: designTokens.spacing.xs,
+                          }}>
+                            Countdown Option
+                          </Text>
+                          <Text style={{
+                            fontSize: designTokens.typography.sm,
+                            color: designTokens.colors.textPrimary,
+                            lineHeight: 20,
+                          }}>
+                            Start a countdown for {advanceDepositInfo.remainingAdvanceMonths || 0} months. You'll be automatically removed when the countdown ends, but you can leave immediately anytime.
+                          </Text>
+                        </View>
+                      </>
+                    )}
 
                     <View style={{
                       backgroundColor: designTokens.colors.errorLight,
@@ -4146,7 +4135,9 @@ HanapBahay Complaint System
                         color: designTokens.colors.textPrimary,
                         lineHeight: 20,
                       }}>
-                        Leave immediately and use all remaining advance deposit months to cover payments. This action cannot be undone.
+                        {advanceDepositInfo.hasAdvanceDeposit && (advanceDepositInfo.remainingAdvanceMonths || 0) > 0
+                          ? 'Leave immediately and use all remaining advance deposit months to cover payments. This action cannot be undone.'
+                          : 'Leave immediately and end your rental stay. This action cannot be undone.'}
                       </Text>
                     </View>
                   </>
@@ -4188,25 +4179,27 @@ HanapBahay Complaint System
                 </TouchableOpacity>
               ) : (
                 <>
-                  <TouchableOpacity
-                    style={[
-                      styles.endRentalSecondaryButton,
-                      styles.endRentalWarningButton,
-                      endingRental && styles.endRentalButtonDisabled
-                    ]}
-                    onPress={() => handleConfirmEndRentalStay(false)}
-                    disabled={endingRental}
-                    activeOpacity={0.7}
-                  >
-                    {endingRental ? (
-                      <ActivityIndicator color={designTokens.colors.warning} size="small" />
-                    ) : (
-                      <>
-                        <Clock size={16} color={designTokens.colors.warning} strokeWidth={2} />
-                        <Text style={styles.endRentalSecondaryButtonText}>Start Countdown</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                  {advanceDepositInfo.hasAdvanceDeposit && (advanceDepositInfo.remainingAdvanceMonths || 0) > 0 && (
+                    <TouchableOpacity
+                      style={[
+                        styles.endRentalSecondaryButton,
+                        styles.endRentalWarningButton,
+                        endingRental && styles.endRentalButtonDisabled
+                      ]}
+                      onPress={() => handleConfirmEndRentalStay(false)}
+                      disabled={endingRental}
+                      activeOpacity={0.7}
+                    >
+                      {endingRental ? (
+                        <ActivityIndicator color={designTokens.colors.warning} size="small" />
+                      ) : (
+                        <>
+                          <Clock size={16} color={designTokens.colors.warning} strokeWidth={2} />
+                          <Text style={styles.endRentalSecondaryButtonText}>Start Countdown</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     style={[
                       styles.endRentalPrimaryButton,
@@ -4332,8 +4325,12 @@ HanapBahay Complaint System
                   
                   <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
                     <TouchableOpacity
-                      style={[styles.qrCodeShareButton, { flex: 1 }]}
+                      style={[styles.qrCodeShareButton, { flex: 1, opacity: downloadingQRCode ? 0.6 : 1 }]}
+                      disabled={downloadingQRCode}
                       onPress={async () => {
+                        if (downloadingQRCode) return; // Prevent multiple simultaneous requests
+                        
+                        setDownloadingQRCode(true);
                         try {
                           const { generateGCashQRPHCode } = await import('../../utils/qr-code-generator');
                           // For PayMaya, use dynamic QR codes (with amount). For GCash, use static (no amount)
@@ -4374,9 +4371,9 @@ HanapBahay Complaint System
                             const Sharing = await import('expo-sharing');
                             const MediaLibrary = await import('expo-media-library');
                             
-                            const FileSystemModule = FileSystem.default || FileSystem;
-                            const SharingModule = Sharing.default || Sharing;
-                            const MediaLibraryModule = MediaLibrary.default || MediaLibrary;
+                            const FileSystemModule = (FileSystem as any).default || FileSystem;
+                            const SharingModule = (Sharing as any).default || Sharing;
+                            const MediaLibraryModule = (MediaLibrary as any).default || MediaLibrary;
                             
                             const fileName = `payment-qr-code-${firstPayment.receiptNumber}.png`;
                             const fileUri = FileSystemModule.documentDirectory + fileName;
@@ -4385,8 +4382,11 @@ HanapBahay Complaint System
                             const downloadResult = await FileSystemModule.downloadAsync(qrCodeImageUrl, fileUri);
                             
                             // Try to save to media library (Photos/Gallery) first
+                            // Only request WRITE permission, not AUDIO
                             try {
-                              const { status } = await MediaLibraryModule.requestPermissionsAsync();
+                              const { status } = await MediaLibraryModule.requestPermissionsAsync({
+                                writeOnly: true, // Only request write permission for saving images
+                              });
                               if (status === 'granted') {
                                 const asset = await MediaLibraryModule.createAssetAsync(downloadResult.uri);
                                 await MediaLibraryModule.createAlbumAsync('HanapBahay', asset, false);
@@ -4398,12 +4398,34 @@ HanapBahay Complaint System
                             }
                             
                             // Fallback: Use sharing to save/download
+                            // Add a small delay to ensure previous share request is complete
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                            
                             if (await SharingModule.isAvailableAsync()) {
-                              await SharingModule.shareAsync(downloadResult.uri, {
-                                mimeType: 'image/png',
-                                dialogTitle: 'Save QR Code',
-                                UTI: 'public.png',
-                              });
+                              try {
+                                await SharingModule.shareAsync(downloadResult.uri, {
+                                  mimeType: 'image/png',
+                                  dialogTitle: 'Save QR Code',
+                                  UTI: 'public.png',
+                                });
+                              } catch (shareError: any) {
+                                // Handle "another share request is being processed" error
+                                if (shareError?.message?.includes('Another share request')) {
+                                  // Wait a bit and retry once
+                                  await new Promise(resolve => setTimeout(resolve, 500));
+                                  try {
+                                    await SharingModule.shareAsync(downloadResult.uri, {
+                                      mimeType: 'image/png',
+                                      dialogTitle: 'Save QR Code',
+                                      UTI: 'public.png',
+                                    });
+                                  } catch (retryError) {
+                                    Alert.alert('Info', `QR code saved to: ${downloadResult.uri}`);
+                                  }
+                                } else {
+                                  throw shareError;
+                                }
+                              }
                             } else {
                               Alert.alert('Success', `QR code saved to: ${downloadResult.uri}`);
                             }
@@ -4411,11 +4433,19 @@ HanapBahay Complaint System
                         } catch (error) {
                           console.error('Error downloading QR code:', error);
                           Alert.alert('Error', `Failed to download QR code: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                        } finally {
+                          setDownloadingQRCode(false);
                         }
                       }}
                     >
-                      <Download size={18} color="#3B82F6" />
-                      <Text style={styles.qrCodeShareButtonText}>Download QR Code</Text>
+                      {downloadingQRCode ? (
+                        <ActivityIndicator size="small" color="#3B82F6" />
+                      ) : (
+                        <Download size={18} color="#3B82F6" />
+                      )}
+                      <Text style={styles.qrCodeShareButtonText}>
+                        {downloadingQRCode ? 'Downloading...' : 'Download QR Code'}
+                      </Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity
