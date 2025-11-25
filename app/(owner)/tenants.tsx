@@ -69,6 +69,7 @@ export default function TenantsPage() {
     booking: BookingRecord | null;
   } | null>(null);
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTenantType, setSelectedTenantType] = useState<'individual' | 'couple' | 'family' | 'group' | null>(null);
 
@@ -1589,9 +1590,16 @@ export default function TenantsPage() {
                       {/* Download Receipt Button for Paid Payments */}
                       {payment.status === 'paid' && selectedTenantForHistory.booking && (
                         <TouchableOpacity
-                          style={styles.downloadReceiptButton}
+                          style={[styles.downloadReceiptButton, isSharing && { opacity: 0.5 }]}
+                          disabled={isSharing}
                           onPress={async () => {
+                            // Prevent multiple simultaneous share requests
+                            if (isSharing) {
+                              return;
+                            }
+
                             try {
+                              setIsSharing(true);
                               const receipt = generatePaymentReceipt(payment, selectedTenantForHistory.booking!);
                               
                               // Use legacy API to avoid deprecation warnings and URI issues
@@ -1624,20 +1632,34 @@ export default function TenantsPage() {
                                 } else {
                                   showAlert('Info', 'Receipt saved to: ' + fullFileUri);
                                 }
-                              } catch (sharingError) {
-                                // If sharing is not available, just show info
-                                console.log('Sharing not available:', sharingError);
-                                showAlert('Info', 'Receipt saved to: ' + fullFileUri);
+                              } catch (sharingError: any) {
+                                // Handle specific error: another share request is being processed
+                                if (sharingError?.message?.includes('Another share request is being processed')) {
+                                  showAlert('Please wait', 'A download is already in progress. Please wait for it to complete.');
+                                } else {
+                                  // If sharing is not available, just show info
+                                  console.log('Sharing not available:', sharingError);
+                                  showAlert('Info', 'Receipt saved to: ' + fullFileUri);
+                                }
                               }
-                            } catch (error) {
-                              console.error('Error downloading receipt:', error);
-                              showAlert('Error', 'Failed to download receipt. Please try again.');
+                            } catch (error: any) {
+                              console.error('Error downloading payment history:', error);
+                              // Handle specific error: another share request is being processed
+                              if (error?.message?.includes('Another share request is being processed')) {
+                                showAlert('Please wait', 'A download is already in progress. Please wait for it to complete.');
+                              } else {
+                                showAlert('Error', 'Failed to download receipt. Please try again.');
+                              }
+                            } finally {
+                              setIsSharing(false);
                             }
                           }}
                           activeOpacity={0.7}
                         >
-                          <Download size={16} color="#3B82F6" />
-                          <Text style={styles.downloadReceiptButtonText}>Download Receipt</Text>
+                          <Download size={16} color={isSharing ? "#9CA3AF" : "#3B82F6"} />
+                          <Text style={[styles.downloadReceiptButtonText, isSharing && { color: "#9CA3AF" }]}>
+                            {isSharing ? 'Downloading...' : 'Download Receipt'}
+                          </Text>
                         </TouchableOpacity>
                       )}
                     </View>

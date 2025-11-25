@@ -13,6 +13,7 @@ import {
 } from '../../utils/owner-dashboard';
 import { getBookingsByOwner, updateBookingStatus } from '@/utils/booking';
 import { BookingRecord, MaintenanceRequestRecord } from '@/types';
+import { createOrFindConversation } from '@/utils/conversation-utils';
 import {
   getMaintenanceRequestsByOwner,
   getPendingMaintenanceRequestsCountForOwner,
@@ -778,8 +779,60 @@ export default function OwnerDashboard() {
     setSelectedTenant(null);
   };
 
+  const handleMessageTenant = async (booking: BookingRecord) => {
+    if (!user?.id) {
+      showAlert('Error', 'Please log in to message the tenant.');
+      return;
+    }
+
+    try {
+      console.log('💬 Starting conversation with tenant from booking:', booking.tenantId);
+      
+      // Get owner's display name (business name or name)
+      let ownerDisplayName = 'Property Owner';
+      try {
+        const { db } = await import('../../utils/db');
+        const ownerProfile = await db.get('owner_profiles', user.id);
+        ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+      } catch (error) {
+        ownerDisplayName = user.name || 'Property Owner';
+      }
+
+      // Create or find conversation
+      const conversationId = await createOrFindConversation({
+        ownerId: user.id,
+        tenantId: booking.tenantId,
+        ownerName: ownerDisplayName,
+        tenantName: booking.tenantName,
+        propertyId: booking.propertyId,
+        propertyTitle: booking.propertyTitle
+      });
+
+      console.log('✅ Created/found conversation:', conversationId);
+
+      // Navigate to chat room
+      router.push({
+        pathname: `/(owner)/chat-room/${conversationId}` as any,
+        params: {
+          conversationId: conversationId,
+          tenantName: booking.tenantName,
+          propertyTitle: booking.propertyTitle
+        }
+      } as any);
+    } catch (error) {
+      console.error('❌ Error starting conversation:', error);
+      showAlert('Error', 'Failed to start conversation. Please try again.');
+    }
+  };
+
   const handleDownloadAnalytics = async () => {
     if (!user) return;
+
+    // Prevent multiple simultaneous share requests
+    if (exporting) {
+      showAlert('Please wait', 'A download is already in progress. Please wait for it to complete.');
+      return;
+    }
 
     try {
       setExporting(true);
@@ -848,19 +901,34 @@ export default function OwnerDashboard() {
         } else {
           // Mobile platform: Share the PDF file
           if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(uri, {
-              mimeType: 'application/pdf',
-              dialogTitle: 'Download Analytics Report (PDF)',
-            });
-            
-            showAlert('Success', 'PDF report ready to save! Use the share menu to save to Downloads or Files.');
+            try {
+              await Sharing.shareAsync(uri, {
+                mimeType: 'application/pdf',
+                dialogTitle: 'Download Analytics Report (PDF)',
+              });
+              
+              showAlert('Success', 'PDF report ready to save! Use the share menu to save to Downloads or Files.');
+            } catch (shareError: any) {
+              // Handle specific error: another share request is being processed
+              if (shareError?.message?.includes('Another share request is being processed')) {
+                showAlert('Please wait', 'A download is already in progress. Please wait for it to complete.');
+              } else {
+                console.error('Error sharing PDF:', shareError);
+                showAlert('Error', 'Failed to share PDF report. Please try again.');
+              }
+            }
           } else {
             showAlert('Success', `PDF saved to: ${uri}`);
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error generating PDF:', error);
-        showAlert('Error', 'Failed to generate PDF report. Please try again.');
+        // Handle specific error: another share request is being processed
+        if (error?.message?.includes('Another share request is being processed')) {
+          showAlert('Please wait', 'A download is already in progress. Please wait for it to complete.');
+        } else {
+          showAlert('Error', 'Failed to generate PDF report. Please try again.');
+        }
       }
 
       setDownloadModalVisible(false);
@@ -2260,11 +2328,33 @@ export default function OwnerDashboard() {
                   </Text>
                 </View>
                 
-                <View style={{ flexDirection: 'row', gap: designTokens.spacing.md }}>
+                {/* Action Buttons */}
+                <View style={{ gap: designTokens.spacing.md }}>
+                  {/* Message Tenant button - Appears for pending and approved bookings */}
+                  {(booking.status === 'pending' || booking.status === 'approved') && (
+                    <TouchableOpacity 
+                      style={[
+                        sharedStyles.primaryButton, 
+                        { 
+                          width: '100%',
+                          backgroundColor: designTokens.colors.primary, 
+                          paddingVertical: designTokens.spacing.md,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: designTokens.spacing.xs
+                        }
+                      ]}
+                      onPress={() => handleMessageTenant(booking)}
+                    >
+                      <MessageSquare size={16} color="#FFFFFF" />
+                      <Text style={sharedStyles.primaryButtonText}>Message Tenant</Text>
+                    </TouchableOpacity>
+                  )}
                   
                   {/* Approve/Reject buttons - Only for pending bookings */}
                   {booking.status === 'pending' && (
-                    <>
+                    <View style={{ flexDirection: 'row', gap: designTokens.spacing.md }}>
                       <TouchableOpacity 
                         style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.success, paddingVertical: designTokens.spacing.md }]}
                         onPress={() => handleBookingAction(booking.id, 'approve')}
@@ -2277,7 +2367,7 @@ export default function OwnerDashboard() {
                       >
                         <Text style={sharedStyles.primaryButtonText}>Reject</Text>
                       </TouchableOpacity>
-                    </>
+                    </View>
                   )}
                 </View>
               </View>

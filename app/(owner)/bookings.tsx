@@ -253,6 +253,51 @@ export default function BookingsPage() {
     setModalVisible(true);
   };
 
+  const handleMessageTenant = async (booking: BookingRecord) => {
+    if (!user?.id) {
+      showAlert('Error', 'Please log in to message the tenant.');
+      return;
+    }
+
+    try {
+      console.log('💬 Starting conversation with tenant from booking:', booking.tenantId);
+      
+      // Get owner's display name (business name or name)
+      let ownerDisplayName = 'Property Owner';
+      try {
+        const ownerProfile = await db.get('owner_profiles', user.id);
+        ownerDisplayName = (ownerProfile as any)?.businessName || (ownerProfile as any)?.name || user.name || 'Property Owner';
+      } catch (error) {
+        ownerDisplayName = user.name || 'Property Owner';
+      }
+
+      // Create or find conversation
+      const conversationId = await createOrFindConversation({
+        ownerId: user.id,
+        tenantId: booking.tenantId,
+        ownerName: ownerDisplayName,
+        tenantName: booking.tenantName,
+        propertyId: booking.propertyId,
+        propertyTitle: booking.propertyTitle
+      });
+
+      console.log('✅ Created/found conversation:', conversationId);
+
+      // Navigate to chat room
+      router.push({
+        pathname: `/(owner)/chat-room/${conversationId}` as any,
+        params: {
+          conversationId: conversationId,
+          tenantName: booking.tenantName,
+          propertyTitle: booking.propertyTitle
+        }
+      } as any);
+    } catch (error) {
+      console.error('❌ Error starting conversation:', error);
+      showAlert('Error', 'Failed to start conversation. Please try again.');
+    }
+  };
+
   const closeModal = () => {
     setModalVisible(false);
     setSelectedTenant(null);
@@ -637,25 +682,50 @@ export default function BookingsPage() {
                     )}
 
                     {/* Action Buttons */}
-                    {booking.status === 'pending' && (
-                      <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm, paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight }}>
+                    <View style={{ paddingTop: designTokens.spacing.md, borderTopWidth: 1, borderTopColor: designTokens.colors.borderLight, gap: designTokens.spacing.sm }}>
+                      {/* Message Tenant button - Appears for pending and approved bookings */}
+                      {(booking.status === 'pending' || booking.status === 'approved') && (
                         <TouchableOpacity
-                          onPress={() => handleBookingAction(booking.id, 'approve')}
-                          style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: designTokens.spacing.sm }]}
+                          onPress={() => handleMessageTenant(booking)}
+                          style={[
+                            sharedStyles.primaryButton, 
+                            { 
+                              width: '100%',
+                              backgroundColor: designTokens.colors.primary, 
+                              paddingVertical: designTokens.spacing.sm,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: designTokens.spacing.xs
+                            }
+                          ]}
                         >
-                          <CheckCircle size={16} color={designTokens.colors.white} />
-                          <Text style={sharedStyles.primaryButtonText}>Approve</Text>
+                          <MessageSquare size={16} color={designTokens.colors.white} />
+                          <Text style={sharedStyles.primaryButtonText}>Message Tenant</Text>
                         </TouchableOpacity>
-                        
-                        <TouchableOpacity
-                          onPress={() => handleBookingAction(booking.id, 'reject')}
-                          style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.sm }]}
-                        >
-                          <XCircle size={16} color={designTokens.colors.white} />
-                          <Text style={sharedStyles.primaryButtonText}>Reject</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                      )}
+                      
+                      {/* Approve/Reject buttons - Only for pending bookings */}
+                      {booking.status === 'pending' && (
+                        <View style={{ flexDirection: 'row', gap: designTokens.spacing.sm }}>
+                          <TouchableOpacity
+                            onPress={() => handleBookingAction(booking.id, 'approve')}
+                            style={[sharedStyles.primaryButton, { flex: 1, paddingVertical: designTokens.spacing.sm }]}
+                          >
+                            <CheckCircle size={16} color={designTokens.colors.white} />
+                            <Text style={sharedStyles.primaryButtonText}>Approve</Text>
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity
+                            onPress={() => handleBookingAction(booking.id, 'reject')}
+                            style={[sharedStyles.primaryButton, { flex: 1, backgroundColor: designTokens.colors.error, paddingVertical: designTokens.spacing.sm }]}
+                          >
+                            <XCircle size={16} color={designTokens.colors.white} />
+                            <Text style={sharedStyles.primaryButtonText}>Reject</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
 
                     {/* Mark as Paid - For approved bookings not yet paid */}
                     {booking.status === 'approved' && booking.paymentStatus !== 'paid' && (

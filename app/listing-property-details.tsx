@@ -179,6 +179,9 @@ export default function ListingPropertyDetailsScreen() {
 
   // Check if this is an owner viewing their own listing
   const isOwnerView = params.isOwnerView === 'true';
+  
+  // Check if current user is the owner of this property
+  const isOwner = user?.id === propertyData.ownerUserId;
 
   // Refresh property media when user logs in or media is refreshed
   const refreshPropertyMedia = useCallback(async () => {
@@ -1111,8 +1114,20 @@ const goToNextPhoto = () => {
           {!isOwnerView && (
             <View style={[styles.actionButtonsContainer, isMobile && styles.actionButtonsContainerMobile]}>
               <TouchableOpacity 
-                style={[styles.messageButton, isMobile && styles.messageButtonMobile]}
+                style={[
+                  styles.messageButton, 
+                  isMobile && styles.messageButtonMobile,
+                  isOwner && styles.messageButtonDisabled
+                ]}
+                disabled={isOwner}
+                activeOpacity={isOwner ? 1 : 0.8}
                 onPress={async () => {
+                  // Prevent action if owner is viewing their own property
+                  if (isOwner) {
+                    Alert.alert('Not Available', 'You cannot message yourself.');
+                    return;
+                  }
+                  
                   if (!isAuthenticated || !user?.id) {
                     console.log('🔐 User not authenticated, showing login modal for message');
                     setPendingAction('message');
@@ -1167,13 +1182,29 @@ const goToNextPhoto = () => {
                   }
                 }}
               >
-                <MessageCircle size={20} color="#FFFFFF" />
-                <Text style={[styles.messageButtonText, isMobile && styles.messageButtonTextMobile]}>Message Owner</Text>
+                <MessageCircle size={20} color={isOwner ? "#9CA3AF" : "#FFFFFF"} />
+                <Text style={[
+                  styles.messageButtonText, 
+                  isMobile && styles.messageButtonTextMobile,
+                  isOwner && styles.messageButtonTextDisabled
+                ]}>Message Owner</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={[styles.bookButton, isMobile && styles.bookButtonMobile]}
+                style={[
+                  styles.bookButton, 
+                  isMobile && styles.bookButtonMobile,
+                  isOwner && styles.bookButtonDisabled
+                ]}
+                disabled={isOwner}
+                activeOpacity={isOwner ? 1 : 0.8}
                 onPress={async () => {
+                  // Prevent action if owner is viewing their own property
+                  if (isOwner) {
+                    Alert.alert('Not Available', 'You cannot book your own property.');
+                    return;
+                  }
+                  
                   if (!isAuthenticated || !user?.id) {
                     console.log('🔐 User not authenticated, showing login modal for booking');
                     setPendingAction('book');
@@ -1190,8 +1221,12 @@ const goToNextPhoto = () => {
                   }
                 }}
               >
-                <Calendar size={20} color="#FFFFFF" />
-                <Text style={[styles.bookButtonText, isMobile && styles.bookButtonTextMobile]}>Book Now</Text>
+                <Calendar size={20} color={isOwner ? "#9CA3AF" : "#FFFFFF"} />
+                <Text style={[
+                  styles.bookButtonText, 
+                  isMobile && styles.bookButtonTextMobile,
+                  isOwner && styles.bookButtonTextDisabled
+                ]}>Book Now</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1739,6 +1774,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 6,
   },
+  messageButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+    shadowOpacity: 0,
+    elevation: 0,
+    opacity: 0.6,
+  },
+  messageButtonTextDisabled: {
+    color: '#9CA3AF',
+  },
   bookButton: {
     flex: 1,
     backgroundColor: '#3B82F6',
@@ -1767,6 +1811,15 @@ const styles = StyleSheet.create({
   bookButtonTextMobile: {
     fontSize: 14,
     marginLeft: 6,
+  },
+  bookButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+    shadowOpacity: 0,
+    elevation: 0,
+    opacity: 0.6,
+  },
+  bookButtonTextDisabled: {
+    color: '#9CA3AF',
   },
   loadingCard: {
     backgroundColor: '#F0F9FF',
