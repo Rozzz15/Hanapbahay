@@ -518,13 +518,13 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
             lastMessageAt: (conv as any).last_message_at || conv.lastMessageAt || conv.last_message_at,
             createdAt: (conv as any).created_at || conv.createdAt || conv.created_at || new Date().toISOString(),
             updatedAt: (conv as any).updated_at || conv.updatedAt || conv.updated_at || new Date().toISOString(),
-            unreadByOwner: (conv as any).unread_by_owner || conv.unreadByOwner || conv.unread_by_owner || 0,
-            unreadByTenant: (conv as any).unread_by_tenant || conv.unreadByTenant || conv.unread_by_tenant || 0,
-            lastReadByOwner: (conv as any).last_read_by_owner || conv.lastReadByOwner || conv.last_read_by_owner,
-            lastReadByTenant: (conv as any).last_read_by_tenant || conv.lastReadByTenant || conv.last_read_by_tenant,
+            unreadByOwner: (conv as any).unread_by_owner || (conv as any).unreadByOwner || 0,
+            unreadByTenant: (conv as any).unread_by_tenant || (conv as any).unreadByTenant || 0,
+            lastReadByOwner: (conv as any).last_read_by_owner || (conv as any).lastReadByOwner,
+            lastReadByTenant: (conv as any).last_read_by_tenant || (conv as any).lastReadByTenant,
           };
-          await db.upsert('conversations', conv.id, migratedConv);
-          console.log('✅ Migrated conversation:', conv.id);
+          await db.upsert('conversations', (conv as any).id, migratedConv);
+          console.log('✅ Migrated conversation:', (conv as any).id);
         }
       }
       // Reload conversations after migration
@@ -535,18 +535,18 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
     // Normalize conversations and filter where this user is the owner
     const finalConversations = needsMigration ? await db.list('conversations') : conversations;
     const normalizedConvs = finalConversations.map(conv => ({
-      id: conv.id,
-      ownerId: conv.ownerId || conv.owner_id || '',
-      tenantId: conv.tenantId || conv.tenant_id || '',
-      participantIds: conv.participantIds || conv.participant_ids || [],
-      lastMessageText: conv.lastMessageText || conv.last_message_text,
-      lastMessageAt: conv.lastMessageAt || conv.last_message_at,
-      createdAt: conv.createdAt || conv.created_at || new Date().toISOString(),
-      updatedAt: conv.updatedAt || conv.updated_at || new Date().toISOString(),
-      unreadByOwner: conv.unreadByOwner || conv.unread_by_owner || 0,
-      unreadByTenant: conv.unreadByTenant || conv.unread_by_tenant || 0,
-      lastReadByOwner: conv.lastReadByOwner || conv.last_read_by_owner,
-      lastReadByTenant: conv.lastReadByTenant || conv.last_read_by_tenant,
+      id: (conv as any).id,
+      ownerId: (conv as any).ownerId || (conv as any).owner_id || '',
+      tenantId: (conv as any).tenantId || (conv as any).tenant_id || '',
+      participantIds: (conv as any).participantIds || (conv as any).participant_ids || [],
+      lastMessageText: (conv as any).lastMessageText || (conv as any).last_message_text,
+      lastMessageAt: (conv as any).lastMessageAt || (conv as any).last_message_at,
+      createdAt: (conv as any).createdAt || (conv as any).created_at || new Date().toISOString(),
+      updatedAt: (conv as any).updatedAt || (conv as any).updated_at || new Date().toISOString(),
+      unreadByOwner: (conv as any).unreadByOwner || (conv as any).unread_by_owner || 0,
+      unreadByTenant: (conv as any).unreadByTenant || (conv as any).unread_by_tenant || 0,
+      lastReadByOwner: (conv as any).lastReadByOwner || (conv as any).last_read_by_owner,
+      lastReadByTenant: (conv as any).lastReadByTenant || (conv as any).last_read_by_tenant,
     }));
     
     // Improved filtering to catch conversations where ownerId matches or participantIds includes ownerId
@@ -581,18 +581,18 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
     console.log('📨 Messages data:', allMessages);
     
     const normalizedMessages = allMessages.map(msg => ({
-      id: msg.id,
-      conversationId: msg.conversationId || msg.conversation_id || '',
-      senderId: msg.senderId || msg.sender_id || '',
-      text: msg.text,
-      createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
-      readBy: msg.readBy || msg.read_by || [],
-      type: msg.type || 'message',
-      propertyId: msg.propertyId || msg.property_id,
-      propertyTitle: msg.propertyTitle || msg.property_title,
-      imageUri: msg.imageUri || msg.image_uri,
-      imageWidth: msg.imageWidth || msg.image_width,
-      imageHeight: msg.imageHeight || msg.image_height,
+      id: (msg as any).id,
+      conversationId: (msg as any).conversationId || (msg as any).conversation_id || '',
+      senderId: (msg as any).senderId || (msg as any).sender_id || '',
+      text: (msg as any).text,
+      createdAt: (msg as any).createdAt || (msg as any).created_at || new Date().toISOString(),
+      readBy: (msg as any).readBy || (msg as any).read_by || [],
+      type: (msg as any).type || 'message',
+      propertyId: (msg as any).propertyId || (msg as any).property_id,
+      propertyTitle: (msg as any).propertyTitle || (msg as any).property_title,
+      imageUri: (msg as any).imageUri || (msg as any).image_uri,
+      imageWidth: (msg as any).imageWidth || (msg as any).image_width,
+      imageHeight: (msg as any).imageHeight || (msg as any).image_height,
     }));
     
     // Get all users to resolve tenant names
@@ -620,8 +620,8 @@ export async function getOwnerMessages(ownerId: string): Promise<OwnerMessage[]>
         // Get tenant name from users table
         // The tenant is the other participant (not the current owner)
         const otherParticipantId = conv.ownerId === ownerId ? conv.tenantId : conv.ownerId;
-        const tenant = allUsers.find(u => u.id === otherParticipantId);
-        const tenantName = tenant?.name || 'Tenant';
+        const tenant = allUsers.find(u => (u as any).id === otherParticipantId);
+        const tenantName = (tenant as any)?.name || 'Tenant';
         console.log('👤 Tenant name for conversation', conv.id, ':', tenantName, '(other participant:', otherParticipantId, ')');
         
         ownerMessages.push({
@@ -692,7 +692,7 @@ export async function sendOwnerMessage(
       conversationId: conversationId,
       senderId: senderId,
       text: text.trim(),
-      type: 'message',
+      type: 'message' as const,
       readBy: [senderId],
       createdAt: now,
       propertyId: '',
@@ -700,25 +700,26 @@ export async function sendOwnerMessage(
     };
 
     // Save message to local database
-    await db.upsert('messages', messageId, messageData);
+    await db.upsert('messages', messageId, messageData as any);
     console.log('✅ Owner message saved to database');
 
     // Update conversation
     const conversation = await db.get('conversations', conversationId);
     if (conversation) {
+      const conv = conversation as any;
       const normalizedConv = {
-        id: conversation.id,
-        ownerId: conversation.ownerId || conversation.owner_id || '',
-        tenantId: conversation.tenantId || conversation.tenant_id || '',
-        participantIds: conversation.participantIds || conversation.participant_ids || [],
-        lastMessageText: conversation.lastMessageText || conversation.last_message_text,
-        lastMessageAt: conversation.lastMessageAt || conversation.last_message_at,
-        createdAt: conversation.createdAt || conversation.created_at || new Date().toISOString(),
-        updatedAt: conversation.updatedAt || conversation.updated_at || new Date().toISOString(),
-        unreadByOwner: conversation.unreadByOwner || conversation.unread_by_owner || 0,
-        unreadByTenant: conversation.unreadByTenant || conversation.unread_by_tenant || 0,
-        lastReadByOwner: conversation.lastReadByOwner || conversation.last_read_by_owner,
-        lastReadByTenant: conversation.lastReadByTenant || conversation.last_read_by_tenant,
+        id: conv.id,
+        ownerId: conv.ownerId || conv.owner_id || '',
+        tenantId: conv.tenantId || conv.tenant_id || '',
+        participantIds: conv.participantIds || conv.participant_ids || [],
+        lastMessageText: conv.lastMessageText || conv.last_message_text,
+        lastMessageAt: conv.lastMessageAt || conv.last_message_at,
+        createdAt: conv.createdAt || conv.created_at || new Date().toISOString(),
+        updatedAt: conv.updatedAt || conv.updated_at || new Date().toISOString(),
+        unreadByOwner: conv.unreadByOwner || conv.unread_by_owner || 0,
+        unreadByTenant: conv.unreadByTenant || conv.unread_by_tenant || 0,
+        lastReadByOwner: conv.lastReadByOwner || conv.last_read_by_owner,
+        lastReadByTenant: conv.lastReadByTenant || conv.last_read_by_tenant,
       };
       
       await db.upsert('conversations', conversationId, {
@@ -737,17 +738,13 @@ export async function sendOwnerMessage(
   }
 }
 
-// Payment Accounts
+// Payment Accounts - Using local db instead of Supabase for now
 export async function getOwnerPaymentAccounts(ownerId: string): Promise<PaymentAccount[]> {
   try {
-    const { data, error } = await supabase
-      .from('payment_accounts')
-      .select('*')
-      .eq('ownerId', ownerId)
-      .order('createdAt', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    const allAccounts = await db.list('payment_accounts');
+    return allAccounts
+      .filter((acc: any) => acc.ownerId === ownerId)
+      .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) as PaymentAccount[];
   } catch (error) {
     console.error('Error fetching owner payment accounts:', error);
     return [];
@@ -756,20 +753,17 @@ export async function getOwnerPaymentAccounts(ownerId: string): Promise<PaymentA
 
 export async function createOwnerPaymentAccount(ownerId: string, accountData: any): Promise<PaymentAccount | null> {
   try {
-    const { data, error } = await supabase
-      .from('payment_accounts')
-      .insert([{
-        ...accountData,
-        ownerId,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    const id = `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newAccount = {
+      id,
+      ...accountData,
+      ownerId,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await db.upsert('payment_accounts', id, newAccount as any);
+    return newAccount as PaymentAccount;
   } catch (error) {
     console.error('Error creating owner payment account:', error);
     return null;
@@ -782,16 +776,14 @@ export async function updateOwnerPaymentAccount(
   updateData: any
 ): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from('payment_accounts')
-      .update({
-        ...updateData,
-        updatedAt: new Date().toISOString()
-      })
-      .eq('id', accountId)
-      .eq('ownerId', ownerId);
-
-    if (error) throw error;
+    const existing = await db.get('payment_accounts', accountId);
+    if (!existing || (existing as any).ownerId !== ownerId) return false;
+    
+    await db.upsert('payment_accounts', accountId, {
+      ...existing,
+      ...updateData,
+      updatedAt: new Date().toISOString()
+    } as any);
     return true;
   } catch (error) {
     console.error('Error updating owner payment account:', error);
@@ -801,13 +793,10 @@ export async function updateOwnerPaymentAccount(
 
 export async function deleteOwnerPaymentAccount(ownerId: string, accountId: string): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from('payment_accounts')
-      .delete()
-      .eq('id', accountId)
-      .eq('ownerId', ownerId);
-
-    if (error) throw error;
+    const existing = await db.get('payment_accounts', accountId);
+    if (!existing || (existing as any).ownerId !== ownerId) return false;
+    
+    await db.delete('payment_accounts', accountId);
     return true;
   } catch (error) {
     console.error('Error deleting owner payment account:', error);
@@ -818,14 +807,8 @@ export async function deleteOwnerPaymentAccount(ownerId: string, accountId: stri
 // Check if owner has listings
 export async function hasOwnerListings(ownerId: string): Promise<boolean> {
   try {
-    const { data, error } = await supabase
-      .from('published_listings')
-      .select('id')
-      .eq('userId', ownerId)
-      .limit(1);
-
-    if (error) throw error;
-    return (data?.length || 0) > 0;
+    const allListings = await db.list('published_listings');
+    return allListings.some((listing: any) => listing.userId === ownerId);
   } catch (error) {
     console.error('Error checking owner listings:', error);
     return false;
@@ -835,15 +818,10 @@ export async function hasOwnerListings(ownerId: string): Promise<boolean> {
 // Get owner's payment details for booking
 export async function getOwnerPaymentDetails(ownerId: string): Promise<PaymentAccount[]> {
   try {
-    const { data, error } = await supabase
-      .from('payment_accounts')
-      .select('*')
-      .eq('ownerId', ownerId)
-      .eq('isActive', true)
-      .order('createdAt', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    const allAccounts = await db.list('payment_accounts');
+    return allAccounts
+      .filter((acc: any) => acc.ownerId === ownerId && acc.isActive)
+      .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) as PaymentAccount[];
   } catch (error) {
     console.error('Error fetching owner payment details:', error);
     return [];

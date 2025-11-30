@@ -1095,7 +1095,7 @@ export default function EditListing() {
           />
         </View>
         <Text style={[professionalStyles.inputHelper, { marginTop: 4 }]}>
-          Leave empty if you don't require advance deposit. If tenant pays 3 months advance, they can use those months if they want to leave early.
+          Leave empty if you don&apos;t require advance deposit. If tenant pays 3 months advance, they can use those months if they want to leave early.
         </Text>
       </View>
 

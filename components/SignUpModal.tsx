@@ -96,7 +96,7 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
             setOwnerAddress({
                 houseNumber: '',
                 street: '',
-                barangay: '' as 'RIZAL' | 'TALOLONG' | 'GOMEZ' | 'MAGSAYSAY' | ''
+                barangay: '' as 'RIZAL' | 'TALOLONG' | 'GOMEZ' | 'MAGSAYSAY' | 'BURGOS' | ''
             });
             setErrors({
                 name: '',
@@ -310,7 +310,7 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                 emergencyContactNumber: selectedRole === 'tenant' ? formData.emergencyContactNumber.trim() || undefined : undefined,
                 houseNumber: selectedRole === 'owner' ? ownerAddress.houseNumber.trim() : undefined,
                 street: selectedRole === 'owner' ? ownerAddress.street.trim() : undefined,
-                barangay: selectedRole === 'owner' ? (ownerAddress.barangay === 'RIZAL' || ownerAddress.barangay === 'TALOLONG' || ownerAddress.barangay === 'GOMEZ' || ownerAddress.barangay === 'MAGSAYSAY' ? ownerAddress.barangay : undefined) : undefined,
+                barangay: selectedRole === 'owner' ? (ownerAddress.barangay === 'RIZAL' || ownerAddress.barangay === 'TALOLONG' || ownerAddress.barangay === 'GOMEZ' || ownerAddress.barangay === 'MAGSAYSAY' || ownerAddress.barangay === 'BURGOS' ? ownerAddress.barangay : undefined) : undefined,
             };
 
             const result = await signUpUser(signUpData);
@@ -686,7 +686,7 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                                                 )}
                                             </View>
 
-                                            <View style={[styles.inputContainer, { zIndex: showBarangayDropdown ? 100 : 1, marginBottom: showBarangayDropdown ? 180 : 18 }]}>
+                                            <View style={[styles.inputContainer, { zIndex: showBarangayDropdown ? 100 : 1, marginBottom: showBarangayDropdown ? 240 : 18 }]}>
                                                 <Text style={styles.fieldLabel}>Barangay *</Text>
                                                 <View style={{ position: 'relative' }}>
                                                     <Pressable
@@ -880,9 +880,11 @@ export default function SignUpModal({ visible, onClose, onSignUpSuccess, onSwitc
                                     <View style={styles.signInContainer}>
                                         <Text style={styles.signInText}>Already have an account? </Text>
                                         <Pressable onPress={() => {
-                                            onClose();
+                                            // Don't call onClose() here - it navigates away before login can load
                                             if (onSwitchToLogin) {
                                                 onSwitchToLogin();
+                                            } else {
+                                                router.push('/login');
                                             }
                                         }}>
                                             <Text style={styles.signInLink}>Sign in</Text>
@@ -1555,7 +1557,8 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 4,
         zIndex: 1000,
-        maxHeight: 200,
+        maxHeight: 250,
+        overflow: 'visible',
     },
     dropdownOption: {
         paddingVertical: 12,

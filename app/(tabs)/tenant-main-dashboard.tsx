@@ -93,7 +93,7 @@ import {
   cancelMaintenanceRequest,
 } from '../../utils/maintenance-requests';
 import { MaintenanceRequestRecord } from '../../types';
-import { VideoView, useVideoPlayer } from 'expo-video';
+import VideoPlayerModal from '../../components/video/VideoPlayerModal';
 import PayMongoPayment from '../../components/PayMongoPayment';
 import {
   getComplaintsByTenant,
@@ -6466,49 +6466,6 @@ const PhotoItem = React.memo(({ photo }: { photo: string }) => {
 });
 
 PhotoItem.displayName = 'PhotoItem';
-
-// Video Player Component
-function VideoPlayerModal({ videoUri, onClose }: { videoUri: string; onClose: () => void }) {
-  const player = useVideoPlayer(videoUri, (player) => {
-    player.loop = false;
-    player.play();
-  });
-
-  return (
-    <View style={{
-      flex: 1,
-      backgroundColor: '#000000',
-      justifyContent: 'center',
-      alignItems: 'center',
-    }}>
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          right: 20,
-          zIndex: 10,
-          padding: designTokens.spacing.md,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          borderRadius: 24,
-        }}
-        onPress={onClose}
-        activeOpacity={0.7}
-      >
-        <X size={24} color="#FFFFFF" />
-      </TouchableOpacity>
-      
-      <VideoView
-        player={player}
-        style={{
-          width: Dimensions.get('window').width,
-          height: Dimensions.get('window').height * 0.6,
-        }}
-        allowsFullscreen
-        allowsPictureInPicture
-      />
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   container: {

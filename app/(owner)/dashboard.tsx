@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Modal, Platform, Alert, TextInput, KeyboardAvoidingView, Dimensions, FlatList, Linking, Image as RNImage } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { VideoView, useVideoPlayer } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
+import VideoPlayerModal from '../../components/video/VideoPlayerModal';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -3620,49 +3620,6 @@ function PhotoViewerContent({ photos, initialIndex, onClose, onIndexChange }: { 
           </Text>
         </View>
       )}
-    </View>
-  );
-}
-
-// Video Player Component
-function VideoPlayerModal({ videoUri, onClose }: { videoUri: string; onClose: () => void }) {
-  const player = useVideoPlayer(videoUri, (player) => {
-    player.loop = false;
-    player.play();
-  });
-
-  return (
-    <View style={{
-      flex: 1,
-      backgroundColor: '#000000',
-      justifyContent: 'center',
-      alignItems: 'center',
-    }}>
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          top: 50,
-          right: 20,
-          zIndex: 10,
-          padding: designTokens.spacing.md,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          borderRadius: 24,
-        }}
-        onPress={onClose}
-        activeOpacity={0.7}
-      >
-        <X size={24} color="#FFFFFF" />
-      </TouchableOpacity>
-      
-      <VideoView
-        player={player}
-        style={{
-          width: Dimensions.get('window').width,
-          height: Dimensions.get('window').height * 0.6,
-        }}
-        allowsFullscreen
-        allowsPictureInPicture
-      />
     </View>
   );
 }

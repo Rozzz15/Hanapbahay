@@ -10,6 +10,8 @@ module.exports = function(api) {
             ["module-resolver", {
                 root: ["./"],
                 extensions: [
+                    '.web.ts',
+                    '.web.tsx',
                     '.ios.ts',
                     '.android.ts',
                     '.ts',

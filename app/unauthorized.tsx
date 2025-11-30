@@ -6,7 +6,7 @@ export default function Unauthorized() {
     <View style={styles.container}>
       <Text style={styles.title}>Unauthorized Access</Text>
       <Text style={styles.message}>
-        Sorry, you don't have permission to access this content.
+        Sorry, you don&apos;t have permission to access this content.
       </Text>
       <Link href="/" style={styles.link}>
         <Text style={styles.linkText}>Return to Home</Text>

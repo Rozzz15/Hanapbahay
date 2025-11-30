@@ -932,7 +932,7 @@ export default function OwnerProfile() {
                       Change Email (Optional)
                     </Text>
                     <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>
-                      Leave blank if you don't want to change your email
+                      Leave blank if you don&apos;t want to change your email
                     </Text>
                     
                     {/* Old Email */}

@@ -453,7 +453,7 @@ export default function RatingsPage() {
             <Star size={48} color={designTokens.colors.textMuted} />
             <Text style={sharedStyles.emptyStateTitle}>No Ratings Yet</Text>
             <Text style={sharedStyles.emptyStateText}>
-              You haven't received any ratings for your properties yet.
+              You haven&apos;t received any ratings for your properties yet.
             </Text>
           </View>
         ) : (

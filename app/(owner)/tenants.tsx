@@ -1248,7 +1248,7 @@ export default function TenantsPage() {
                   <FileText size={48} color="#9CA3AF" />
                   <Text style={styles.historyEmptyTitle}>No Payment History</Text>
                   <Text style={styles.historyEmptyText}>
-                    This tenant hasn't made any payments yet.
+                    This tenant hasn&apos;t made any payments yet.
                   </Text>
                 </View>
               ) : (

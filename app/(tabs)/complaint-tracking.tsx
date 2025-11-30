@@ -152,7 +152,7 @@ export default function ComplaintTrackingScreen() {
                 <AlertCircle size={48} color={designTokens.colors.textMuted} />
                 <Text style={styles.emptyStateTitle}>No Complaints Yet</Text>
                 <Text style={styles.emptyStateText}>
-                  You haven't submitted any complaints. Use the "Submit Complaint" button to report issues.
+                  You haven&apos;t submitted any complaints. Use the &quot;Submit Complaint&quot; button to report issues.
                 </Text>
                 <TouchableOpacity
                   style={sharedStyles.primaryButton}

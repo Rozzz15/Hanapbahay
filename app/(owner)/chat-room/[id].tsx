@@ -128,6 +128,8 @@ export default function OwnerChatRoom() {
     } | null>(null);
     
     const scrollViewRef = useRef<ScrollView>(null);
+    const isUserAtBottomRef = useRef(true); // Track if user is at bottom of scroll
+    const isInitialLoadRef = useRef(true); // Track if this is the initial load
 
     const loadMessages = useCallback(async () => {
         if (!conversationId || !user?.id) {
@@ -348,10 +350,13 @@ export default function OwnerChatRoom() {
             console.log(`✅ Formatted ${formattedMessages.length} messages for display`);
             setMessages(formattedMessages);
             
-            // Scroll to bottom
-            setTimeout(() => {
-                scrollViewRef.current?.scrollToEnd({ animated: false });
-            }, 100);
+            // Only scroll to bottom on initial load or if user is already at bottom
+            if (isInitialLoadRef.current || isUserAtBottomRef.current) {
+                setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: !isInitialLoadRef.current });
+                }, 100);
+                isInitialLoadRef.current = false;
+            }
 
         } catch (error) {
             console.error('❌ Error loading messages:', error);
@@ -583,10 +588,23 @@ export default function OwnerChatRoom() {
                     activeOpacity={0.7}
                     disabled={!tenantModalInfo || !tenantModalInfo.id}
                 >
-                    <Text style={styles.headerName}>{tenantInfo.name}</Text>
-                    {propertyTitle && (
-                        <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
-                    )}
+                    <View style={styles.headerAvatarContainer}>
+                        {tenantInfo.avatar ? (
+                            <Image source={{ uri: tenantInfo.avatar }} style={styles.headerAvatar} />
+                        ) : (
+                            <View style={styles.headerAvatarFallback}>
+                                <Text style={styles.headerAvatarText}>
+                                    {tenantInfo.name.charAt(0).toUpperCase()}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                    <View style={styles.headerTextContainer}>
+                        <Text style={styles.headerName}>{tenantInfo.name}</Text>
+                        {propertyTitle && (
+                            <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
+                        )}
+                    </View>
                 </TouchableOpacity>
             </View>
             
@@ -606,8 +624,8 @@ export default function OwnerChatRoom() {
             {/* Messages */}
             <KeyboardAvoidingView
                 style={styles.keyboardView}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
             >
                 <ScrollView
                     ref={scrollViewRef}
@@ -616,6 +634,14 @@ export default function OwnerChatRoom() {
                         styles.messagesContent,
                         messages.length === 0 && styles.emptyMessagesContent
                     ]}
+                    showsVerticalScrollIndicator={false}
+                    onScroll={(event) => {
+                        const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+                        const paddingToBottom = 50; // threshold in pixels
+                        isUserAtBottomRef.current = 
+                            layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+                    }}
+                    scrollEventThrottle={100}
                 >
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>
@@ -731,6 +757,32 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     headerInfo: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    headerAvatarContainer: {
+        marginRight: 12,
+    },
+    headerAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+    },
+    headerAvatarFallback: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#3B82F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    headerAvatarText: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#FFFFFF',
+    },
+    headerTextContainer: {
         flex: 1,
     },
     headerName: {

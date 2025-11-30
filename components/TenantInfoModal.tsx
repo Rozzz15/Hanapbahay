@@ -29,7 +29,8 @@ interface TenantProfile {
   profilePhoto?: string;
   address?: string;
   gender?: 'male' | 'female';
-  familyType?: 'individual' | 'family';
+  tenantType?: 'individual' | 'family' | 'couple' | 'group';
+  numberOfPeople?: number;
   emergencyContactPerson?: string;
   emergencyContactNumber?: string;
   role: string;
@@ -165,27 +166,48 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
         let tenantAddress = '';
         let tenantPhoneFromProfile = '';
         let gender: 'male' | 'female' | undefined;
-        let familyType: 'individual' | 'family' | undefined;
+        let tenantType: 'individual' | 'family' | 'couple' | 'group' | undefined;
+        let numberOfPeople: number | undefined;
         let emergencyContactPerson: string | undefined;
         let emergencyContactNumber: string | undefined;
         
         try {
-          const tenantProfile = await db.get('tenants', tenantId);
-          if (tenantProfile) {
-            tenantAddress = (tenantProfile as any).address || '';
-            tenantPhoneFromProfile = (tenantProfile as any).contactNumber || '';
-            gender = (tenantProfile as any).gender;
-            familyType = (tenantProfile as any).familyType;
-            emergencyContactPerson = (tenantProfile as any).emergencyContactPerson;
-            emergencyContactNumber = (tenantProfile as any).emergencyContactNumber;
+          const tenantProfileData = await db.get('tenants', tenantId);
+          if (tenantProfileData) {
+            tenantAddress = (tenantProfileData as any).address || '';
+            tenantPhoneFromProfile = (tenantProfileData as any).contactNumber || '';
+            gender = (tenantProfileData as any).gender;
+            emergencyContactPerson = (tenantProfileData as any).emergencyContactPerson;
+            emergencyContactNumber = (tenantProfileData as any).emergencyContactNumber;
           }
         } catch (error) {
           console.log('⚠️ Could not load tenant profile:', error);
         }
 
-        // Fallback to users table for gender/familyType
+        // Load tenant type from booking record (most accurate source)
+        try {
+          const allBookings = await db.list('bookings');
+          // Find the most recent active/approved booking for this tenant
+          const tenantBooking = allBookings
+            .filter((booking: any) => 
+              booking.tenantId === tenantId && 
+              ['approved', 'active', 'confirmed', 'paid'].includes(booking.status?.toLowerCase() || '')
+            )
+            .sort((a: any, b: any) => 
+              new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            )[0];
+          
+          if (tenantBooking) {
+            tenantType = (tenantBooking as any).tenantType;
+            numberOfPeople = (tenantBooking as any).numberOfPeople;
+            console.log('✅ Loaded tenant type from booking:', tenantType, 'People:', numberOfPeople);
+          }
+        } catch (error) {
+          console.log('⚠️ Could not load booking for tenant type:', error);
+        }
+
+        // Fallback to users table for gender
         if (!gender) gender = (user as any).gender;
-        if (!familyType) familyType = (user as any).familyType;
 
         setTenantProfile({
           name: (user as any).name || tenantName,
@@ -194,7 +216,8 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
           profilePhoto, // Include the loaded photo
           address: tenantAddress,
           gender,
-          familyType,
+          tenantType,
+          numberOfPeople,
           emergencyContactPerson,
           emergencyContactNumber,
           role: (user as any).role || 'tenant',
@@ -405,10 +428,14 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
                   <Ionicons name="people" size={20} color="#10B981" />
                 </View>
                 <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Family Type</Text>
+                  <Text style={styles.infoLabel}>Tenant Type</Text>
                   <Text style={styles.infoValue}>
-                    {tenantProfile.familyType 
-                      ? tenantProfile.familyType.charAt(0).toUpperCase() + tenantProfile.familyType.slice(1)
+                    {tenantProfile.tenantType 
+                      ? `${tenantProfile.tenantType.charAt(0).toUpperCase() + tenantProfile.tenantType.slice(1)}${
+                          tenantProfile.numberOfPeople && tenantProfile.numberOfPeople > 1 
+                            ? ` (${tenantProfile.numberOfPeople} people)` 
+                            : ''
+                        }`
                       : 'Not specified'
                     }
                   </Text>

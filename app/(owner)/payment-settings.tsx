@@ -549,7 +549,7 @@ export default function PaymentSettings() {
           </Text>
           {formData.type === 'cash' && (
             <Text style={[sharedStyles.statSubtitle, { marginBottom: designTokens.spacing.xs, fontSize: 12, color: designTokens.colors.textMuted }]}>
-              Give this payment method a name (e.g., "Property Office", "Main Entrance", "Owner - Juan dela Cruz")
+              Give this payment method a name (e.g., &quot;Property Office&quot;, &quot;Main Entrance&quot;, &quot;Owner - Juan dela Cruz&quot;)
             </Text>
           )}
           <TextInput

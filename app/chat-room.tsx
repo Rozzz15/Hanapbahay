@@ -23,6 +23,7 @@ import { db } from '@/utils/db';
 import { showAlert } from '@/utils/alert';
 import { ConversationRecord, MessageRecord } from '@/types';
 import PaymentMethodsDisplay from '@/components/chat/PaymentMethodsDisplay';
+import OwnerInfoModal from '@/components/OwnerInfoModal';
 
 interface Message {
     id: string;
@@ -117,6 +118,14 @@ export default function ChatRoomNew() {
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [isCurrentUserOwner, setIsCurrentUserOwner] = useState(false);
     const [paymentBannerVisible, setPaymentBannerVisible] = useState(false);
+    const [showOwnerInfoModal, setShowOwnerInfoModal] = useState(false);
+    const [ownerModalInfo, setOwnerModalInfo] = useState<{
+        id: string;
+        name: string;
+        email?: string;
+        phone?: string;
+        avatar?: string;
+    } | null>(null);
 
     // Add validation for required parameters
     useEffect(() => {
@@ -151,12 +160,16 @@ export default function ChatRoomNew() {
         }
     }, [conversationId, user?.id, router]);
     const scrollViewRef = useRef<ScrollView>(null);
+    const isUserAtBottomRef = useRef(true); // Track if user is at bottom of scroll
+    const isInitialLoadRef = useRef(true); // Track if this is the initial load
 
     const loadParticipantInfo = useCallback(async () => {
         if (!conversationId || !user?.id) {
             console.log('⚠️ Missing required parameters for loadParticipantInfo:', { conversationId, userId: user?.id });
             return;
         }
+
+        let conversationOwnerId: string | null = null;
 
         try {
             // Get conversation to find the other participant
@@ -167,7 +180,7 @@ export default function ChatRoomNew() {
             }
 
             // Store owner ID and determine if current user is owner
-            const conversationOwnerId = conversation.ownerId || conversation.owner_id || null;
+            conversationOwnerId = conversation.ownerId || conversation.owner_id || null;
             const conversationTenantId = conversation.tenantId || conversation.tenant_id || null;
             setOwnerId(conversationOwnerId);
             setTenantId(conversationTenantId);
@@ -226,6 +239,17 @@ export default function ChatRoomNew() {
                         otherParticipantName: participantName,
                         otherParticipantAvatar: participantAvatar
                     });
+
+                    // Set owner modal info if the other participant is the owner (current user is tenant)
+                    if (user.id !== conversationOwnerId && conversationOwnerId) {
+                        setOwnerModalInfo({
+                            id: conversationOwnerId,
+                            name: participantName,
+                            email: (otherParticipant as any).email || '',
+                            phone: (otherParticipant as any).phone || '',
+                            avatar: participantAvatar
+                        });
+                    }
                 } else {
                     console.warn('⚠️ Other participant not found in users table:', otherParticipantId);
                     // Use fallback name from URL parameters with proper capitalization
@@ -241,6 +265,15 @@ export default function ChatRoomNew() {
                         otherParticipantName: capitalizedFallbackName,
                         otherParticipantAvatar: ''
                     });
+
+                    // Set owner modal info even in fallback case if current user is tenant
+                    if (user.id !== conversationOwnerId && conversationOwnerId) {
+                        setOwnerModalInfo({
+                            id: conversationOwnerId,
+                            name: capitalizedFallbackName,
+                            avatar: ''
+                        });
+                    }
                 }
             } else {
                 console.warn('⚠️ Could not determine other participant ID');
@@ -257,6 +290,15 @@ export default function ChatRoomNew() {
                     otherParticipantName: capitalizedFallbackName,
                     otherParticipantAvatar: ''
                 });
+
+                // Set owner modal info even in fallback case if current user is tenant
+                if (user.id !== conversationOwnerId && conversationOwnerId) {
+                    setOwnerModalInfo({
+                        id: conversationOwnerId,
+                        name: capitalizedFallbackName,
+                        avatar: ''
+                    });
+                }
             }
         } catch (error) {
             console.error('Error loading participant info:', error);
@@ -273,6 +315,15 @@ export default function ChatRoomNew() {
                 otherParticipantName: capitalizedFallbackName,
                 otherParticipantAvatar: ''
             });
+
+            // Set owner modal info even in error case if we have the owner ID
+            if (conversationOwnerId && user.id !== conversationOwnerId) {
+                setOwnerModalInfo({
+                    id: conversationOwnerId,
+                    name: capitalizedFallbackName,
+                    avatar: ''
+                });
+            }
         }
     }, [conversationId, user?.id, ownerName, tenantName]);
 
@@ -405,10 +456,13 @@ export default function ChatRoomNew() {
             setMessages(uiMessages);
             console.log(`✅ Loaded ${uiMessages.length} messages`);
 
-            // Scroll to bottom
-            setTimeout(() => {
-                scrollViewRef.current?.scrollToEnd({ animated: true });
-            }, 100);
+            // Only scroll to bottom on initial load or if user is already at bottom
+            if (isInitialLoadRef.current || isUserAtBottomRef.current) {
+                setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: !isInitialLoadRef.current });
+                }, 100);
+                isInitialLoadRef.current = false;
+            }
         } catch (error) {
             console.error('❌ Error loading messages:', error);
             showAlert('Error', 'Failed to load messages');
@@ -963,7 +1017,17 @@ export default function ChatRoomNew() {
                     <Ionicons name="arrow-back" size={24} color="#374151" />
                 </TouchableOpacity>
                 
-                <View style={styles.headerInfo}>
+                <TouchableOpacity 
+                    style={styles.headerInfo}
+                    onPress={() => {
+                        // Only show owner info modal if current user is tenant (not owner)
+                        if (!isCurrentUserOwner && ownerModalInfo && ownerModalInfo.id) {
+                            setShowOwnerInfoModal(true);
+                        }
+                    }}
+                    activeOpacity={(!isCurrentUserOwner && ownerModalInfo && ownerModalInfo.id) ? 0.7 : 1}
+                    disabled={isCurrentUserOwner || !ownerModalInfo || !ownerModalInfo.id}
+                >
                     <View style={styles.avatarContainer}>
                         {participantInfo.otherParticipantAvatar ? (
                             <Image source={{ uri: participantInfo.otherParticipantAvatar }} style={styles.headerAvatar} />
@@ -981,13 +1045,14 @@ export default function ChatRoomNew() {
                             <Text style={styles.headerSubtitle}>{propertyTitle}</Text>
                         )}
                     </View>
-                </View>
+                </TouchableOpacity>
             </View>
 
             {/* Messages */}
             <KeyboardAvoidingView 
                 style={styles.messagesContainer}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
             >
                 {/* Sticky Payment Methods Banner */}
                 <View pointerEvents="box-none" style={styles.paymentBannerSticky}>
@@ -1014,6 +1079,13 @@ export default function ChatRoomNew() {
                         paymentBannerVisible && styles.messagesContentWithBanner
                     ]}
                     showsVerticalScrollIndicator={false}
+                    onScroll={(event) => {
+                        const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+                        const paddingToBottom = 50; // threshold in pixels
+                        isUserAtBottomRef.current = 
+                            layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+                    }}
+                    scrollEventThrottle={100}
                 >
                     {messages.length === 0 ? (
                         <View style={styles.emptyState}>
@@ -1154,6 +1226,19 @@ export default function ChatRoomNew() {
                     )}
                 </SafeAreaView>
             </Modal>
+
+            {/* Owner Info Modal - shown when tenant clicks on owner's profile */}
+            {ownerModalInfo && ownerModalInfo.id && (
+                <OwnerInfoModal
+                    visible={showOwnerInfoModal}
+                    ownerId={ownerModalInfo.id}
+                    ownerName={ownerModalInfo.name}
+                    ownerEmail={ownerModalInfo.email}
+                    ownerPhone={ownerModalInfo.phone}
+                    ownerAvatar={ownerModalInfo.avatar}
+                    onClose={() => setShowOwnerInfoModal(false)}
+                />
+            )}
         </SafeAreaView>
         );
     } catch (renderError) {

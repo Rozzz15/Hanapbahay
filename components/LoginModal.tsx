@@ -466,9 +466,9 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
 
                                 {/* Sign Up Link */}
                                 <View style={styles.signUpContainer}>
-                                    <Text style={styles.signUpText}>Don't have an account? </Text>
+                                    <Text style={styles.signUpText}>Don&apos;t have an account? </Text>
                                     <Pressable onPress={() => {
-                                        onClose();
+                                        // Don't call onClose() here - it navigates away before sign-up can load
                                         if (onSwitchToSignUp) {
                                             onSwitchToSignUp();
                                         } else {

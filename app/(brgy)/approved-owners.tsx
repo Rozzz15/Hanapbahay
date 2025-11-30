@@ -588,7 +588,7 @@ export default function ApprovedOwners() {
                       No Owners Found
                     </Text>
                     <Text style={sharedStyles.statSubtitle}>
-                      No owners match your search "{searchQuery}"
+                      No owners match your search &quot;{searchQuery}&quot;
                     </Text>
                   </View>
                 </View>

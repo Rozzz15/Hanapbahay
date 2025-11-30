@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "hanapbahay",
+    "name": "HanapBahay",
     "slug": "hanapbahay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
+    "owner": "pogi123456",
     "platforms": [
       "ios",
       "android",
@@ -21,7 +22,7 @@
     ],
     "web": {
       "bundler": "metro",
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png",
       "viewport": {
         "width": "device-width",

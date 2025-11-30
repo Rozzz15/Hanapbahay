@@ -3,7 +3,8 @@ import { ScrollView, View, Text, TouchableOpacity, Image, Alert, Modal, Dimensio
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { ArrowLeft, MapPin, Bed, Bath, Star, Calendar, CheckCircle, X, MessageCircle, EyeOff, Users } from 'lucide-react-native';
-import { PropertyVideoPlayer, VideoGallery } from '@/components/video';
+import PropertyVideoPlayer from '@/components/video/PropertyVideoPlayer';
+import VideoGallery from '@/components/video/VideoGallery';
 // Removed video components import - functionality removed
 import { useAuth } from '@/context/AuthContext';
 import { db, clearCache } from '@/utils/db';
