@@ -1,4 +1,4 @@
-import { Pressable, Text, ActivityIndicator, Animated, View } from 'react-native';
+import { Pressable, Text, ActivityIndicator, Animated, View, StyleSheet, ViewStyle, TextStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 
@@ -25,29 +25,23 @@ export function InteractiveButton({
     const rippleAnim = useRef(new Animated.Value(0)).current;
     const rippleOpacity = useRef(new Animated.Value(0)).current;
 
-    const getButtonStyles = () => {
-        const baseStyles = "rounded-2xl overflow-hidden active:opacity-90 disabled:opacity-70 shadow-lg";
-        const widthStyles = fullWidth ? "w-80 max-w-sm mx-auto" : "w-80 mx-auto";
+    const getButtonStyles = (): ViewStyle[] => {
+        const baseStyles: ViewStyle[] = [
+            styles.buttonBase,
+            styles[size],
+            fullWidth ? styles.fullWidth : styles.autoWidth
+        ];
         
-        const sizeStyles = {
-            sm: "py-3 px-8",
-            md: "py-4 px-12", 
-            lg: "py-5 px-16"
-        };
-        
-        return `${baseStyles} ${widthStyles} ${sizeStyles[size]}`;
+        return baseStyles;
     };
 
-    const getTextStyles = () => {
-        const baseTextStyles = "font-semibold text-center tracking-wide";
+    const getTextStyles = (): TextStyle[] => {
+        const baseTextStyles: TextStyle[] = [
+            styles.textBase,
+            styles[`${size}Text` as keyof typeof styles] as TextStyle
+        ];
         
-        const sizeTextStyles = {
-            sm: "text-sm",
-            md: "text-base", 
-            lg: "text-lg"
-        };
-        
-        return `${baseTextStyles} ${sizeTextStyles[size]}`;
+        return baseTextStyles;
     };
 
     const getVariantStyles = () => {
@@ -55,37 +49,37 @@ export function InteractiveButton({
             case 'primary':
                 return {
                     gradient: ['#16a34a', '#15803d'],
-                    textColor: 'text-white',
-                    shadow: 'shadow-lg',
-                    border: 'border-2 border-green-600 bg-green-600'
+                    textColor: '#FFFFFF',
+                    shadow: styles.shadowLg,
+                    border: styles.primaryBorder
                 };
             case 'secondary':
                 return {
                     gradient: ['#3b82f6', '#2563eb'],
-                    textColor: 'text-white',
-                    shadow: 'shadow-lg',
-                    border: 'border-2 border-blue-600 bg-blue-600'
+                    textColor: '#FFFFFF',
+                    shadow: styles.shadowLg,
+                    border: styles.secondaryBorder
                 };
             case 'outline':
                 return {
                     gradient: ['transparent', 'transparent'],
-                    textColor: 'text-green-600',
-                    shadow: 'shadow-md',
-                    border: 'border-2 border-green-600 bg-white'
+                    textColor: '#16a34a',
+                    shadow: styles.shadowMd,
+                    border: styles.outlineBorder
                 };
             case 'ghost':
                 return {
                     gradient: ['transparent', 'transparent'],
-                    textColor: 'text-gray-600',
-                    shadow: 'shadow-none',
-                    border: 'border border-gray-200 bg-gray-50'
+                    textColor: '#4B5563',
+                    shadow: styles.shadowNone,
+                    border: styles.ghostBorder
                 };
             default:
                 return {
                     gradient: ['#16a34a', '#15803d'],
-                    textColor: 'text-white',
-                    shadow: 'shadow-lg',
-                    border: 'border-2 border-green-600 bg-green-600'
+                    textColor: '#FFFFFF',
+                    shadow: styles.shadowLg,
+                    border: styles.primaryBorder
                 };
         }
     };
@@ -165,20 +159,26 @@ export function InteractiveButton({
     if (variant === 'outline' || variant === 'ghost') {
         return (
             <Animated.View
-                style={{
-                    transform: [{ scale: scaleAnim }],
-                    opacity: opacityAnim,
-                    boxShadow: `0 4px 8px rgba(0, 0, 0, ${shadowAnim})`,
-                }}
+                style={[
+                    {
+                        transform: [{ scale: scaleAnim }],
+                        opacity: opacityAnim,
+                    },
+                    variantStyles.shadow,
+                ]}
             >
                 <Pressable
                     onPress={onPress}
                     onPressIn={handlePressIn}
                     onPressOut={handlePressOut}
                     disabled={isLoading}
-                    className={`${getButtonStyles()} ${variantStyles.shadow} ${variantStyles.border}`}
+                    style={[
+                        ...getButtonStyles(),
+                        variantStyles.border,
+                        isLoading && styles.disabled,
+                    ]}
                 >
-                    <View className="flex-row items-center justify-center rounded-2xl relative">
+                    <View style={styles.buttonContent}>
                         {/* Ripple effect overlay */}
                         <Animated.View
                             style={{
@@ -194,7 +194,11 @@ export function InteractiveButton({
                             }}
                         />
                         {isLoading && <ActivityIndicator color="#374151" size="small" />}
-                        <Text className={`${getTextStyles()} ${variantStyles.textColor} ${isLoading ? 'ml-2' : ''} relative z-10`}>
+                        <Text style={[
+                            ...getTextStyles(),
+                            { color: variantStyles.textColor },
+                            isLoading && styles.textWithLoader
+                        ]}>
                             {text}
                         </Text>
                     </View>
@@ -205,27 +209,30 @@ export function InteractiveButton({
 
     return (
         <Animated.View
-            style={{
-                transform: [{ scale: scaleAnim }],
-                opacity: opacityAnim,
-                shadowOpacity: shadowAnim,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 4 },
-                shadowColor: '#000',
-            }}
+            style={[
+                {
+                    transform: [{ scale: scaleAnim }],
+                    opacity: opacityAnim,
+                },
+                variantStyles.shadow,
+            ]}
         >
             <Pressable
                 onPress={onPress}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
                 disabled={isLoading}
-                className={`${getButtonStyles()} ${variantStyles.border}`}
+                style={[
+                    ...getButtonStyles(),
+                    variantStyles.border,
+                    isLoading && styles.disabled,
+                ]}
             >
                 <LinearGradient
                     colors={variantStyles.gradient as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    className="flex-row items-center justify-center rounded-2xl relative"
+                    style={styles.gradientContent}
                 >
                     {/* Ripple effect overlay */}
                     <Animated.View
@@ -242,7 +249,11 @@ export function InteractiveButton({
                         }}
                     />
                     {isLoading && <ActivityIndicator color="#FFFFFF" size="small" />}
-                    <Text className={`${getTextStyles()} ${variantStyles.textColor} ${isLoading ? 'ml-2' : ''} relative z-10`}>
+                    <Text style={[
+                        ...getTextStyles(),
+                        { color: variantStyles.textColor },
+                        isLoading && styles.textWithLoader
+                    ]}>
                         {text}
                     </Text>
                 </LinearGradient>
@@ -250,3 +261,108 @@ export function InteractiveButton({
         </Animated.View>
     );
 }
+
+const styles = StyleSheet.create({
+    buttonBase: {
+        borderRadius: 16,
+        overflow: 'hidden',
+    },
+    fullWidth: {
+        width: 320,
+        maxWidth: 384,
+        alignSelf: 'center',
+    },
+    autoWidth: {
+        width: 320,
+        alignSelf: 'center',
+    },
+    sm: {
+        paddingVertical: 12,
+        paddingHorizontal: 32,
+    },
+    md: {
+        paddingVertical: 16,
+        paddingHorizontal: 48,
+    },
+    lg: {
+        paddingVertical: 20,
+        paddingHorizontal: 64,
+    },
+    textBase: {
+        fontWeight: '600',
+        textAlign: 'center',
+        letterSpacing: 0.5,
+    },
+    smText: {
+        fontSize: 14,
+    },
+    mdText: {
+        fontSize: 16,
+    },
+    lgText: {
+        fontSize: 18,
+    },
+    buttonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 16,
+        position: 'relative',
+    },
+    gradientContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 16,
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+    },
+    disabled: {
+        opacity: 0.7,
+    },
+    textWithLoader: {
+        marginLeft: 8,
+    },
+    shadowLg: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    shadowMd: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    shadowNone: {
+        shadowColor: 'transparent',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0,
+        shadowRadius: 0,
+        elevation: 0,
+    },
+    primaryBorder: {
+        borderWidth: 2,
+        borderColor: '#16a34a',
+        backgroundColor: '#16a34a',
+    },
+    secondaryBorder: {
+        borderWidth: 2,
+        borderColor: '#3b82f6',
+        backgroundColor: '#3b82f6',
+    },
+    outlineBorder: {
+        borderWidth: 2,
+        borderColor: '#16a34a',
+        backgroundColor: '#FFFFFF',
+    },
+    ghostBorder: {
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#F9FAFB',
+    },
+});

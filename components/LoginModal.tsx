@@ -234,7 +234,13 @@ export default function LoginModal({ visible, onClose, onLoginSuccess, onSwitchT
                     if (Array.isArray(roles) && roles.includes('owner')) {
                         // Redirect immediately, approval check happens in owner layout
                         console.log('🏠 Redirecting owner to dashboard...');
-                        redirectOwnerBasedOnListings(userId);
+                        if (userId) {
+                            redirectOwnerBasedOnListings(userId);
+                        } else {
+                            console.error('❌ No userId available for owner redirect');
+                            showSimpleAlert('Error', 'Unable to determine user ID. Please try logging in again.');
+                            return;
+                        }
                     } else if (Array.isArray(roles) && roles.includes('brgy_official')) {
                         console.log('🏛️ Redirecting barangay official to dashboard');
                         redirectBrgyOfficial();

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput } from "react-native";
 import { HStack } from "@/components/ui/hstack";
-import { Icon } from "@/components/ui/icon";
 import { Minus, Plus } from "lucide-react-native";
 
 export type CountSelectProps = {
@@ -45,9 +44,9 @@ const CountSelect: React.FC<CountSelectProps> = ({ label, value = 0, onChange, i
                     </Text>
                 )}
             </View>
-            <HStack className="items-center justify-between">
+            <HStack space="md" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1 }} />
-                <HStack className="items-center space-x-4 gap-8">
+                <HStack space="xl" style={{ alignItems: 'center' }}>
                     <TouchableOpacity
                         onPress={() => handleUpdate(count - 1)}
                         disabled={count === 0}
@@ -65,7 +64,7 @@ const CountSelect: React.FC<CountSelectProps> = ({ label, value = 0, onChange, i
                             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
                             elevation: 2,
                         }}>
-                            <Icon as={Minus} size="sm" color={count === 0 ? "#D1D5DB" : "#374151"} />
+                            <Minus size={16} color={count === 0 ? "#D1D5DB" : "#374151"} />
                         </View>
                     </TouchableOpacity>
                     <TextInput
@@ -102,7 +101,7 @@ const CountSelect: React.FC<CountSelectProps> = ({ label, value = 0, onChange, i
                             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
                             elevation: 2,
                         }}>
-                            <Icon as={Plus} size="sm" color="#374151" />
+                            <Plus size={16} color="#374151" />
                         </View>
                     </TouchableOpacity>
                 </HStack>

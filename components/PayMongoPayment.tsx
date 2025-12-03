@@ -172,16 +172,18 @@ export default function PayMongoPayment({
 
         // For e-wallet payments, attaching with return_url might automatically confirm
         // Check if attach response already has redirect URL
-        if (attachResult.data?.attributes?.next_action?.redirect?.url) {
+        const attachData = attachResult.data as any;
+        if (attachData?.attributes?.next_action?.redirect?.url) {
           // Attach already returned redirect URL, use it directly
-          const redirectUrlFromAttach = attachResult.data.attributes.next_action.redirect.url;
+          const redirectUrlFromAttach = attachData.attributes.next_action.redirect.url;
           console.log('✅ Redirect URL from attach:', redirectUrlFromAttach);
           setRedirectUrl(redirectUrlFromAttach);
           setShowWebView(true);
-        } else if (attachResult.next_action?.redirect?.url) {
+        } else if ((attachResult as any).next_action?.redirect?.url) {
           // Next action in response wrapper
-          console.log('✅ Redirect URL from attach (wrapper):', attachResult.next_action.redirect.url);
-          setRedirectUrl(attachResult.next_action.redirect.url);
+          const nextAction = (attachResult as any).next_action;
+          console.log('✅ Redirect URL from attach (wrapper):', nextAction.redirect.url);
+          setRedirectUrl(nextAction.redirect.url);
           setShowWebView(true);
         } else {
           // Step 3: Confirm payment intent (if not already confirmed by attach)
@@ -196,8 +198,9 @@ export default function PayMongoPayment({
           }
 
           // If there's a next action with redirect, show WebView
-          if (confirmResult.next_action?.redirect?.url) {
-            setRedirectUrl(confirmResult.next_action.redirect.url);
+          const confirmNextAction = (confirmResult as any).next_action;
+          if (confirmNextAction?.redirect?.url) {
+            setRedirectUrl(confirmNextAction.redirect.url);
             setShowWebView(true);
           } else if (confirmResult.data) {
             // Payment might be processing or succeeded

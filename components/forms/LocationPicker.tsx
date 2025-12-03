@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Modal, TouchableOpacity, Alert, TextInput } from 'react-native';
+import { View, Modal, TouchableOpacity, Alert, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { VStack } from '@/components/ui/vstack';
 import { X, MapPin, Check, Search } from 'lucide-react-native';
@@ -101,50 +101,52 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View className="flex-1 bg-white">
+      <View style={styles.container}>
         {/* Header */}
-        <View className="flex-row items-center justify-between p-4 border-b border-gray-200 bg-white">
-          <Text className="text-xl font-semibold">Select Location</Text>
+        <View style={styles.header}>
+          <Text size="xl" bold style={styles.headerText}>Select Location</Text>
           <TouchableOpacity onPress={onClose}>
             <X size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
 
         {/* Search Bar */}
-        <View className="p-4 bg-gray-50 border-b border-gray-200">
-          <View className="flex-row items-center bg-white rounded-xl border border-gray-300 px-4 py-3">
+        <View style={styles.searchContainer}>
+          <View style={styles.searchBar}>
             <Search size={20} color="#6B7280" />
             <TextInput
-              className="flex-1 ml-3 text-base"
+              style={styles.searchInput}
               placeholder="Search for a location..."
+              placeholderTextColor="#9CA3AF"
               value={searchQuery}
               onChangeText={handleSearchChange}
               autoFocus={true}
             />
             {isLoading && (
-              <View className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <ActivityIndicator size="small" color="#2563EB" />
             )}
           </View>
         </View>
 
         {/* Search Results */}
-        <View className="flex-1 bg-white">
+        <View style={styles.resultsContainer}>
           {searchResults.length > 0 ? (
-            <View className="p-4">
-              <Text className="text-sm font-medium text-gray-600 mb-3">Search Results:</Text>
+            <View style={styles.resultsList}>
+              <Text size="sm" bold style={styles.resultsTitle}>Search Results:</Text>
               {searchResults.map((result, index) => (
                 <TouchableOpacity
                   key={index}
                   onPress={() => handleLocationSelect(result)}
-                  className="p-4 border-b border-gray-100 active:bg-gray-50"
+                  style={styles.resultItem}
+                  activeOpacity={0.7}
                 >
-                  <View className="flex-row items-start">
-                    <MapPin size={16} color="#6B7280" className="mt-1" />
-                    <View className="ml-3 flex-1">
-                      <Text className="font-medium text-gray-800">
+                  <View style={styles.resultContent}>
+                    <MapPin size={16} color="#6B7280" style={styles.resultIcon} />
+                    <View style={styles.resultTextContainer}>
+                      <Text bold style={styles.resultName}>
                         {result.name || result.formatted}
                       </Text>
-                      <Text className="text-sm text-gray-600 mt-1">
+                      <Text size="sm" style={styles.resultLocation}>
                         {result.locality}, {result.principalSubdivision}, Philippines
                       </Text>
                     </View>
@@ -153,22 +155,22 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
               ))}
             </View>
           ) : searchQuery.length >= 3 && !isLoading ? (
-            <View className="flex-1 justify-center items-center p-8">
+            <View style={styles.emptyState}>
               <MapPin size={48} color="#D1D5DB" />
-              <Text className="text-gray-500 text-center mt-4">
-                No locations found for "{searchQuery}"
+              <Text style={styles.emptyText}>
+                No locations found for &quot;{searchQuery}&quot;
               </Text>
-              <Text className="text-gray-400 text-sm text-center mt-2">
+              <Text size="sm" style={styles.emptySubtext}>
                 Try a different search term or use the manual option below
               </Text>
             </View>
           ) : (
-            <View className="flex-1 justify-center items-center p-8">
+            <View style={styles.emptyState}>
               <MapPin size={48} color="#D1D5DB" />
-              <Text className="text-gray-500 text-center mt-4">
+              <Text style={styles.emptyText}>
                 Search for your location
               </Text>
-              <Text className="text-gray-400 text-sm text-center mt-2">
+              <Text size="sm" style={styles.emptySubtext}>
                 Type at least 3 characters to search
               </Text>
             </View>
@@ -177,33 +179,34 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
 
         {/* Selected Location Display */}
         {selectedLocation && (
-          <View className="p-4 bg-green-50 border-t border-green-200">
-            <View className="flex-row items-center">
+          <View style={styles.selectedContainer}>
+            <View style={styles.selectedHeader}>
               <Check size={16} color="#10B981" />
-              <Text className="text-green-800 font-medium ml-2">Selected Location:</Text>
+              <Text bold style={styles.selectedLabel}>Selected Location:</Text>
             </View>
-            <Text className="text-green-700 text-sm mt-1">{selectedLocation.address}</Text>
-            <Text className="text-green-600 text-xs mt-1">
+            <Text size="sm" style={styles.selectedAddress}>{selectedLocation.address}</Text>
+            <Text size="2xs" style={styles.selectedCoordinates}>
               {selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)}
             </Text>
           </View>
         )}
 
         {/* Action Buttons */}
-        <View className="p-4 bg-white border-t border-gray-200">
-          <VStack className="space-y-3">
+        <View style={styles.actionsContainer}>
+          <VStack space="sm">
             <TouchableOpacity
               onPress={handleConfirmLocation}
               disabled={!selectedLocation}
-              className={`py-4 px-6 rounded-xl ${
-                selectedLocation
-                  ? 'bg-green-600 active:opacity-90'
-                  : 'bg-gray-300'
-              }`}
+              style={[
+                styles.confirmButton,
+                !selectedLocation && styles.confirmButtonDisabled
+              ]}
+              activeOpacity={0.8}
             >
-              <Text className={`text-center font-semibold text-lg ${
-                selectedLocation ? 'text-white' : 'text-gray-500'
-              }`}>
+              <Text bold size="lg" style={[
+                styles.confirmButtonText,
+                !selectedLocation && styles.confirmButtonTextDisabled
+              ]}>
                 Confirm Location
               </Text>
             </TouchableOpacity>
@@ -211,19 +214,21 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
             {searchQuery.trim() && !selectedLocation && (
               <TouchableOpacity
                 onPress={handleManualLocation}
-                className="py-3 px-6 rounded-xl border-2 border-blue-300 bg-blue-50"
+                style={styles.manualButton}
+                activeOpacity={0.8}
               >
-                <Text className="text-center font-medium text-blue-600">
-                  Use "{searchQuery}" as Location
+                <Text bold style={styles.manualButtonText}>
+                  Use &quot;{searchQuery}&quot; as Location
                 </Text>
               </TouchableOpacity>
             )}
             
             <TouchableOpacity
               onPress={onClose}
-              className="py-3 px-6 rounded-xl border-2 border-gray-300"
+              style={styles.cancelButton}
+              activeOpacity={0.8}
             >
-              <Text className="text-center font-medium text-gray-600">
+              <Text bold style={styles.cancelButtonText}>
                 Cancel
               </Text>
             </TouchableOpacity>
@@ -233,5 +238,164 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     </Modal>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  headerText: {
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  searchContainer: {
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 16,
+    color: '#111827',
+  },
+  resultsContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  resultsList: {
+    padding: 16,
+  },
+  resultsTitle: {
+    color: '#4B5563',
+    marginBottom: 12,
+  },
+  resultItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  resultContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  resultIcon: {
+    marginTop: 2,
+  },
+  resultTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  resultName: {
+    color: '#111827',
+  },
+  resultLocation: {
+    color: '#4B5563',
+    marginTop: 4,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyText: {
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  selectedContainer: {
+    padding: 16,
+    backgroundColor: '#ECFDF5',
+    borderTopWidth: 1,
+    borderTopColor: '#A7F3D0',
+  },
+  selectedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectedLabel: {
+    color: '#065F46',
+    marginLeft: 8,
+  },
+  selectedAddress: {
+    color: '#047857',
+    marginTop: 4,
+  },
+  selectedCoordinates: {
+    color: '#059669',
+    marginTop: 4,
+  },
+  actionsContainer: {
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  confirmButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    backgroundColor: '#10B981',
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+  },
+  confirmButtonText: {
+    textAlign: 'center',
+    color: '#FFFFFF',
+  },
+  confirmButtonTextDisabled: {
+    color: '#6B7280',
+  },
+  manualButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#93C5FD',
+    backgroundColor: '#DBEAFE',
+  },
+  manualButtonText: {
+    textAlign: 'center',
+    color: '#2563EB',
+  },
+  cancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+  },
+  cancelButtonText: {
+    textAlign: 'center',
+    color: '#4B5563',
+  },
+});
 
 export default LocationPicker;

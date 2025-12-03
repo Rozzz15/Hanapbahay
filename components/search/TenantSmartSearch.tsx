@@ -18,7 +18,7 @@ export default function TenantSmartSearch({ value, onChange }: Props) {
   const [locationText, setLocationText] = useState<string>(value.location || '');
   const [minPrice, setMinPrice] = useState<string>(value.minPrice ? String(value.minPrice) : '');
   const [maxPrice, setMaxPrice] = useState<string>(value.maxPrice ? String(value.maxPrice) : '');
-  const [rooms, setRooms] = useState<number>(value.rooms || value.bedrooms || 0);
+  const [rooms, setRooms] = useState<number>(value.rooms || 0);
   const [amenities, setAmenities] = useState<string[]>(value.amenities || []);
   const [propertyType, setPropertyType] = useState<string>(value.propertyType || '');
   const [occupantType, setOccupantType] = useState<'Family' | 'Individual' | ''>((value as any).occupantType || '');

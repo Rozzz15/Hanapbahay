@@ -40,17 +40,19 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       
       // Get all conversations for this user
       const conversations = await db.list('conversations');
-      const userConversations = conversations.filter(conv => 
-        conv.ownerId === user.id || conv.tenantId === user.id ||
-        conv.owner_id === user.id || conv.tenant_id === user.id // Support legacy field names
-      );
+      const userConversations = conversations.filter(conv => {
+        const c = conv as any;
+        return c.ownerId === user.id || c.tenantId === user.id ||
+               c.owner_id === user.id || c.tenant_id === user.id; // Support legacy field names
+      });
 
       let totalUnread = 0;
       for (const conv of userConversations) {
-        const isOwner = user.id === conv.ownerId || user.id === conv.owner_id;
+        const c = conv as any;
+        const isOwner = user.id === c.ownerId || user.id === c.owner_id;
         const unreadCount = isOwner ? 
-          (conv.unreadByOwner || conv.unread_by_owner || 0) : 
-          (conv.unreadByTenant || conv.unread_by_tenant || 0);
+          (c.unreadByOwner || c.unread_by_owner || 0) : 
+          (c.unreadByTenant || c.unread_by_tenant || 0);
         totalUnread += unreadCount;
       }
 
@@ -74,15 +76,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const conversation = await db.get('conversations', conversationId);
       if (!conversation) return;
 
-      const isOwner = user.id === conversation.ownerId || user.id === conversation.owner_id;
+      const conv = conversation as any;
+      const isOwner = user.id === conv.ownerId || user.id === conv.owner_id;
       const now = new Date().toISOString();
 
       await db.upsert('conversations', conversationId, {
         ...conversation,
-        unreadByOwner: isOwner ? 0 : (conversation.unreadByOwner || conversation.unread_by_owner || 0),
-        unreadByTenant: !isOwner ? 0 : (conversation.unreadByTenant || conversation.unread_by_tenant || 0),
-        lastReadByOwner: isOwner ? now : (conversation.lastReadByOwner || conversation.last_read_by_owner),
-        lastReadByTenant: !isOwner ? now : (conversation.lastReadByTenant || conversation.last_read_by_tenant),
+        unreadByOwner: isOwner ? 0 : (conv.unreadByOwner || conv.unread_by_owner || 0),
+        unreadByTenant: !isOwner ? 0 : (conv.unreadByTenant || conv.unread_by_tenant || 0),
+        lastReadByOwner: isOwner ? now : (conv.lastReadByOwner || conv.last_read_by_owner),
+        lastReadByTenant: !isOwner ? now : (conv.lastReadByTenant || conv.last_read_by_tenant),
         updatedAt: now
       });
 

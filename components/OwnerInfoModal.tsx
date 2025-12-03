@@ -462,3 +462,6 @@ const styles = StyleSheet.create({
 
 export default OwnerInfoModal;
 
+
+
+

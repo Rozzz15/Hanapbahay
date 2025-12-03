@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           permissions: authUser.permissions || [],
           name: authUser.name,
           email: authUser.email,
-          isOwnerApproved: authUser.isOwnerApproved
+          isOwnerApproved: (authUser as any).isOwnerApproved
         };
         
         // Reduced logging for performance
@@ -99,11 +99,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const publishedListings = await db.list('published_listings');
                 for (const listing of publishedListings) {
                   try {
+                    const listingRecord = listing as any;
                     const { loadPropertyMediaFromStorage } = await import('../utils/media-storage');
-                    const storedMedia = await loadPropertyMediaFromStorage(listing.id);
+                    const storedMedia = await loadPropertyMediaFromStorage(listingRecord.id);
                     if (storedMedia && storedMedia.coverPhoto) {
                       dispatchCustomEvent('propertyMediaLoaded', {
-                        listingId: listing.id,
+                        listingId: listingRecord.id,
                         userId: userWithFallbacks.id,
                         coverPhoto: storedMedia.coverPhoto,
                         photos: storedMedia.photos,
@@ -111,7 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                       });
                     }
                   } catch (listingError) {
-                    console.log('⚠️ Error loading media for listing:', listing.id, listingError);
+                    const listingRecord = listing as any;
+                    console.log('⚠️ Error loading media for listing:', listingRecord.id, listingError);
                   }
                 }
                 console.log('✅ Dispatched property media loaded events for all listings (tenant)');

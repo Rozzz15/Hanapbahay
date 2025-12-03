@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Platform } from "react-native";
-import { Icon } from "@/components/ui/icon";
 import { MapPin, ChevronUp, ChevronDown } from "lucide-react-native";
 import { BARANGAYS } from "@/constants/Barangays";
 
@@ -89,7 +88,7 @@ const BarangaySearch: React.FC<BarangaySearchProps> = ({
                         elevation: 1,
                     }}
                 >
-                    <Icon as={MapPin} size="sm" color="#6b7280" />
+                    <MapPin size={16} color="#6b7280" />
                     <Text style={{
                         flex: 1,
                         marginLeft: 12,
@@ -98,11 +97,11 @@ const BarangaySearch: React.FC<BarangaySearchProps> = ({
                     }}>
                         {value || placeholder}
                     </Text>
-                    <Icon 
-                        as={showDropdown ? ChevronUp : ChevronDown} 
-                        size="sm" 
-                        color="#6b7280" 
-                    />
+                    {showDropdown ? (
+                        <ChevronUp size={16} color="#6b7280" />
+                    ) : (
+                        <ChevronDown size={16} color="#6b7280" />
+                    )}
                 </TouchableOpacity>
                 
                 {showDropdown && (

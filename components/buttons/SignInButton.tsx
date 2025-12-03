@@ -21,20 +21,20 @@ export const SignInButton: React.FC<SignInButtonProps> = ({
   textStyle,
 }) => {
   const getButtonStyle = () => {
-    const baseStyle = [styles.button];
+    const baseStyle: ViewStyle[] = [styles.button];
     
     if (disabled) {
-      baseStyle.push({ opacity: 0.6 });
+      baseStyle.push({ opacity: 0.6 } as ViewStyle);
     }
     
     return [...baseStyle, style];
   };
 
   const getTextStyle = () => {
-    const baseTextStyle = [styles.text];
+    const baseTextStyle: TextStyle[] = [styles.text];
     
     if (disabled) {
-      baseTextStyle.push({ color: '#9CA3AF' });
+      baseTextStyle.push({ color: '#9CA3AF' } as TextStyle);
     }
     
     return [...baseTextStyle, textStyle];

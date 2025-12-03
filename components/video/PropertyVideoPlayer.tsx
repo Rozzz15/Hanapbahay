@@ -22,7 +22,7 @@ export default function PropertyVideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tapHintOpacity = useRef(new Animated.Value(0)).current;
 
   // Initialize video player with current video
@@ -40,8 +40,11 @@ export default function PropertyVideoPlayer({
     player.muted = false;
 
     // Add event listeners
-    player.addListener('statusChange', (status) => {
-      console.log('Video status change:', status);
+    player.addListener('statusChange', (event: any) => {
+      console.log('Video status change:', event);
+      // Extract status from event object - it could be event.status or the event itself might be the status string
+      const status = typeof event === 'string' ? event : (event?.status || (event as any)?.status || '');
+      
       if (status === 'readyToPlay') {
         console.log('Video ready to play, starting playback');
         setIsLoading(false);
@@ -69,26 +72,33 @@ export default function PropertyVideoPlayer({
       }
     });
 
-    player.addListener('playbackStatusUpdate', (status) => {
-      console.log('Playback status update:', status);
-      setIsPlaying(status.isPlaying);
-      
-      // Clear loading state when video starts playing
-      if (status.isPlaying && isLoading) {
-        console.log('Video started playing, clearing loading state');
-        setIsLoading(false);
-        if (loadingTimeoutRef.current) {
-          clearTimeout(loadingTimeoutRef.current);
+    // Use playbackStatusUpdate if available, otherwise poll player status
+    try {
+      player.addListener('playbackStatusUpdate' as any, (event: any) => {
+        console.log('Playback status update:', event);
+        const isPlaying = event?.isPlaying ?? player.playing;
+        setIsPlaying(isPlaying);
+        
+        // Clear loading state when video starts playing
+        if (isPlaying && isLoading) {
+          console.log('Video started playing, clearing loading state');
+          setIsLoading(false);
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+          }
         }
-      }
-      
-      // Show tap hint when video starts playing
-      if (status.isPlaying) {
-        showTapHint();
-      } else {
-        hideTapHint();
-      }
-    });
+        
+        // Show tap hint when video starts playing
+        if (isPlaying) {
+          showTapHint();
+        } else {
+          hideTapHint();
+        }
+      });
+    } catch (err) {
+      // If playbackStatusUpdate doesn't exist, poll the player status
+      console.log('playbackStatusUpdate event not available, using polling');
+    }
   });
 
   // Update video when index changes
@@ -306,7 +316,7 @@ export default function PropertyVideoPlayer({
               {!currentVideo ? 'No video available' : 'Video player not available'}
             </Text>
             {!currentVideo && (
-              <Text style={styles.loadingSubtext}>
+              <Text style={styles.errorSubtext}>
                 Please check if the video URL is valid
               </Text>
             )}
@@ -533,5 +543,11 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: 'white',
+  },
+  errorSubtext: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
   },
 });

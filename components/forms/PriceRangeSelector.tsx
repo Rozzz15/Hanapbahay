@@ -74,7 +74,7 @@ const PriceRangeSelector: React.FC<PriceRangeSelectorProps> = ({
   };
 
   return (
-    <View className="mb-8">
+    <View style={{ marginBottom: 32 }}>
       <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#111827', marginBottom: 12 }}>
         Price Range
       </Text>
@@ -82,8 +82,8 @@ const PriceRangeSelector: React.FC<PriceRangeSelectorProps> = ({
         {formatPrice(priceRange.min)} - {formatPrice(priceRange.max)}+ / month
       </Text>
       
-      <HStack className="space-x-6 gap-4">
-        <View className="flex-1">
+      <HStack space="lg">
+        <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>
             Min Price
           </Text>
@@ -111,7 +111,7 @@ const PriceRangeSelector: React.FC<PriceRangeSelectorProps> = ({
           )}
         </View>
         
-        <View className="flex-1">
+        <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>
             Max Price
           </Text>

@@ -77,6 +77,18 @@ npm run start:tunnel
 - **Android** - Requires Android Studio or physical device
 - **Web** - Runs in any modern browser
 
+## 🚀 Deployment
+
+Ready to deploy your app so everyone can access it? Check out our deployment guides:
+
+- **[QUICK_DEPLOY.md](./QUICK_DEPLOY.md)** - Get your app live in minutes (recommended for first-time deployment)
+- **[DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md)** - Comprehensive guide covering web, mobile, and backend deployment
+
+### Quick Links:
+- **Web Deployment** - Deploy to Vercel, Netlify, or any static host
+- **Mobile Apps** - Build and publish to iOS App Store and Google Play Store
+- **Backend Server** - Deploy to Heroku, Railway, or Render
+
 ## 🛠️ Available Scripts
 
 - `npm start` - Start Expo development server
@@ -84,6 +96,7 @@ npm run start:tunnel
 - `npm run android` - Run on Android
 - `npm run ios` - Run on iOS (Mac only)
 - `npm run web` - Run in web browser
+- `npm run build:web` - Build web version for deployment
 - `npm test` - Run tests
 - `npm run lint` - Check code quality
 

@@ -4,7 +4,7 @@
     "slug": "hanapbahay",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/Hanapbahay Logo.png",
     "userInterfaceStyle": "automatic",
     "owner": "pogi123456",
     "platforms": [
@@ -71,14 +71,31 @@
     },
     "scheme": "hanapbahay",
     "ios": {
+      "bundleIdentifier": "com.hanapbahay.app",
+      "buildNumber": "1",
+      "supportsTablet": true,
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
           "gcash",
           "maya"
-        ]
+        ],
+        "NSCameraUsageDescription": "HanapBahay needs camera access to take photos for property listings and profile pictures.",
+        "NSPhotoLibraryUsageDescription": "HanapBahay needs photo library access to select images for listings and profile.",
+        "NSPhotoLibraryAddUsageDescription": "HanapBahay needs permission to save images to your photo library."
       }
     },
     "android": {
+      "package": "com.hanapbahay.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/Hanapbahay Logo.png",
+        "backgroundColor": "#3B82F6"
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",

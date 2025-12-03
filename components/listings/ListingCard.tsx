@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from "react";
-import { View, Text, TouchableOpacity, useWindowDimensions } from "react-native";
+import { View, Text, TouchableOpacity, useWindowDimensions, StyleSheet } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Box } from "@/components/ui/box";
 import { VStack } from "@/components/ui/vstack";
@@ -200,13 +200,13 @@ const ListingCard: React.FC<ListingType> = ({
     };
 
     return (
-        <TouchableOpacity className="w-full mb-4" onPress={handleViewDetails}>
+        <TouchableOpacity style={styles.cardWrapper} onPress={handleViewDetails}>
             <Box 
                 key={`listing-${id}-${coverPhoto || image}`}
-                className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden"
+                style={styles.cardContainer}
             >
                 {/* Image Section */}
-                <View className="relative">
+                <View style={styles.imageContainer}>
                     <Image 
                         source={{ 
                             uri: (() => {
@@ -222,7 +222,7 @@ const ListingCard: React.FC<ListingType> = ({
                                 return imageUri;
                             })()
                         }} 
-                        className="w-full h-48"
+                        style={styles.cardImage}
                         resizeMode="cover"
                         showSkeleton={true}
                         fallbackIcon="home"
@@ -282,9 +282,8 @@ const ListingCard: React.FC<ListingType> = ({
                 <VStack style={{ padding: 20, gap: 12 }}>
                     {/* Title */}
                     <Text 
-                        className="text-xl font-bold text-gray-900" 
+                        style={styles.title}
                         numberOfLines={2}
-                        style={{ lineHeight: 28 }}
                     >
                         {title}
                     </Text>
@@ -445,7 +444,7 @@ const ListingCard: React.FC<ListingType> = ({
                                 
                                 return (
                                     <TouchableOpacity 
-                                        className="bg-green-600 rounded-xl px-4 py-3"
+                                        style={styles.messageButton}
                                         onPress={async (e) => {
                                             e.stopPropagation(); // Prevent card click
                                             
@@ -491,18 +490,18 @@ const ListingCard: React.FC<ListingType> = ({
                                             }
                                         }}
                                     >
-                                        <Text className="text-white font-semibold text-sm">Message Owner</Text>
+                                        <Text style={styles.buttonText}>Message Owner</Text>
                                     </TouchableOpacity>
                                 );
                             })()}
                             <TouchableOpacity 
-                                className="bg-blue-600 rounded-xl px-6 py-3"
+                                style={styles.viewButton}
                                 onPress={(e) => {
                                     e.stopPropagation(); // Prevent card click
                                     handleViewDetails();
                                 }}
                             >
-                                <Text className="text-white font-semibold text-sm">View Details</Text>
+                                <Text style={styles.buttonText}>View Details</Text>
                             </TouchableOpacity>
                         </HStack>
                     </HStack>
@@ -511,5 +510,54 @@ const ListingCard: React.FC<ListingType> = ({
         </TouchableOpacity>
     );
 };
+
+const styles = StyleSheet.create({
+    cardWrapper: {
+        width: '100%',
+        marginBottom: 16,
+    },
+    cardContainer: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+        overflow: 'hidden',
+    },
+    imageContainer: {
+        position: 'relative',
+    },
+    cardImage: {
+        width: '100%',
+        height: 192,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#111827',
+        lineHeight: 28,
+    },
+    messageButton: {
+        backgroundColor: '#16A34A',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+    },
+    viewButton: {
+        backgroundColor: '#2563EB',
+        borderRadius: 12,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+    },
+    buttonText: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+});
 
 export default memo(ListingCard);

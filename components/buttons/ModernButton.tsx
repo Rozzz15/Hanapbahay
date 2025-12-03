@@ -31,21 +31,21 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
   textStyle,
 }) => {
   const getButtonStyle = () => {
-    const baseStyle = [styles.button, styles[size]];
+    const baseStyle: ViewStyle[] = [styles.button, styles[size]];
     
     if (fullWidth) {
-      baseStyle.push({ width: '100%' });
+      baseStyle.push({ width: '100%' } as ViewStyle);
     }
     
     if (disabled) {
-      baseStyle.push({ opacity: 0.6 });
+      baseStyle.push({ opacity: 0.6 } as ViewStyle);
     }
     
     return [...baseStyle, style];
   };
 
   const getTextStyle = () => {
-    const baseTextStyle = [styles.text, styles[`${variant}Text`], styles[`${size}Text`]];
+    const baseTextStyle: TextStyle[] = [styles.text, styles[`${variant}Text`], styles[`${size}Text`]];
     
     if (disabled) {
       baseTextStyle.push(styles.disabledText);

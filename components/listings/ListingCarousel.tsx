@@ -1,5 +1,5 @@
 import React, { useRef, useImperativeHandle, forwardRef } from 'react';
-import { ScrollView, View, useWindowDimensions } from 'react-native';
+import { ScrollView, View, useWindowDimensions, StyleSheet } from 'react-native';
 import ListingCard, { ListingType } from './ListingCard';
 
 interface ListingCarouselProps {
@@ -39,7 +39,7 @@ const ListingCarousel: React.FC<ListingCarouselProps> = ({ listings, gap = 16, o
             ref={scrollViewRef}
             horizontal
             showsHorizontalScrollIndicator={false}
-            className="w-full"
+            style={styles.scrollView}
             contentContainerStyle={{
                 paddingHorizontal: 4,
                 gap: gap,
@@ -57,11 +57,13 @@ const ListingCarousel: React.FC<ListingCarouselProps> = ({ listings, gap = 16, o
             {listings.map((listing, index) => (
                 <View 
                     key={index} 
-                    style={{ 
-                        width: cardWidth,
-                        marginRight: index === listings.length - 1 ? 16 : 0, // Add padding to last item
-                    }}
-                    className="h-[180px]"
+                    style={[
+                        styles.cardContainer,
+                        { 
+                            width: cardWidth,
+                            marginRight: index === listings.length - 1 ? 16 : 0,
+                        }
+                    ]}
                 >
                     <ListingCard {...listing} />
                 </View>
@@ -69,5 +71,14 @@ const ListingCarousel: React.FC<ListingCarouselProps> = ({ listings, gap = 16, o
         </ScrollView>
     );
 };
+
+const styles = StyleSheet.create({
+    scrollView: {
+        width: '100%',
+    },
+    cardContainer: {
+        height: 180,
+    },
+});
 
 export default ListingCarousel; 

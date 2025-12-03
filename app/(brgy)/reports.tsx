@@ -566,7 +566,9 @@ export default function ReportsPage() {
       
       if (!userRecord) {
         console.error('❌ User record not found');
-        setAnalytics(null);
+        // getComprehensiveAnalytics always returns a valid object, even with empty string
+        const emptyData = await getComprehensiveAnalytics('');
+        setAnalytics(emptyData);
         setLoading(false);
         return;
       }
@@ -575,7 +577,9 @@ export default function ReportsPage() {
       
       if (!actualBarangay) {
         console.error('❌ No barangay found in user record');
-        setAnalytics(null);
+        // getComprehensiveAnalytics always returns a valid object, even with empty string
+        const emptyData = await getComprehensiveAnalytics('');
+        setAnalytics(emptyData);
         setLoading(false);
         return;
       }
@@ -588,13 +592,8 @@ export default function ReportsPage() {
       console.log('📊 Trimmed barangay name:', actualBarangay.trim());
       console.log('📊 Uppercase barangay name:', actualBarangay.trim().toUpperCase());
       
+      // getComprehensiveAnalytics always returns a valid ComprehensiveAnalytics object (never null)
       const data = await getComprehensiveAnalytics(actualBarangay);
-      
-      // Verify data was returned (should never be null from getComprehensiveAnalytics)
-      if (!data) {
-        console.error('❌ getComprehensiveAnalytics returned null/undefined');
-        throw new Error('Analytics data is null');
-      }
       
       console.log('✅ Analytics loaded successfully:', {
         totalProperties: data.totalProperties,
@@ -635,18 +634,15 @@ export default function ReportsPage() {
         if (fallbackBarangay) {
           setUserBarangay(fallbackBarangay);
         }
+        // getComprehensiveAnalytics always returns a valid object (never null)
         const emptyData = await getComprehensiveAnalytics(fallbackBarangay);
-        if (emptyData) {
-          console.log('✅ Fallback analytics loaded');
-          setAnalytics(emptyData);
-        } else {
-          console.error('❌ Fallback also returned null');
-          setAnalytics(null);
-        }
+        console.log('✅ Fallback analytics loaded');
+        setAnalytics(emptyData);
       } catch (fallbackError) {
         console.error('❌ Error getting fallback analytics:', fallbackError);
-        // Last resort: create minimal empty analytics object
-        setAnalytics(null);
+        // Last resort: getComprehensiveAnalytics always returns a valid object, even with empty string
+        const emptyData = await getComprehensiveAnalytics('');
+        setAnalytics(emptyData);
       }
     } finally {
       setLoading(false);

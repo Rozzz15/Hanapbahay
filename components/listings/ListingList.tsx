@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View, useWindowDimensions, RefreshControl } from 'react-native';
+import { ScrollView, View, useWindowDimensions, RefreshControl, StyleSheet } from 'react-native';
 import { VStack } from '@/components/ui/vstack';
 import { Text } from '@/components/ui/text';
 import ListingCard, { ListingType } from './ListingCard';
@@ -25,17 +25,17 @@ const ListingList: React.FC<ListingListProps> = ({
     const isMobile = width < 768;
     
     return (
-        <VStack className="bg-gray-50">
+        <VStack style={styles.container}>
             {/* Header Section */}
             {(title || subtitle) && (
-                <VStack className="px-6 py-4 bg-white border-b border-gray-100">
+                <VStack style={styles.header}>
                     {title && (
-                        <Text className="text-2xl font-bold text-gray-900 mb-1">
+                        <Text size="2xl" bold style={styles.title}>
                             {title}
                         </Text>
                     )}
                     {subtitle && (
-                        <Text className="text-sm text-gray-600">
+                        <Text size="sm" style={styles.subtitle}>
                             {subtitle}
                         </Text>
                     )}
@@ -43,7 +43,7 @@ const ListingList: React.FC<ListingListProps> = ({
             )}
 
             {/* Listings */}
-            <VStack className="space-y-4 p-4">
+            <VStack space="sm" style={styles.listings}>
                 {listings.length > 0 ? (
                     listings.map((listing, index) => (
                         <ListingCard 
@@ -52,11 +52,11 @@ const ListingList: React.FC<ListingListProps> = ({
                         />
                     ))
                 ) : (
-                    <VStack className="items-center justify-center py-20">
-                        <Text className="text-lg font-semibold text-gray-500 mb-2">
+                    <VStack style={styles.emptyState}>
+                        <Text bold size="lg" style={styles.emptyTitle}>
                             No properties found
                         </Text>
-                        <Text className="text-sm text-gray-400 text-center">
+                        <Text size="sm" style={styles.emptySubtitle}>
                             Try adjusting your search criteria
                         </Text>
                     </VStack>
@@ -65,5 +65,41 @@ const ListingList: React.FC<ListingListProps> = ({
         </VStack>
     );
 };
+
+const styles = StyleSheet.create({
+    container: {
+        backgroundColor: '#F9FAFB',
+    },
+    header: {
+        paddingHorizontal: 24,
+        paddingVertical: 16,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    title: {
+        color: '#111827',
+        marginBottom: 4,
+    },
+    subtitle: {
+        color: '#4B5563',
+    },
+    listings: {
+        padding: 16,
+    },
+    emptyState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 80,
+    },
+    emptyTitle: {
+        color: '#6B7280',
+        marginBottom: 8,
+    },
+    emptySubtitle: {
+        color: '#9CA3AF',
+        textAlign: 'center',
+    },
+});
 
 export default ListingList; 

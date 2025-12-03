@@ -265,12 +265,13 @@ const TenantInfoModal: React.FC<TenantInfoModalProps> = ({
             });
             
             if (tenantPhoto) {
-              let photoData = tenantPhoto.photoData || tenantPhoto.photoUri || '';
+              const photo = tenantPhoto as any;
+              let photoData = photo.photoData || photo.photoUri || '';
               if (photoData && photoData.trim() !== '') {
                 if (photoData.startsWith('data:')) {
                   errorPhoto = photoData.trim();
                 } else {
-                  const mimeType = tenantPhoto.mimeType || 'image/jpeg';
+                  const mimeType = photo.mimeType || 'image/jpeg';
                   errorPhoto = `data:${mimeType};base64,${photoData.trim()}`;
                 }
                 console.log('✅ Loaded photo via final fallback in error handler');

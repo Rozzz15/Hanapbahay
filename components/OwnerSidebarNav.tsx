@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: designTokens.typography.base,
-    fontWeight: designTokens.typography.bold,
+    fontWeight: '700' as const,
     color: designTokens.colors.textPrimary,
     marginBottom: 2,
   },
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     fontSize: designTokens.typography.base,
-    fontWeight: designTokens.typography.medium,
+    fontWeight: '500' as const,
     color: designTokens.colors.textPrimary,
     marginBottom: 2,
   },
