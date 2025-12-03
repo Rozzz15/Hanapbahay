@@ -24,7 +24,7 @@
     "lint": "expo lint",
     "reset": "expo start --clear --reset-cache",
     "generate:test-data": "npx tsx scripts/generate-test-data.ts",
-    "build:web": "expo export:web"
+    "build:web": "expo export"
   },
   "jest": {
     "preset": "jest-expo",
@@ -115,11 +115,14 @@
   },
   "overrides": {
     "tmp": "^0.2.5",
+    "rimraf": "^5.0.0",
+    "glob": "^11.1.0",
     "babel-plugin-module-resolver": {
       "glob": "^9.3.5"
     },
     "@expo/cli": {
-      "glob": "^11.1.0"
+      "glob": "^11.1.0",
+      "rimraf": "^5.0.0"
     },
     "@expo/config": {
       "glob": "^11.1.0"
