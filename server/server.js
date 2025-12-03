@@ -104,7 +104,8 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+// Bind to 0.0.0.0 to accept connections from Railway/external hosts
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 HanapBahay API Server running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`💳 Paymongo routes: http://localhost:${PORT}/api/paymongo`);
