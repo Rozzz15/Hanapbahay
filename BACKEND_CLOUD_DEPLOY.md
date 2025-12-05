@@ -13,23 +13,24 @@ Your `.env` file is now configured to use a cloud-based backend URL. You need to
    - Select "Deploy from GitHub repo"
    - Connect your repository
 
-3. **Configure Deployment:**
+3. **Configure Deployment (USE THIS EXACT CONFIGURATION):**
    
-   **Option A: Set Root Directory to `server` (Recommended)**
-   - Root Directory: Set to `server`
-   - Build Command: **Leave EMPTY** (Railway will auto-detect and run `npm install`)
-   - Start Command: **Leave EMPTY** (Railway will auto-detect `npm start` from package.json)
-   - Port: Railway auto-detects (usually PORT env var)
+   **⚠️ IMPORTANT: Use these EXACT settings to avoid crashes:**
    
-   **Option B: Keep Root Directory as root, use build commands**
-   - Root Directory: Leave as root (don't change)
-   - Build Command: `cd server && npm install`
-   - Start Command: `cd server && npm start`
-   - Port: Railway auto-detects
+   - **Root Directory:** Leave as **root** (DO NOT set to `server`)
+   - **Build Command:** `cd server && npm install`
+   - **Start Command:** `cd server && npm start`
+   - **Port:** Railway auto-detects (usually PORT env var)
+   
+   **Why this works:**
+   - Railway starts from the repository root
+   - Build command explicitly changes to `server` directory and installs
+   - Start command explicitly changes to `server` directory and starts
+   - This avoids the "cd server: No such file or directory" error
    
    **Important:** 
    - Make sure the `server/package-lock.json` file is committed to git!
-   - If using Option A, DO NOT put `cd server` in any commands - Railway is already in that directory!
+   - The `railway.json` file in the repo root will also help Railway detect the correct commands
 
 4. **Set Environment Variables:**
    - Go to Variables tab
