@@ -15,9 +15,11 @@ Your `.env` file is now configured to use a cloud-based backend URL. You need to
 
 3. **Configure Deployment:**
    - Root Directory: Set to `server`
-   - Build Command: `npm install`
-   - Start Command: `npm start`
+   - Build Command: Leave empty or set to `npm ci` (Railway will auto-detect)
+   - Start Command: `npm start` (or leave empty, Railway will auto-detect from package.json)
    - Port: Railway auto-detects (usually PORT env var)
+   
+   **Important:** Make sure the `server/package-lock.json` file is committed to git!
 
 4. **Set Environment Variables:**
    - Go to Variables tab
@@ -81,6 +83,50 @@ EXPO_PUBLIC_API_URL=https://your-backend-url.railway.app
 ```
 
 **Replace this placeholder** with your actual deployed backend URL once you've deployed!
+
+## Troubleshooting Railway Deployment
+
+### Issue: Railway crashes when root directory is set to "server"
+
+**Common causes and solutions:**
+
+1. **Package-lock.json not committed:**
+   ```bash
+   # Make sure server/package-lock.json is committed
+   git add server/package-lock.json
+   git commit -m "Add server package-lock.json"
+   git push
+   ```
+
+2. **Build command issue:**
+   - In Railway settings, try leaving Build Command **empty** (Railway will auto-detect)
+   - Or change Build Command from `npm ci` to `npm install`
+   - Railway's Nixpacks will auto-detect Node.js and run the correct commands
+
+3. **Missing PORT environment variable:**
+   - Make sure you set `PORT=3000` in Railway's environment variables
+   - Railway should auto-assign a PORT, but explicitly setting it helps
+
+4. **Start command:**
+   - Leave Start Command empty (Railway will use `npm start` from package.json)
+   - Or explicitly set: `npm start`
+
+5. **Check Railway logs:**
+   - Go to your Railway project → Deployments → Click on the failed deployment
+   - Check the logs to see the exact error message
+   - Common errors:
+     - `npm ci` fails → Use `npm install` instead
+     - Port binding error → Make sure server.js binds to `0.0.0.0` (it already does)
+     - Missing dependencies → Ensure package-lock.json is committed
+
+### Quick Fix Checklist:
+
+- [ ] `server/package-lock.json` is committed to git
+- [ ] Root Directory is set to `server` in Railway
+- [ ] Build Command is empty OR set to `npm install`
+- [ ] Start Command is empty OR set to `npm start`
+- [ ] `PORT` environment variable is set (Railway auto-assigns, but you can set it explicitly)
+- [ ] `PAYMONGO_SECRET_KEY` and `PAYMONGO_PUBLIC_KEY` are set in Railway variables
 
 ## Need Help?
 
