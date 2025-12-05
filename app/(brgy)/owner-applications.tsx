@@ -70,8 +70,8 @@ export default function OwnerApplications() {
       setLoading(true);
       
       // Get barangay from user
-      const userRecord = await db.get('users', user.id);
-      const userBarangay = userRecord?.barangay || '';
+      const userRecord = await db.get<DbUserRecord>('users', user.id);
+      const userBarangay = (userRecord && 'barangay' in userRecord) ? (userRecord.barangay || '') : '';
       setBarangay(userBarangay);
 
       // Get all applications for this barangay
@@ -159,11 +159,11 @@ export default function OwnerApplications() {
           clearOwnerApprovalCache();
 
           // Update user role to owner
-          const userRecord = await db.get('users', application.userId);
+          const userRecord = await db.get<DbUserRecord>('users', application.userId);
           if (userRecord) {
-            const updatedUser = {
+            const updatedUser: DbUserRecord = {
               ...userRecord,
-              role: 'owner',
+              role: 'owner' as const,
               // Also update the roles array if it exists for AuthContext compatibility
               roles: ['owner'],
               updatedAt: new Date().toISOString(),
@@ -1055,7 +1055,7 @@ export default function OwnerApplications() {
               </View>
 
               {/* Business Documents */}
-              {(selectedApplication.documents?.length > 0 || selectedApplication.govIdUri) && (
+              {((selectedApplication.documents && selectedApplication.documents.length > 0) || selectedApplication.govIdUri) && (
                 <View style={[sharedStyles.card, { marginTop: 16 }]}>
                   <Text style={sharedStyles.sectionTitle}>Business Documents & Requirements</Text>
                   

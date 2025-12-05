@@ -25,8 +25,7 @@ Use this checklist to ensure everything is set up correctly before and after dep
 
 - [ ] `app.json` - App name, version, bundle IDs configured
 - [ ] `eas.json` - EAS build profiles configured
-- [ ] `Procfile` - Backend server command configured
-- [ ] `vercel.json` or `netlify.toml` - Web deployment config present
+- [ ] Supabase project created and configured
 
 ### Assets
 
@@ -54,21 +53,19 @@ Use this checklist to ensure everything is set up correctly before and after dep
 
 ## 🌐 Web Deployment Checklist
 
-### Vercel
-- [ ] Vercel CLI installed (`npm install -g vercel`)
-- [ ] Logged in to Vercel (`vercel login`)
-- [ ] Project deployed (`vercel --prod`)
-- [ ] Environment variables set in Vercel dashboard
+### Build & Deploy
+- [ ] Web app built (`npm run build:web`)
+- [ ] Static files generated in `dist/` folder
+- [ ] Deployed to hosting service (Cloudflare Pages, GitHub Pages, or Supabase Storage)
+- [ ] Environment variables set in hosting platform
 - [ ] Custom domain configured (optional)
 - [ ] SSL certificate active (automatic)
 
-### Netlify
-- [ ] Netlify CLI installed
-- [ ] Logged in to Netlify
-- [ ] Project deployed
-- [ ] Environment variables set
-- [ ] Build command: `npm run build:web`
-- [ ] Publish directory: `web-build`
+### Hosting Options
+Choose one:
+- [ ] **Cloudflare Pages** - Connected to GitHub, auto-deploys
+- [ ] **GitHub Pages** - Static hosting via GitHub
+- [ ] **Supabase Storage** - Files uploaded to public bucket
 
 ### Testing
 - [ ] Web app loads correctly
@@ -131,34 +128,24 @@ Use this checklist to ensure everything is set up correctly before and after dep
 
 ---
 
-## 🔧 Backend Deployment Checklist
+## 🔧 Backend Deployment Checklist (Optional)
 
-### Heroku
-- [ ] Heroku CLI installed
-- [ ] Logged in to Heroku (`heroku login`)
-- [ ] App created (`heroku create your-app-name`)
-- [ ] Environment variables set (`heroku config:set KEY=value`)
-- [ ] Procfile configured
-- [ ] App deployed
-- [ ] Health check passing (`/health` endpoint)
+If you need PayMongo payment backend, choose one:
 
-### Railway
-- [ ] Railway account created
-- [ ] Project created
-- [ ] Repository connected
+### Option A: Express Server on Railway/Render
+- [ ] Railway or Render account created
+- [ ] Project created and repository connected
 - [ ] Root directory set to `server`
-- [ ] Environment variables configured
-- [ ] Build and start commands set
-- [ ] Deployment successful
-
-### Render
-- [ ] Render account created
-- [ ] Web service created
-- [ ] Repository connected
+- [ ] Environment variables configured (PAYMONGO_SECRET_KEY, etc.)
 - [ ] Build command: `npm install`
 - [ ] Start command: `npm start`
-- [ ] Environment variables set
-- [ ] Deployment successful
+- [ ] Health check passing (`/health` endpoint)
+
+### Option B: Supabase Edge Functions (Advanced)
+- [ ] Supabase Functions configured
+- [ ] PayMongo routes migrated to Edge Functions
+- [ ] Functions deployed
+- [ ] Environment secrets set in Supabase
 
 ### Testing
 - [ ] Health endpoint working (`GET /health`)
@@ -267,10 +254,10 @@ Once all checkboxes are complete, your app should be fully deployed and accessib
 
 ## 📞 Need Help?
 
-- See `DEPLOYMENT_GUIDE.md` for detailed instructions
+- See `SUPABASE_DEPLOYMENT.md` for detailed Supabase deployment instructions
 - See `QUICK_DEPLOY.md` for quick start guide
-- Check hosting platform documentation
-- Review Expo/EAS documentation
+- Check Supabase documentation: https://supabase.com/docs
+- Review Expo/EAS documentation: https://docs.expo.dev
 
 Happy deploying! 🚀
 

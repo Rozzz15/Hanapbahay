@@ -844,7 +844,7 @@ export default function ApprovedOwners() {
               </View>
 
               {/* Business Documents & Requirements */}
-              {(ownerApplication?.documents?.length > 0 || ownerApplication?.govIdUri) && (
+              {ownerApplication && ((ownerApplication.documents && ownerApplication.documents.length > 0) || ownerApplication.govIdUri) && (
                 <View style={[sharedStyles.card, { marginTop: 12 }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <FileText size={18} color="#10B981" />
@@ -852,7 +852,7 @@ export default function ApprovedOwners() {
                   </View>
                   
                   {/* Display multiple documents if available */}
-                  {ownerApplication.documents && ownerApplication.documents.length > 0 ? (
+                  {ownerApplication && ownerApplication.documents && ownerApplication.documents.length > 0 ? (
                     <View style={{ marginTop: 10, gap: 12 }}>
                       {ownerApplication.documents.map((doc, index) => (
                         <View key={doc.id || index} style={{ marginBottom: 12 }}>
@@ -898,7 +898,7 @@ export default function ApprovedOwners() {
                     </View>
                   ) : (
                     /* Fallback to govIdUri for backward compatibility */
-                    ownerApplication.govIdUri && (
+                    ownerApplication && ownerApplication.govIdUri && (
                       <View style={{ marginTop: 10 }}>
                         <View style={{ 
                           flexDirection: 'row', 
@@ -915,7 +915,7 @@ export default function ApprovedOwners() {
                             Government ID
                           </Text>
                         </View>
-                        <TouchableOpacity onPress={() => openDocumentViewer({ uri: ownerApplication.govIdUri, name: 'Government ID' })} activeOpacity={0.9}>
+                        <TouchableOpacity onPress={() => openDocumentViewer({ uri: ownerApplication.govIdUri!, name: 'Government ID' })} activeOpacity={0.9}>
                           <Image
                             source={{ uri: ownerApplication.govIdUri }}
                             style={{ 
@@ -979,7 +979,7 @@ export default function ApprovedOwners() {
                           </Text>
                           {listing.rooms && (
                             <Text style={[sharedStyles.statSubtitle, { fontSize: 11 }]}>
-                              {listing.rooms} room{(listing.rooms || listing.bedrooms || 0) > 1 ? 's' : ''}
+                              {listing.rooms} room{listing.rooms > 1 ? 's' : ''}
                             </Text>
                           )}
                           {listing.bathrooms && (
