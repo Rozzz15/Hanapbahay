@@ -14,12 +14,22 @@ Your `.env` file is now configured to use a cloud-based backend URL. You need to
    - Connect your repository
 
 3. **Configure Deployment:**
+   
+   **Option A: Set Root Directory to `server` (Recommended)**
    - Root Directory: Set to `server`
-   - Build Command: Leave empty or set to `npm ci` (Railway will auto-detect)
-   - Start Command: `npm start` (or leave empty, Railway will auto-detect from package.json)
+   - Build Command: **Leave EMPTY** (Railway will auto-detect and run `npm install`)
+   - Start Command: **Leave EMPTY** (Railway will auto-detect `npm start` from package.json)
    - Port: Railway auto-detects (usually PORT env var)
    
-   **Important:** Make sure the `server/package-lock.json` file is committed to git!
+   **Option B: Keep Root Directory as root, use build commands**
+   - Root Directory: Leave as root (don't change)
+   - Build Command: `cd server && npm install`
+   - Start Command: `cd server && npm start`
+   - Port: Railway auto-detects
+   
+   **Important:** 
+   - Make sure the `server/package-lock.json` file is committed to git!
+   - If using Option A, DO NOT put `cd server` in any commands - Railway is already in that directory!
 
 4. **Set Environment Variables:**
    - Go to Variables tab
@@ -88,7 +98,21 @@ EXPO_PUBLIC_API_URL=https://your-backend-url.railway.app
 
 ### Issue: Railway crashes when root directory is set to "server"
 
-**Common causes and solutions:**
+**Error: `/bin/bash: line 1: cd: server: No such file or directory`**
+
+This happens when Railway tries to `cd server` but the root directory is already set to `server`. 
+
+**Solution:**
+1. Go to Railway → Your Service → Settings
+2. Check the **Build Command** field:
+   - If it contains `cd server`, **REMOVE IT** or **LEAVE IT EMPTY**
+   - When root directory is `server`, Railway is already in that directory!
+3. Check the **Start Command** field:
+   - Should be **EMPTY** or just `npm start` (NOT `cd server && npm start`)
+4. **Root Directory** should be set to `server`
+5. Save and redeploy
+
+**Other common causes and solutions:**
 
 1. **Package-lock.json not committed:**
    ```bash
@@ -99,23 +123,24 @@ EXPO_PUBLIC_API_URL=https://your-backend-url.railway.app
    ```
 
 2. **Build command issue:**
-   - In Railway settings, try leaving Build Command **empty** (Railway will auto-detect)
-   - Or change Build Command from `npm ci` to `npm install`
-   - Railway's Nixpacks will auto-detect Node.js and run the correct commands
+   - In Railway settings, **LEAVE Build Command EMPTY** (Railway will auto-detect)
+   - Railway's Nixpacks will auto-detect Node.js and run `npm install`
+   - DO NOT put `cd server` in build command if root directory is already `server`
 
 3. **Missing PORT environment variable:**
    - Make sure you set `PORT=3000` in Railway's environment variables
    - Railway should auto-assign a PORT, but explicitly setting it helps
 
 4. **Start command:**
-   - Leave Start Command empty (Railway will use `npm start` from package.json)
-   - Or explicitly set: `npm start`
+   - **LEAVE Start Command EMPTY** (Railway will use `npm start` from package.json)
+   - DO NOT put `cd server && npm start` if root directory is already `server`
 
 5. **Check Railway logs:**
    - Go to your Railway project → Deployments → Click on the failed deployment
    - Check the logs to see the exact error message
    - Common errors:
-     - `npm ci` fails → Use `npm install` instead
+     - `cd server: No such file or directory` → Remove `cd server` from commands
+     - `npm ci` fails → Leave build command empty (Railway will use `npm install`)
      - Port binding error → Make sure server.js binds to `0.0.0.0` (it already does)
      - Missing dependencies → Ensure package-lock.json is committed
 
